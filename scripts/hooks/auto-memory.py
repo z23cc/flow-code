@@ -27,16 +27,17 @@ def get_flow_dir() -> Path:
     return cwd / ".flow"
 
 
-def is_auto_memory_enabled(flow_dir: Path) -> bool:
-    """Check if auto-memory is enabled in config."""
+def is_auto_memory_disabled(flow_dir: Path) -> bool:
+    """Check if auto-memory is explicitly disabled in config.
+    Default is ON — only returns True if memory.auto is explicitly false."""
     config_path = flow_dir / "config.json"
     if not config_path.exists():
-        return False
+        return False  # No config = default on
     try:
         config = json.loads(config_path.read_text())
         mem = config.get("memory", {})
         if isinstance(mem, dict):
-            return mem.get("auto", False) or mem.get("enabled", False)
+            return mem.get("auto") is False  # Only disabled if explicitly set to false
     except Exception:
         pass
     return False
@@ -248,8 +249,19 @@ def main():
 
     if not flow_dir.exists():
         sys.exit(0)
-    if not is_auto_memory_enabled(flow_dir):
+    if is_auto_memory_disabled(flow_dir):
         sys.exit(0)
+
+    # Auto-init memory dir if missing
+    memory_dir = flow_dir / "memory"
+    if not memory_dir.exists():
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        for fname, header in [
+            ("pitfalls.md", "# Pitfalls\n\n<!-- Auto-captured by auto-memory hook -->\n"),
+            ("conventions.md", "# Conventions\n\n<!-- Auto-captured by auto-memory hook -->\n"),
+            ("decisions.md", "# Decisions\n\n<!-- Auto-captured by auto-memory hook -->\n"),
+        ]:
+            (memory_dir / fname).write_text(header, encoding="utf-8")
 
     text = read_transcript(hook_input)
     if not text or len(text) < 200:

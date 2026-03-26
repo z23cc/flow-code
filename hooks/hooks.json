@@ -49,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -d .flow/memory ] || python3 \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/auto-memory.py\"",
+            "command": "[ ! -d .flow ] || python3 \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/auto-memory.py\"",
             "timeout": 45
           }
         ],

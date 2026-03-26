@@ -613,6 +613,70 @@ touch scripts/ralph/runs/<run-id>/STOP
 
 Ralph checks sentinels at iteration boundaries (after Claude returns, before next iteration).
 
+### Review Mode (per-task vs per-epic)
+
+By default Ralph reviews every task individually (`per-task`). For faster iteration, use `per-epic` mode — runs all tasks first, then one comprehensive epic-level review.
+
+**Configure in `scripts/ralph/config.env`:**
+
+```bash
+# per-epic: skip per-task reviews, single epic-level review after all tasks complete
+REVIEW_MODE=per-epic
+
+# Review backend (rp = RepoPrompt, codex = Codex CLI, none = skip)
+WORK_REVIEW=rp
+
+# Completion review auto-inherits from WORK_REVIEW when per-epic mode is active
+# Set explicitly to override: COMPLETION_REVIEW=codex
+```
+
+**Execution flow comparison:**
+
+```
+per-task (default):                    per-epic (recommended for speed):
+
+ plan → plan_review (optional)          plan → plan_review (optional)
+ task 1 → impl_review ✓                 task 1 → done (no review)
+ task 2 → impl_review ✓                 task 2 → done (no review)
+ task 3 → impl_review ✓                 task 3 → done (no review)
+ ...                                    ...
+ task N → impl_review ✓                 task N → done (no review)
+ epic completion_review ✓               epic completion_review ✓ (covers all)
+ ────────────────────────               ────────────────────────
+ N+1 reviews total                      1 review total
+```
+
+**Common configurations:**
+
+```bash
+# Fast iteration with quality gate (recommended)
+REVIEW_MODE=per-epic
+WORK_REVIEW=rp
+
+# Maximum speed, no reviews
+REVIEW_MODE=per-epic
+WORK_REVIEW=none
+COMPLETION_REVIEW=none
+
+# Strict mode, review everything
+REVIEW_MODE=per-task
+WORK_REVIEW=rp
+COMPLETION_REVIEW=rp
+```
+
+**Monitoring:**
+
+```bash
+# Watch Ralph run in real-time
+scripts/ralph/ralph.sh --watch
+
+# View run logs
+tail -f scripts/ralph/runs/latest/ralph.log
+
+# Check progress
+scripts/ralph/flowctl list
+```
+
 **Task retry/rollback:**
 ```bash
 # Reset completed/blocked task to todo

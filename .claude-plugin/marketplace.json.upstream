@@ -1,8 +1,8 @@
 {
-  "name": "gmickel-claude-marketplace",
+  "name": "flow-code",
   "owner": {
-    "name": "Gordon Mickel",
-    "url": "https://github.com/gmickel"
+    "name": "z23cc",
+    "url": "https://github.com/z23cc"
   },
   "metadata": {
     "description": "Plan-first workflows for Claude Code and Factory Droid. Two plugins: flow-next (recommended, zero-dep, Ralph autonomous mode) and flow (Beads integration).",
@@ -14,11 +14,11 @@
       "description": "Zero-dependency planning + execution with .flow/ task tracking and Ralph autonomous mode (multi-model review gates). Worker subagent per task for context isolation. Includes 20 subagents, 11 commands, 16 skills.",
       "version": "0.26.1",
       "author": {
-        "name": "Gordon Mickel",
-        "email": "gordon@mickel.tech",
-        "url": "https://mickel.tech"
+        "name": "z23cc",
+        "email": "",
+        "url": "https://github.com/z23cc"
       },
-      "homepage": "https://mickel.tech/apps/flow-next",
+      "homepage": "https://github.com/z23cc/flow-code",
       "tags": [
         "claude-code",
         "plugin",
@@ -33,11 +33,11 @@
       "description": "Two-step planning + execution workflow with optional Beads integration. Includes 6 subagents, 5 commands, 7 skills.",
       "version": "0.8.4",
       "author": {
-        "name": "Gordon Mickel",
-        "email": "gordon@mickel.tech",
-        "url": "https://mickel.tech"
+        "name": "z23cc",
+        "email": "",
+        "url": "https://github.com/z23cc"
       },
-      "homepage": "https://mickel.tech/apps/flow",
+      "homepage": "https://github.com/z23cc/flow-code",
       "tags": [
         "claude-code",
         "plugin",

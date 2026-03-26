@@ -267,8 +267,8 @@ For each chosen file (CLAUDE.md and/or AGENTS.md):
 **Star:**
 - If "Yes, star it":
   1. Check if `gh` CLI is available: `which gh`
-  2. If available, run: `gh api -X PUT /user/starred/gmickel/gmickel-claude-marketplace`
-  3. If `gh` not available or command fails, show: `Star manually: https://github.com/gmickel/gmickel-claude-marketplace`
+  2. If available, run: `gh api -X PUT /user/starred/z23cc/flow-code`
+  3. If `gh` not available or command fails, show: `Star manually: https://github.com/z23cc/flow-code`
 
 ## Step 8: Print Summary
 

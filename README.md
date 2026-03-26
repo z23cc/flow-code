@@ -16,9 +16,9 @@
 
 ---
 
-> **Active development.** [Changelog](../../CHANGELOG.md) | [Report issues](https://github.com/gmickel/gmickel-claude-marketplace/issues)
+> **Active development.** [Changelog](../../CHANGELOG.md) | [Report issues](https://github.com/z23cc/flow-code/issues)
 
-🌐 **Prefer a visual overview?** See the [Flow-Code app page](https://mickel.tech/apps/flow-code) for diagrams and examples.
+🌐 **Prefer a visual overview?** See the [Flow-Code app page](https://github.com/z23cc/flow-code) for diagrams and examples.
 
 > **New: Codex Review Backend.** Cross-model reviews now work on Linux/Windows via OpenAI Codex CLI. Same Carmack-level criteria as RepoPrompt. See [Cross-Model Reviews](#cross-model-reviews) for setup.
 
@@ -132,7 +132,7 @@ Two models catch what one misses.
 
 ```bash
 # Add marketplace
-/plugin marketplace add https://github.com/gmickel/gmickel-claude-marketplace
+/plugin marketplace add https://github.com/z23cc/flow-code
 
 # Install flow-code
 /plugin install flow-code
@@ -564,7 +564,7 @@ Ralph writes run artifacts under `scripts/ralph/runs/`, including review receipt
 
 📖 **[Ralph deep dive](docs/ralph.md)**
 
-🖥️ **[Ralph TUI](../../flow-code-tui/)** — Terminal UI for monitoring runs in real-time (`bun add -g @gmickel/flow-code-tui`)
+🖥️ **[Ralph TUI](../../flow-code-tui/)** — Terminal UI for monitoring runs in real-time (`bun add -g flow-code-tui`)
 
 ### How Ralph Differs from Other Autonomous Agents
 
@@ -1478,7 +1478,7 @@ Flow-Code works natively in [Factory Droid](https://factory.ai) — no modificat
 **Install:**
 ```bash
 # In Droid CLI
-/plugin marketplace add https://github.com/gmickel/gmickel-claude-marketplace
+/plugin marketplace add https://github.com/z23cc/flow-code
 /plugin install flow-code
 ```
 
@@ -1545,8 +1545,8 @@ CODEX_MAX_THREADS=12 \
 **Install:**
 ```bash
 # Clone the marketplace repo (one-time)
-git clone https://github.com/gmickel/gmickel-claude-marketplace.git
-cd gmickel-claude-marketplace
+git clone https://github.com/z23cc/flow-code.git
+cd flow-code
 
 # Run the install script
 ./scripts/install-codex.sh flow-code
@@ -1594,13 +1594,13 @@ Prompts (use `/prompts:<name>`):
 
 | Project | Platform | Notes |
 |---------|----------|-------|
-| [flow-code-opencode](https://github.com/gmickel/flow-code-opencode) | OpenCode | Flow-Code port |
+| [flow-code-opencode](https://github.com/z23cc/flow-code-opencode) | OpenCode | Flow-Code port |
 | [FlowFactory](https://github.com/Gitmaxd/flowfactory) | Factory.ai Droid | Flow port (note: flow-code now has native Droid support) |
 
 ---
 
 <div align="center">
 
-Made by [Gordon Mickel](https://mickel.tech) · [@gmickel](https://twitter.com/gmickel)
+Made by [z23cc](https://github.com/z23cc) · [@z23cc](https://twitter.com/z23cc)
 
 </div>

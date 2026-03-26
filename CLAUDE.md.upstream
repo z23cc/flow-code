@@ -147,7 +147,7 @@ FLOW_RALPH_CLAUDE_NO_SESSION_PERSISTENCE=1
 ```bash
 # From this repo root
 /plugin marketplace add ./
-/plugin install flow-code@gmickel-claude-marketplace
+/plugin install flow-code@flow-code
 
 # Test in any project - plugin hooks work via ${CLAUDE_PLUGIN_ROOT}
 ```
@@ -210,9 +210,9 @@ claude plugins uninstall flow
 Global installs take precedence over `--plugin-dir`, causing tests to use stale cached versions instead of your local changes.
 
 ## Repo metadata
-- Author: Gordon Mickel (gordon@mickel.tech)
-- Homepage: https://mickel.tech
-- Marketplace repo: https://github.com/gmickel/gmickel-claude-marketplace
+- Author: z23cc ()
+- Homepage: https://github.com/z23cc
+- Marketplace repo: https://github.com/z23cc/flow-code
 
 ## Codex CLI Installation
 
@@ -220,8 +220,8 @@ Install flow or flow-code to OpenAI Codex (requires Codex CLI 0.102.0+):
 
 ```bash
 # Clone the marketplace repo (one-time)
-git clone https://github.com/gmickel/gmickel-claude-marketplace.git
-cd gmickel-claude-marketplace
+git clone https://github.com/z23cc/flow-code.git
+cd flow-code
 
 # Install flow-code (recommended)
 ./scripts/install-codex.sh flow-code

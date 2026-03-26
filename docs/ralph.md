@@ -91,7 +91,7 @@ scripts/ralph/ralph.sh --config alt.env  # Use alternate config file
 ### 5. Monitor (Optional)
 
 ```bash
-bun add -g @gmickel/flow-code-tui
+bun add -g flow-code-tui
 flow-code-tui
 ```
 

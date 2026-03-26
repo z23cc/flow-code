@@ -3,6 +3,7 @@ You are running one Ralph epic completion review iteration.
 Inputs:
 - EPIC_ID={{EPIC_ID}}
 - COMPLETION_REVIEW={{COMPLETION_REVIEW}}
+- REVIEW_MODE={{REVIEW_MODE}}
 
 Steps:
 1) Re-anchor:
@@ -10,6 +11,7 @@ Steps:
    - scripts/ralph/flowctl cat {{EPIC_ID}}
    - git status
    - git log -10 --oneline
+   - git diff main...HEAD --stat  (overview of all changes)
 
 2) Save checkpoint (recovery point if context compacts during review cycles):
    ```bash
@@ -27,6 +29,12 @@ Ralph mode rules (must follow):
    - If COMPLETION_REVIEW=codex: run `/flow-code:epic-review {{EPIC_ID}} --review=codex`
    - If COMPLETION_REVIEW=none: set ship and stop:
      `scripts/ralph/flowctl epic set-completion-review-status {{EPIC_ID}} --status ship --json`
+
+   When REVIEW_MODE=per-epic, this is the ONLY review gate. The reviewer should examine:
+   - All task implementations holistically (no per-task review was done)
+   - Cross-task consistency and integration correctness
+   - Overall epic spec compliance
+   - Code quality across all changed files
 
 4) The skill will loop internally until `<verdict>SHIP</verdict>`:
    - First review uses `--new-chat`

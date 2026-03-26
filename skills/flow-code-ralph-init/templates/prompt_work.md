@@ -4,6 +4,7 @@ Inputs:
 - TASK_ID={{TASK_ID}}
 - BRANCH_MODE={{BRANCH_MODE_EFFECTIVE}}
 - WORK_REVIEW={{WORK_REVIEW}}
+- REVIEW_MODE={{REVIEW_MODE}}
 
 ## Steps (execute ALL in order)
 
@@ -13,6 +14,7 @@ Inputs:
 ```
 When `--review=rp`, the worker subagent invokes `/flow-code:impl-review` internally.
 When `--review=codex`, the worker uses `flowctl codex impl-review` for review.
+When `--review=none` (per-epic mode), skip per-task review — epic-level review runs after all tasks complete.
 The impl-review skill handles review coordination and requires `<verdict>SHIP|NEEDS_WORK|MAJOR_RETHINK</verdict>` from reviewer.
 Do NOT improvise review prompts - the skill has the correct format.
 
@@ -22,7 +24,7 @@ scripts/ralph/flowctl show {{TASK_ID}} --json
 ```
 If status != `done`, output `<promise>RETRY</promise>` and stop.
 
-**Step 3: Write impl receipt** (MANDATORY if WORK_REVIEW=rp or codex)
+**Step 3: Write impl receipt** (SKIP if REVIEW_MODE=per-epic or WORK_REVIEW=none)
 For rp mode:
 ```bash
 mkdir -p "$(dirname '{{REVIEW_RECEIPT_PATH}}')"

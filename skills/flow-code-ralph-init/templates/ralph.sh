@@ -231,6 +231,7 @@ ui_config() {
   [[ "$WORK_REVIEW" == "codex" ]] && work_display="Codex"
   [[ "$COMPLETION_REVIEW" == "rp" ]] && completion_display="RepoPrompt"
   [[ "$COMPLETION_REVIEW" == "codex" ]] && completion_display="Codex"
+  ui "${C_DIM}   Review mode:${C_RESET} ${C_BOLD}$REVIEW_MODE${C_RESET}"
   ui "${C_DIM}   Reviews:${C_RESET} Plan=$plan_display ${C_DIM}•${C_RESET} Work=$work_display ${C_DIM}•${C_RESET} Completion=$completion_display"
   [[ -n "${EPICS:-}" ]] && ui "${C_DIM}   Scope:${C_RESET} $EPICS"
   ui ""
@@ -384,8 +385,19 @@ PLAN_REVIEW="${PLAN_REVIEW:-none}"
 WORK_REVIEW="${WORK_REVIEW:-none}"
 COMPLETION_REVIEW="${COMPLETION_REVIEW:-none}"
 CODEX_SANDBOX="${CODEX_SANDBOX:-auto}"  # Codex sandbox mode; flowctl reads this env var
+REVIEW_MODE="${REVIEW_MODE:-per-task}"
 REQUIRE_PLAN_REVIEW="${REQUIRE_PLAN_REVIEW:-0}"
 YOLO="${YOLO:-0}"
+
+# per-epic mode: disable per-task reviews, ensure completion review is enabled
+if [[ "$REVIEW_MODE" == "per-epic" ]]; then
+  WORK_REVIEW_ORIG="$WORK_REVIEW"
+  WORK_REVIEW="none"
+  # Auto-enable completion review if not set (inherit from original work review backend)
+  if [[ "$COMPLETION_REVIEW" == "none" && "$WORK_REVIEW_ORIG" != "none" ]]; then
+    COMPLETION_REVIEW="$WORK_REVIEW_ORIG"
+  fi
+fi
 EPICS="${EPICS:-}"
 export CODEX_SANDBOX  # Ensure available to Claude worker for flowctl codex commands
 
@@ -494,7 +506,7 @@ render_template() {
 import os, sys
 path = sys.argv[1]
 text = open(path, encoding="utf-8").read()
-keys = ["EPIC_ID","TASK_ID","PLAN_REVIEW","WORK_REVIEW","COMPLETION_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH","RALPH_ITERATION"]
+keys = ["EPIC_ID","TASK_ID","REVIEW_MODE","PLAN_REVIEW","WORK_REVIEW","COMPLETION_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH","RALPH_ITERATION"]
 for k in keys:
     text = text.replace("{{%s}}" % k, os.environ.get(k, ""))
 print(text)
@@ -965,6 +977,7 @@ while (( iter <= MAX_ITERATIONS )); do
     fail "invalid selector status: $status"
   fi
 
+  export REVIEW_MODE
   export FLOW_RALPH="1"
   claude_args=(-p)
   # Always use stream-json for logs (TUI needs it), watch mode only controls terminal display

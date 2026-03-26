@@ -543,7 +543,7 @@ render_template() {
 import os, sys
 path = sys.argv[1]
 text = open(path, encoding="utf-8").read()
-keys = ["EPIC_ID","TASK_ID","REVIEW_MODE","FREEZE_SCOPE","SCOPE_CHANGE_ACTION","PLAN_REVIEW","WORK_REVIEW","COMPLETION_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH","RALPH_ITERATION"]
+keys = ["EPIC_ID","TASK_ID","REVIEW_MODE","FREEZE_SCOPE","SCOPE_CHANGE_ACTION","REANCHOR_INTERVAL","REANCHOR_ACTION","PLAN_REVIEW","WORK_REVIEW","COMPLETION_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH","RALPH_ITERATION"]
 for k in keys:
     text = text.replace("{{%s}}" % k, os.environ.get(k, ""))
 print(text)
@@ -682,6 +682,49 @@ append_progress() {
     tail -n 10 "$iter_log" || true
     echo "---"
   } >> "$PROGRESS_FILE"
+}
+
+# Write status.json for /flow-code:loop-status (non-blocking run introspection)
+write_status_json() {
+  local phase="${1:-idle}" current_id="${2:-}" current_title="${3:-}"
+  local progress_info epics_done epics_total tasks_done tasks_total
+  progress_info="$(get_progress 2>/dev/null || echo "0|0|0|0")"
+  IFS='|' read -r epics_done epics_total tasks_done tasks_total <<< "$progress_info"
+  local git_branch git_stats_str
+  git_branch="$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
+  local base_branch
+  base_branch="$(get_base_branch 2>/dev/null || echo "main")"
+  git_stats_str="$(get_git_stats "$base_branch" 2>/dev/null || echo "")"
+  "$PYTHON_BIN" - "$RUN_ID" "$iter" "$MAX_ITERATIONS" "$phase" "$current_id" \
+    "$current_title" "$epics_done" "$epics_total" "$tasks_done" "$tasks_total" \
+    "$git_branch" "$git_stats_str" "$STATS_TASKS_DONE" "$REVIEW_MODE" \
+    "$RUN_DIR/status.json" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+args = sys.argv[1:]
+status = {
+    "run_id": args[0],
+    "iteration": int(args[1]),
+    "max_iterations": int(args[2]),
+    "phase": args[3],
+    "current_id": args[4],
+    "current_title": args[5],
+    "epics_done": int(args[6]),
+    "epics_total": int(args[7]),
+    "tasks_done": int(args[8]),
+    "tasks_total": int(args[9]),
+    "git_branch": args[10],
+    "git_stats": args[11],
+    "tasks_completed_this_run": int(args[12]),
+    "review_mode": args[13],
+    "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "type": "ralph",
+}
+with open(args[14], "w") as f:
+    json.dump(status, f, indent=2)
+PY
+  # Also update symlink for latest across all runs
+  ln -sfn "$RUN_ID" "$SCRIPT_DIR/runs/latest" 2>/dev/null || true
 }
 
 # Write completion marker to progress.txt (MUST match find_active_runs() detection in flowctl.py)
@@ -1137,6 +1180,126 @@ PY
   fi
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Re-anchoring (periodic plan drift detection)
+# Compares current spec content against frozen baseline every N iterations
+# ─────────────────────────────────────────────────────────────────────────────
+REANCHOR_INTERVAL="${REANCHOR_INTERVAL:-0}"
+REANCHOR_ACTION="${REANCHOR_ACTION:-warn}"
+REANCHOR_BASELINE=""  # Set after freeze_scope or first iteration
+
+save_reanchor_baseline() {
+  [[ "$REANCHOR_INTERVAL" -gt 0 ]] || return 0
+  REANCHOR_BASELINE="$RUN_DIR/reanchor-baseline.json"
+  "$PYTHON_BIN" - "$ROOT_DIR" "${EPICS:-}" <<'PY' > "$REANCHOR_BASELINE"
+import json, hashlib, sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+epics_filter = sys.argv[2].replace(",", " ").split() if len(sys.argv) > 2 and sys.argv[2].strip() else []
+specs_dir = root / ".flow" / "specs"
+
+baseline = {}
+for f in sorted(specs_dir.glob("fn-*.md")) if specs_dir.exists() else []:
+    eid = f.stem
+    if epics_filter and eid not in epics_filter:
+        continue
+    try:
+        content = f.read_text(encoding="utf-8")
+        baseline[eid] = {
+            "hash": hashlib.md5(content.encode()).hexdigest(),
+            "lines": len(content.splitlines()),
+        }
+    except: pass
+
+print(json.dumps(baseline, indent=2, sort_keys=True))
+PY
+  local count
+  count="$("$PYTHON_BIN" -c "import json,sys; print(len(json.load(open(sys.argv[1]))))" "$REANCHOR_BASELINE" 2>/dev/null || echo 0)"
+  log "reanchor baseline: $count specs captured"
+}
+
+reanchor_check() {
+  [[ "$REANCHOR_INTERVAL" -gt 0 ]] || return 0
+  [[ -f "$REANCHOR_BASELINE" ]] || return 0
+  # Only check every N iterations
+  (( iter % REANCHOR_INTERVAL == 0 )) || return 0
+
+  local drift
+  drift="$("$PYTHON_BIN" - "$ROOT_DIR" "$REANCHOR_BASELINE" "${EPICS:-}" <<'PY'
+import json, hashlib, sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+baseline_path = Path(sys.argv[2])
+epics_filter = sys.argv[3].replace(",", " ").split() if len(sys.argv) > 3 and sys.argv[3].strip() else []
+specs_dir = root / ".flow" / "specs"
+
+baseline = json.loads(baseline_path.read_text())
+changes = []
+
+for eid, info in baseline.items():
+    spec_file = specs_dir / f"{eid}.md"
+    if not spec_file.exists():
+        changes.append(f"DELETED spec {eid}")
+        continue
+    try:
+        content = spec_file.read_text(encoding="utf-8")
+        current_hash = hashlib.md5(content.encode()).hexdigest()
+        if current_hash != info["hash"]:
+            old_lines = info.get("lines", 0)
+            new_lines = len(content.splitlines())
+            delta = new_lines - old_lines
+            sign = "+" if delta >= 0 else ""
+            changes.append(f"MODIFIED spec {eid} ({sign}{delta} lines)")
+    except: pass
+
+# Check for new specs not in baseline
+for f in sorted(specs_dir.glob("fn-*.md")) if specs_dir.exists() else []:
+    eid = f.stem
+    if epics_filter and eid not in epics_filter:
+        continue
+    if eid not in baseline:
+        changes.append(f"NEW spec {eid}")
+
+if changes:
+    print("\n".join(changes))
+PY
+)"
+
+  if [[ -n "$drift" ]]; then
+    local drift_count
+    drift_count="$(echo "$drift" | wc -l | tr -d ' ')"
+    jlog "warn" "reanchor_drift" "iter=$iter" "changes=$drift_count"
+
+    case "$REANCHOR_ACTION" in
+      stop)
+        ui ""
+        ui "   ${C_RED}${C_BOLD}PLAN DRIFT DETECTED${C_RESET} — $drift_count spec change(s) since run started:"
+        echo "$drift" | while IFS= read -r line; do
+          ui "     ${C_YELLOW}$line${C_RESET}"
+        done
+        ui "   ${C_RED}Stopping (REANCHOR_ACTION=stop). Set to 'warn' to continue.${C_RESET}"
+        ui ""
+        write_completion_marker "PLAN_DRIFT"
+        exit 1
+        ;;
+      warn)
+        ui "   ${C_YELLOW}Plan drift detected${C_RESET} — $drift_count change(s), continuing (REANCHOR_ACTION=warn)"
+        echo "$drift" | while IFS= read -r line; do
+          ui "     ${C_DIM}$line${C_RESET}"
+        done
+        ;;
+      ignore)
+        log "reanchor drift ($drift_count changes), ignoring"
+        ;;
+    esac
+  else
+    jlog "info" "reanchor_ok" "iter=$iter"
+    ui "   ${C_DIM}Re-anchor check: specs unchanged${C_RESET}"
+  fi
+}
+
 EPICS_FILE=""
 if [[ -n "${EPICS// }" ]]; then
   EPICS_FILE="$RUN_DIR/run.json"
@@ -1153,6 +1316,12 @@ ensure_run_branch
 # Freeze scope snapshot (opt-in via FREEZE_SCOPE=1)
 freeze_scope
 
+# Save re-anchoring baseline (spec content hashes at run start)
+save_reanchor_baseline
+
+# Write initial status.json
+write_status_json "starting" "" ""
+
 jlog "info" "run_start" "run_id=$RUN_ID" "max_iterations=$MAX_ITERATIONS" \
   "review_mode=$REVIEW_MODE" "freeze_scope=$FREEZE_SCOPE" \
   "plan_review=$PLAN_REVIEW" "work_review=$WORK_REVIEW" \
@@ -1167,6 +1336,9 @@ while (( iter <= MAX_ITERATIONS )); do
 
   # Check scope integrity (opt-in via FREEZE_SCOPE=1)
   check_scope_integrity
+
+  # Re-anchor check (periodic spec drift detection)
+  reanchor_check
 
   # Close any epics with all tasks done BEFORE calling selector
   # This ensures dependent epics become unblocked in the same iteration
@@ -1187,11 +1359,17 @@ while (( iter <= MAX_ITERATIONS )); do
   jlog "info" "iteration" "iter=$iter" "status=$status" "epic=${epic_id:-}" "task=${task_id:-}" "reason=${reason:-}"
   ui_iteration "$iter" "$status" "${epic_id:-}" "${task_id:-}"
 
+  # Update status.json for /flow-code:loop-status
+  _status_id="${task_id:-$epic_id}"
+  _status_title="$(get_title "$("$FLOWCTL" show "$_status_id" --json 2>/dev/null || echo '{}')" 2>/dev/null || echo "")"
+  write_status_json "$status" "$_status_id" "$_status_title"
+
   if [[ "$status" == "none" ]]; then
     if [[ "$reason" == "blocked_by_epic_deps" ]]; then
       log "blocked by epic deps"
     fi
     # maybe_close_epics already called at start of iteration
+    write_status_json "complete" "" ""
     ui_complete
     write_completion_marker "NO_WORK"
     exit 0

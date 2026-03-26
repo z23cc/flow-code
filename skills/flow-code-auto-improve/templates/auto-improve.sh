@@ -210,7 +210,38 @@ print(m[-1].strip() if m else '')
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Summary generator
+# Status JSON (for /flow-code:loop-status)
+# ─────────────────────────────────────────────────────────────────────────────
+write_status_json() {
+  local phase="${1:-idle}" current_exp="${2:-0}"
+  "$PYTHON_BIN" - "$RUN_ID" "$current_exp" "$MAX_EXPERIMENTS" "$phase" \
+    "$kept_count" "$discarded_count" "$crash_count" "$GOAL" "$SCOPE" \
+    "$BRANCH" "$RUN_DIR/status.json" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+a = sys.argv[1:]
+status = {
+    "run_id": a[0],
+    "experiment": int(a[1]),
+    "max_experiments": int(a[2]),
+    "phase": a[3],
+    "kept": int(a[4]),
+    "discarded": int(a[5]),
+    "crashed": int(a[6]),
+    "goal": a[7],
+    "scope": a[8],
+    "git_branch": a[9],
+    "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "type": "auto-improve",
+}
+with open(a[10], "w") as f:
+    json.dump(status, f, indent=2)
+PY
+  ln -sfn "$RUN_ID" "$SCRIPT_DIR/runs/latest" 2>/dev/null || true
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Summary generator (enhanced: readable table + markdown)
 # ─────────────────────────────────────────────────────────────────────────────
 generate_summary() {
   local summary_file="$RUN_DIR/summary.md"
@@ -239,7 +270,25 @@ print(f"**Goal:** {goal}")
 print(f"**Scope:** {scope}")
 print(f"**Total experiments:** {len(experiments)}")
 print(f"**Kept:** {len(kept)} | **Discarded:** {len(discarded)} | **Crashed:** {len(crashed)}")
+if experiments:
+    rate = len(kept) / len(experiments) * 100
+    print(f"**Success rate:** {rate:.0f}%")
 print(f"")
+
+# Results table
+if experiments:
+    print(f"## Results Table")
+    print(f"")
+    print(f"| # | Result | Commit | Hypothesis |")
+    print(f"|---|--------|--------|------------|")
+    for e in experiments:
+        num = e.get("num", "?")
+        result = e.get("result", "?")
+        commit = e.get("commit", "?")[:7]
+        hyp = e.get("hypothesis", "no description")[:60]
+        icon = {"keep": "KEEP", "discard": "DISC", "crash": "CRASH"}.get(result, result)
+        print(f"| {num} | {icon} | {commit} | {hyp} |")
+    print(f"")
 
 if kept:
     print(f"## Improvements Kept")
@@ -265,6 +314,41 @@ if crashed:
 PY
 
   ui "   ${C_GREEN}Summary:${C_RESET} $summary_file"
+
+  # Print compact table to terminal
+  if [[ -f "$EXPERIMENTS_LOG" ]]; then
+    ui ""
+    "$PYTHON_BIN" - "$EXPERIMENTS_LOG" <<'PY'
+import json, sys
+from pathlib import Path
+
+log_path = Path(sys.argv[1])
+experiments = []
+for line in log_path.read_text().strip().split("\n"):
+    if line.strip():
+        try: experiments.append(json.loads(line))
+        except: pass
+
+if not experiments:
+    sys.exit(0)
+
+# Print table header
+print(f"   {'#':>3}  {'Result':<8} {'Commit':<9} {'Hypothesis'}")
+print(f"   {'─'*3}  {'─'*8} {'─'*9} {'─'*40}")
+for e in experiments:
+    num = str(e.get("num", "?"))
+    result = e.get("result", "?").upper()
+    commit = e.get("commit", "?")[:7]
+    hyp = e.get("hypothesis", "")[:50]
+    print(f"   {num:>3}  {result:<8} {commit:<9} {hyp}")
+
+kept = sum(1 for e in experiments if e.get("result") == "keep")
+total = len(experiments)
+rate = kept / total * 100 if total else 0
+print(f"\n   {kept}/{total} kept ({rate:.0f}% success rate)")
+PY
+    ui ""
+  fi
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -291,6 +375,9 @@ save_checkpoint
 jlog "info" "run_start" "run_id=$RUN_ID" "goal=$GOAL" "scope=$SCOPE" \
   "guard_cmd=$GUARD_CMD" "max_experiments=$MAX_EXPERIMENTS" "branch=$BRANCH"
 
+# Write initial status
+write_status_json "starting" "0"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Experiment loop
 # ─────────────────────────────────────────────────────────────────────────────
@@ -314,6 +401,9 @@ while true; do
 
   ui ""
   ui "   ${C_CYAN}${C_BOLD}Experiment $exp_count${C_RESET} ${C_DIM}($(elapsed_time) elapsed | kept=$kept_count discarded=$discarded_count crashed=$crash_count)${C_RESET}"
+
+  # Update status for /flow-code:loop-status
+  write_status_json "running" "$exp_count"
 
   # Save pre-experiment state
   save_checkpoint

@@ -583,6 +583,18 @@ for each experiment (up to --max, default 50):
 - `summary.md` — generated at end with kept/discarded/crashed counts
 - Kept improvements committed on `auto-improve/<date>` branch
 
+**Using with Codex CLI:**
+```bash
+# Set CLAUDE_BIN to use Codex instead of Claude
+CLAUDE_BIN=codex scripts/auto-improve/auto-improve.sh
+
+# Or set in config.env for persistent use
+# CLAUDE_BIN=codex
+# AUTO_IMPROVE_CODEX_MODEL=gpt-5.4
+```
+
+Auto-improve auto-detects the CLI type and uses the correct flags (Claude: `-p --output-format stream-json`, Codex: `-q --full-auto`).
+
 **Ralph vs Auto-Improve:**
 | | Ralph | Auto-Improve |
 |---|---|---|

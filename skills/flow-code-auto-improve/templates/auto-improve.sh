@@ -126,6 +126,12 @@ done
 
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 
+# Detect CLI type: claude or codex
+CLI_TYPE="claude"
+case "$(basename "$CLAUDE_BIN")" in
+  codex*) CLI_TYPE="codex" ;;
+esac
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Run directory
 # ─────────────────────────────────────────────────────────────────────────────
@@ -273,6 +279,7 @@ ui "${C_DIM}   Goal:${C_RESET} ${C_BOLD}$GOAL${C_RESET}"
 ui "${C_DIM}   Scope:${C_RESET} $SCOPE"
 ui "${C_DIM}   Guard:${C_RESET} $GUARD_CMD"
 ui "${C_DIM}   Branch:${C_RESET} auto-improve/$EXPERIMENT_TAG"
+ui "${C_DIM}   CLI:${C_RESET} $CLAUDE_BIN ($CLI_TYPE)"
 ui "${C_DIM}   Max experiments:${C_RESET} $MAX_EXPERIMENTS"
 ui "${C_DIM}   Run dir:${C_RESET} $RUN_DIR"
 ui ""
@@ -322,35 +329,57 @@ while true; do
     | sed "s|{{PROGRAM_MD}}|$SCRIPT_DIR/program.md|g"
   )"
 
-  # Build Claude args
-  claude_args=(-p --output-format stream-json --verbose)
-  claude_args+=(--append-system-prompt "AUTO-IMPROVE MODE. You are running autonomously. Follow program.md exactly. Output <result>keep|discard|crash</result> and <hypothesis>description</hypothesis> tags.")
+  # Build CLI args (platform-aware)
+  local sys_prompt="AUTO-IMPROVE MODE. You are running autonomously. Follow program.md exactly. Output <result>keep|discard|crash</result> and <hypothesis>description</hypothesis> tags."
 
-  [[ "$YOLO" == "1" ]] && claude_args+=(--dangerously-skip-permissions)
-  [[ -n "${AUTO_IMPROVE_CLAUDE_MODEL:-}" ]] && claude_args+=(--model "$AUTO_IMPROVE_CLAUDE_MODEL")
-  [[ -n "${AUTO_IMPROVE_CLAUDE_PERMISSION_MODE:-}" ]] && claude_args+=(--permission-mode "$AUTO_IMPROVE_CLAUDE_PERMISSION_MODE")
-  [[ "${AUTO_IMPROVE_CLAUDE_VERBOSE:-}" == "1" ]] && claude_args+=(--verbose)
+  claude_args=()
+  if [[ "$CLI_TYPE" == "codex" ]]; then
+    # Codex CLI flags
+    claude_args+=(-q --full-auto)
+    [[ -n "${AUTO_IMPROVE_CODEX_MODEL:-}" ]] && claude_args+=(--model "$AUTO_IMPROVE_CODEX_MODEL")
+  else
+    # Claude Code flags
+    claude_args+=(-p --output-format stream-json --verbose)
+    claude_args+=(--append-system-prompt "$sys_prompt")
+    [[ "$YOLO" == "1" ]] && claude_args+=(--dangerously-skip-permissions)
+    [[ -n "${AUTO_IMPROVE_CLAUDE_MODEL:-}" ]] && claude_args+=(--model "$AUTO_IMPROVE_CLAUDE_MODEL")
+    [[ -n "${AUTO_IMPROVE_CLAUDE_PERMISSION_MODE:-}" ]] && claude_args+=(--permission-mode "$AUTO_IMPROVE_CLAUDE_PERMISSION_MODE")
+    [[ "${AUTO_IMPROVE_CLAUDE_VERBOSE:-}" == "1" ]] && claude_args+=(--verbose)
+  fi
 
   # Run experiment
-  jlog "info" "experiment_start" "num=$exp_count"
+  jlog "info" "experiment_start" "num=$exp_count" "cli=$CLI_TYPE"
   set +e
-  "$CLAUDE_BIN" "${claude_args[@]}" "$prompt" > "$iter_log" 2>&1
+  if [[ "$CLI_TYPE" == "codex" ]]; then
+    # Codex: prepend system prompt to the user prompt, output is plain text
+    "$CLAUDE_BIN" "${claude_args[@]}" "${sys_prompt}
+
+${prompt}" > "$iter_log" 2>&1
+  else
+    "$CLAUDE_BIN" "${claude_args[@]}" "$prompt" > "$iter_log" 2>&1
+  fi
   claude_rc=$?
   set -e
 
-  # Extract result from log (stream-json format)
-  claude_text="$("$PYTHON_BIN" - "$iter_log" <<'PY'
+  # Extract text from log (handles both Claude stream-json and Codex plain text)
+  claude_text="$("$PYTHON_BIN" - "$iter_log" "$CLI_TYPE" <<'PY'
 import json, sys
+log_path, cli_type = sys.argv[1], sys.argv[2]
 out = []
 try:
-    with open(sys.argv[1]) as f:
-        for line in f:
-            try:
-                ev = json.loads(line.strip())
-                if ev.get("type") == "assistant":
-                    for blk in (ev.get("message",{}).get("content") or []):
-                        if blk.get("type") == "text": out.append(blk.get("text",""))
-            except: pass
+    with open(log_path) as f:
+        if cli_type == "codex":
+            # Codex: plain text output
+            out.append(f.read())
+        else:
+            # Claude: stream-json format
+            for line in f:
+                try:
+                    ev = json.loads(line.strip())
+                    if ev.get("type") == "assistant":
+                        for blk in (ev.get("message",{}).get("content") or []):
+                            if blk.get("type") == "text": out.append(blk.get("text",""))
+                except: pass
 except: pass
 print("\n".join(out))
 PY

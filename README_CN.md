@@ -536,6 +536,18 @@ cat scripts/ralph/runs/*/receipts/impl-fn-1.1.json
 - `summary.md` — 结束时生成，含保留/丢弃/崩溃统计
 - 保留的改进提交到 `auto-improve/<日期>` 分支
 
+**使用 Codex CLI：**
+```bash
+# 设置 CLAUDE_BIN 使用 Codex 代替 Claude
+CLAUDE_BIN=codex scripts/auto-improve/auto-improve.sh
+
+# 或在 config.env 中设置以持久使用
+# CLAUDE_BIN=codex
+# AUTO_IMPROVE_CODEX_MODEL=gpt-5.4
+```
+
+Auto-improve 自动检测 CLI 类型并使用正确的参数（Claude: `-p --output-format stream-json`，Codex: `-q --full-auto`）。
+
 **Ralph vs Auto-Improve：**
 | | Ralph | Auto-Improve |
 |---|---|---|

@@ -1,5 +1,7 @@
 <div align="center">
 
+**[English](README.md)** | **[中文](README_CN.md)**
+
 # Flow-Code
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)

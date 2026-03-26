@@ -78,6 +78,9 @@ Parse the arguments for these patterns. If found, use them and skip correspondin
 - `--review=export` or "export review" or "external llm" → export for external LLM
 - `--review=none` or `--no-review` or "no review" or "skip review" → no review
 
+**Parallel mode**:
+- `--parallel` or "run tasks in parallel" or "parallel execution" → spawn all ready tasks simultaneously (only for EPIC_MODE, skipped for single task)
+
 ### If options NOT found in arguments
 
 **If REVIEW_BACKEND is rp, codex, or none** (already configured): Only ask branch question. Show override hint:

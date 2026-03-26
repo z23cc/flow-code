@@ -74,21 +74,28 @@ Based on user's answer from setup questions:
 
 **For each task**, spawn a worker subagent with fresh context.
 
-### 3a. Find Next Task
+**Parallel mode** (`--parallel`): When the user passes `--parallel` flag, find ALL ready tasks (no unresolved dependencies) and spawn workers for them simultaneously using multiple Task tool calls in a single message. This is safe because ready tasks have no inter-dependencies. After all parallel workers return, verify each, run plan-sync, then find the next batch of ready tasks. Skip parallel mode for SINGLE_TASK_MODE.
+
+### 3a. Find Next Task(s)
 
 ```bash
 $FLOWCTL ready --epic <epic-id> --json
 ```
 
+**Sequential mode (default):** Pick the first ready task.
+**Parallel mode (`--parallel`):** Collect ALL ready tasks for simultaneous execution.
+
 If no ready tasks, check for completion review gate (see 3g below).
 
-### 3b. Start Task
+### 3b. Start Task(s)
 
 ```bash
 $FLOWCTL start <task-id> --json
 ```
 
-### 3c. Spawn Worker
+In parallel mode, start all ready tasks before spawning workers.
+
+### 3c. Spawn Worker(s)
 
 Use the Task tool to spawn a `worker` subagent. The worker gets fresh context and handles:
 - Re-anchoring (reading spec, git status)
@@ -115,9 +122,25 @@ Follow your phases in worker.md exactly.
 
 **Worker returns**: Summary of implementation, files changed, test results, review verdict.
 
+**Parallel mode:** Spawn ALL ready task workers in a SINGLE message with multiple Task tool calls. Each worker runs independently with fresh context. Example with 3 ready tasks:
+
+```
+[Task tool call 1: worker for fn-1.1]
+[Task tool call 2: worker for fn-1.2]
+[Task tool call 3: worker for fn-1.3]
+```
+
+All three run concurrently. Wait for all to complete before proceeding to 3d.
+
+**Important parallel constraints:**
+- Only tasks with NO unresolved dependencies are eligible (flowctl ready guarantees this)
+- Each worker operates on different files (task specs define scope)
+- If two tasks touch the same file, they MUST have a dependency — if not, this is a planning defect
+- After parallel batch completes, newly unblocked tasks become ready for the next batch
+
 ### 3d. Verify Completion
 
-After worker returns, verify the task completed:
+After worker(s) return, verify each task completed:
 
 ```bash
 $FLOWCTL show <task-id> --json

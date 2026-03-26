@@ -88,11 +88,16 @@ Work task-by-task with full review cycles for maximum control. Or throw the whol
 # One task at a time (review after each)
 /flow-code:work fn-1.1
 
-# Entire epic (review after all tasks complete)
+# Entire epic (sequential, review after all tasks complete)
 /flow-code:work fn-1
+
+# Entire epic (parallel — independent tasks run simultaneously)
+/flow-code:work fn-1 --parallel
 ```
 
-Both get: re-anchoring before each task, evidence recording, cross-model review (if rp-cli available).
+All modes get: re-anchoring before each task, evidence recording, cross-model review (if rp-cli available).
+
+**Parallel mode**: Spawns workers for ALL ready tasks (no unresolved dependencies) simultaneously. After each batch completes, newly unblocked tasks become ready for the next batch. Safe because `flowctl ready` only returns tasks with all dependencies resolved.
 
 **Review timing**: The RepoPrompt review runs once at the end of the work package—after a single task if you specified `fn-N.M`, or after all tasks if you specified `fn-N`. For tighter review loops on large epics, work task-by-task.
 
@@ -731,6 +736,31 @@ FREEZE_SCOPE=1
 SCOPE_CHANGE_ACTION=warn    # Continue but flag changes
 ```
 
+### Structured Logging
+
+Ralph writes structured JSON event logs to `$RUN_DIR/events.jsonl` for easy parsing and analysis. Each line is a JSON object:
+
+```json
+{"ts":"2026-03-26T12:00:00.123Z","level":"info","event":"run_start","run_id":"20260326-120000-a1b2","max_iterations":25,"review_mode":"per-epic"}
+{"ts":"2026-03-26T12:01:15.456Z","level":"info","event":"iteration","iter":1,"status":"work","task":"fn-1.1"}
+{"ts":"2026-03-26T12:05:30.789Z","level":"info","event":"worker_done","iter":1,"exit_code":0,"timeout":false}
+{"ts":"2026-03-26T12:30:00.000Z","level":"info","event":"run_end","reason":"NO_WORK","tasks_done":5,"elapsed":"29:00"}
+```
+
+**Query examples:**
+```bash
+# Count iterations per status
+jq -r 'select(.event=="iteration") | .status' events.jsonl | sort | uniq -c
+
+# Find failed workers
+jq 'select(.event=="worker_done" and .exit_code!=0)' events.jsonl
+
+# Total run time
+jq -r 'select(.event=="run_end") | .elapsed' events.jsonl
+```
+
+The plain-text `progress.txt` log still exists for backwards compatibility. Use `events.jsonl` for automation and analysis.
+
 **Task retry/rollback:**
 ```bash
 # Reset completed/blocked task to todo
@@ -1146,7 +1176,7 @@ Natural language also works:
 | Command | Available Flags |
 |---------|-----------------|
 | `/flow-code:plan` | `--research=rp\|grep`, `--review=rp\|codex\|export\|none`, `--no-review` |
-| `/flow-code:work` | `--branch=current\|new\|worktree`, `--review=rp\|codex\|export\|none`, `--no-review` |
+| `/flow-code:work` | `--branch=current\|new\|worktree`, `--review=rp\|codex\|export\|none`, `--no-review`, `--parallel` |
 | `/flow-code:plan-review` | `--review=rp\|codex\|export` |
 | `/flow-code:impl-review` | `--review=rp\|codex\|export` |
 | `/flow-code:prime` | `--report-only`, `--fix-all` |

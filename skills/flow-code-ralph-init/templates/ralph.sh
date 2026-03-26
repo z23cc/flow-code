@@ -53,6 +53,40 @@ log() {
   return 0
 }
 
+# Structured JSON log (always writes to JSONL file, regardless of UI mode)
+STRUCTURED_LOG=""  # Set after RUN_DIR is created
+jlog() {
+  [[ -n "$STRUCTURED_LOG" ]] || return 0
+  local level="$1" event="$2"
+  shift 2
+  "$PYTHON_BIN" - "$level" "$event" "$@" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+level, event = sys.argv[1], sys.argv[2]
+extra = {}
+for arg in sys.argv[3:]:
+    if "=" in arg:
+        k, v = arg.split("=", 1)
+        # Try to parse as int/float/bool
+        if v in ("true", "false"):
+            v = v == "true"
+        else:
+            try: v = int(v)
+            except ValueError:
+                try: v = float(v)
+                except ValueError: pass
+        extra[k] = v
+entry = {
+    "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+    "level": level,
+    "event": event,
+    **extra
+}
+print(json.dumps(entry, separators=(",", ":")))
+PY
+  >> "$STRUCTURED_LOG"
+}
+
 # Ensure flowctl is runnable even when NTFS exec bit / shebang handling is flaky on Windows
 ensure_flowctl_wrapper() {
   # If flowctl exists and is executable, use it
@@ -573,6 +607,7 @@ ensure_attempts_file "$ATTEMPTS_FILE"
 BRANCHES_FILE="$RUN_DIR/branches.json"
 RECEIPTS_DIR="$RUN_DIR/receipts"
 mkdir -p "$RECEIPTS_DIR"
+STRUCTURED_LOG="$RUN_DIR/events.jsonl"
 PROGRESS_FILE="$RUN_DIR/progress.txt"
 {
   echo "# Ralph Progress Log"
@@ -657,6 +692,7 @@ write_completion_marker() {
     echo "completion_reason=$reason"
     echo "promise=COMPLETE"  # CANONICAL - must match flowctl.py substring search
   } >> "$PROGRESS_FILE"
+  jlog "info" "run_end" "reason=$reason" "iter=${iter:-0}" "tasks_done=$STATS_TASKS_DONE" "elapsed=$(elapsed_time)"
 }
 
 # Check PAUSE/STOP sentinel files
@@ -1117,6 +1153,11 @@ ensure_run_branch
 # Freeze scope snapshot (opt-in via FREEZE_SCOPE=1)
 freeze_scope
 
+jlog "info" "run_start" "run_id=$RUN_ID" "max_iterations=$MAX_ITERATIONS" \
+  "review_mode=$REVIEW_MODE" "freeze_scope=$FREEZE_SCOPE" \
+  "plan_review=$PLAN_REVIEW" "work_review=$WORK_REVIEW" \
+  "completion_review=$COMPLETION_REVIEW" "branch_mode=$BRANCH_MODE"
+
 iter=1
 while (( iter <= MAX_ITERATIONS )); do
   iter_log="$RUN_DIR/iter-$(printf '%03d' "$iter").log"
@@ -1143,6 +1184,7 @@ while (( iter <= MAX_ITERATIONS )); do
   reason="$(json_get reason "$selector_json")"
 
   log "iter $iter status=$status epic=${epic_id:-} task=${task_id:-} reason=${reason:-}"
+  jlog "info" "iteration" "iter=$iter" "status=$status" "epic=${epic_id:-}" "task=${task_id:-}" "reason=${reason:-}"
   ui_iteration "$iter" "$status" "${epic_id:-}" "${task_id:-}"
 
   if [[ "$status" == "none" ]]; then
@@ -1292,6 +1334,7 @@ Violations break automation and leave the user with incomplete work. Be precise,
   fi
 
   log "claude rc=$claude_rc log=$iter_log"
+  jlog "info" "worker_done" "iter=$iter" "status=$status" "epic=${epic_id:-}" "task=${task_id:-}" "exit_code=$claude_rc" "timeout=$worker_timeout"
 
   force_retry=$worker_timeout
   plan_review_status=""

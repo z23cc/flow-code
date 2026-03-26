@@ -1,0 +1,345 @@
+# Claude Code Project Guide
+
+## Purpose
+This repo is a Claude Code plugin marketplace. It ships two plugins: **flow** and **flow-next**.
+
+## Structure
+- Marketplace manifest: `.claude-plugin/marketplace.json`
+- Plugins live in `plugins/`
+- Each plugin has: `.claude-plugin/plugin.json`, `commands/`, `skills/`, optionally `agents/`
+
+## Plugins
+
+### flow-next (recommended)
+Zero-dependency workflow with bundled `flowctl.py`. All state in `.flow/` directory.
+
+Commands:
+- `/flow-next:plan` → creates epic + tasks in `.flow/`
+- `/flow-next:work` → executes tasks with re-anchoring
+- `/flow-next:interview` → deep spec refinement
+- `/flow-next:plan-review` → Carmack-level plan review via rp-cli
+- `/flow-next:impl-review` → Carmack-level impl review (current branch)
+
+Ralph (autonomous loop):
+- Script template lives in `plugins/flow-next/skills/flow-next-ralph-init/templates/`.
+- Ralph uses `flowctl rp` wrappers (not direct rp-cli) for reviews.
+- Receipts gate progress when `REVIEW_RECEIPT_PATH` is set.
+- Runbooks: `plans/ralph-e2e-notes.md`, `plans/ralph-getting-started.md`.
+
+Memory system (opt-in):
+- Config in `.flow/config.json` (NOT Ralph's `config.env`)
+- Enable: `flowctl config set memory.enabled true`
+- Init: `flowctl memory init`
+- Add: `flowctl memory add --type <pitfall|convention|decision> "content"`
+- Query: `flowctl memory list`, `flowctl memory search "pattern"`
+- Auto-capture: NEEDS_WORK reviews → pitfalls.md (in Ralph mode)
+
+### flow
+Original plugin with optional Beads integration. Plan files in `plans/`.
+
+Commands:
+- `/flow:plan` → writes `plans/<slug>.md`
+- `/flow:work` → executes a plan
+- `/flow:interview` → deep interview about spec/bead
+- `/flow:plan-review` → Carmack-level plan review via rp-cli
+- `/flow:impl-review` → Carmack-level impl review (current branch)
+
+## Marketplace rules
+- Keep `marketplace.json` and each plugin's `plugin.json` in sync (name, version, description, author, homepage).
+- Only include fields supported by Claude Code specs.
+- `source` in marketplace must point at plugin root.
+
+## Versioning
+- Use semver.
+- **Bump version** when skill/phase/agent/command files change (affects plugin behavior):
+  - `plugins/<plugin>/skills/**/*.md`
+  - `plugins/<plugin>/agents/**/*.md`
+  - `plugins/<plugin>/commands/**/*.md`
+- **Don't bump** for pure README/doc changes (users don't need update)
+- When bumping, update:
+  - `.claude-plugin/marketplace.json` → plugin version in plugins array
+  - `plugins/<plugin>/.claude-plugin/plugin.json` → version
+
+## Editing rules
+- Keep prompts concise and direct.
+- Avoid feature flags or backwards-compatibility scaffolding (plugins are pre-release).
+- Do not add extra commands/agents/skills unless explicitly requested.
+
+## Cross-platform patterns (Claude Code + Factory Droid)
+
+flow-next supports both Claude Code and Factory Droid. Follow these patterns:
+
+**Variable references** — use bash fallback:
+```bash
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
+```
+- Droid sets `DROID_PLUGIN_ROOT`, Claude Code sets `CLAUDE_PLUGIN_ROOT`
+- Bash `${VAR:-default}` tries first, falls back to second
+
+**Hook matchers** — use regex OR:
+```json
+"matcher": "Bash|Execute"
+```
+- Claude Code uses `Bash`, Droid uses `Execute`
+
+**Agent permissions** — use `disallowedTools` blacklist (not `tools` whitelist):
+```yaml
+disallowedTools: Edit, Write, Task
+```
+- Whitelist fails: tool names differ (`WebFetch`/`FetchUrl`, `Bash`/`Execute`)
+- Blacklist works: both platforms understand `Edit`, `Write`, `Task`
+
+**Plugin paths** — check both directories:
+```bash
+PLUGIN_JSON="${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json"
+[[ -f "$PLUGIN_JSON" ]] || PLUGIN_JSON="${CLAUDE_PLUGIN_ROOT}/.factory-plugin/plugin.json"
+```
+
+## Agent workflow (Ralph + RP)
+
+Runbooks:
+- `plans/ralph-e2e-notes.md`
+- `plans/ralph-getting-started.md`
+
+Tests:
+```bash
+plugins/flow-next/scripts/smoke_test.sh
+plugins/flow-next/scripts/ralph_smoke_test.sh
+```
+
+RP smoke (RP 1.5.68+ auto-opens window with --create, or open manually on `${TEST_DIR}/repo`):
+```bash
+RP_SMOKE=1 TEST_DIR=/tmp/flow-next-ralph-smoke-rpN KEEP_TEST_DIR=1 \
+  plugins/flow-next/scripts/ralph_smoke_rp.sh
+```
+
+Full RP e2e (RP 1.5.68+ auto-opens window with --create, or open manually on `${TEST_DIR}/repo`):
+```bash
+TEST_DIR=/tmp/flow-next-ralph-e2e-rpN KEEP_TEST_DIR=1 \
+  plugins/flow-next/scripts/ralph_e2e_rp_test.sh
+```
+
+Short RP e2e (2 tasks, faster iteration):
+```bash
+CREATE=1 TEST_DIR=/tmp/flow-next-ralph-e2e-short-rpN \
+  plugins/flow-next/scripts/ralph_e2e_short_rp_test.sh
+# With RP 1.5.68+: windows auto-open. Older: open RP on test repo, re-run without CREATE
+```
+
+RP gotchas (must follow):
+- Use `flowctl rp` wrappers only (no direct `rp-cli`).
+- Resolve numeric window id via `flowctl rp pick-window --repo-root "$REPO_ROOT"` before builder.
+- Do not call `flowctl rp builder` without `--window` and `--summary`.
+- Write receipt JSON after chat returns when `REVIEW_RECEIPT_PATH` is set.
+
+Debug envs (optional, Ralph only):
+```bash
+FLOW_RALPH_CLAUDE_MODEL=claude-opus-4-6
+FLOW_RALPH_CLAUDE_DEBUG=hooks
+FLOW_RALPH_CLAUDE_VERBOSE=1
+FLOW_RALPH_CLAUDE_PERMISSION_MODE=bypassPermissions
+FLOW_RALPH_CLAUDE_NO_SESSION_PERSISTENCE=1
+```
+
+### Developing with local changes
+
+**Preferred: local marketplace install** (hooks work correctly):
+```bash
+# From this repo root
+/plugin marketplace add ./
+/plugin install flow-next@gmickel-claude-marketplace
+
+# Test in any project - plugin hooks work via ${CLAUDE_PLUGIN_ROOT}
+```
+
+Uninstall global version first if installed: `claude plugins uninstall flow-next`
+
+**Alternative: --plugin-dir** (test scripts only):
+
+Bug #14410: Plugin hooks don't fire when using `--plugin-dir`. Subagents get `${CLAUDE_PLUGIN_ROOT}` literal instead of expanded path.
+
+Test scripts (`ralph_smoke_test.sh`, `ralph_e2e_rp_test.sh`) handle this by copying hooks to `.claude/hooks/` in the test repo. This workaround is only needed for automated tests using `--plugin-dir`.
+
+See `plans/ralph-e2e-notes.md` for full --plugin-dir hook setup if needed.
+
+Logs:
+- Ralph run logs: `scripts/ralph/runs/<run>/`
+- Verbose log: `scripts/ralph/runs/<run>/ralph.log`
+- Receipts: `scripts/ralph/runs/<run>/receipts/`
+- Claude jsonl: `~/.claude/projects/**/<session_id>.jsonl`
+
+## Release checklist (flow-next)
+
+1. Run `./scripts/bump.sh <patch|minor|major> flow-next`
+2. Update `CHANGELOG.md` with `[flow-next X.Y.Z]` entry
+3. Commit and push:
+   ```bash
+   git add -A && git commit -m "chore(flow-next): bump version to X.Y.Z"
+   git push
+   ```
+4. Tag to trigger release + Discord notification:
+   ```bash
+   git tag flow-next-vX.Y.Z && git push origin flow-next-vX.Y.Z
+   ```
+
+## Release checklist (flow)
+
+1. Run `./scripts/bump.sh <patch|minor|major> flow` (updates versions + README badges)
+2. Update `CHANGELOG.md` with new version entry
+3. Validate JSON:
+   ```bash
+   jq . .claude-plugin/marketplace.json
+   jq . plugins/flow/.claude-plugin/plugin.json
+   ```
+4. Commit, push, verify
+
+**Manual badge locations (if not using bump script):**
+- `README.md` (Flow-vX.X.X badge)
+- `plugins/flow/README.md` (Version-X.X.X badge)
+
+## Contributing / Development
+
+Before running tests or developing plugins locally:
+
+```bash
+# Uninstall marketplace plugins to avoid conflicts with local dev versions
+claude plugins uninstall flow-next
+claude plugins uninstall flow
+```
+
+Global installs take precedence over `--plugin-dir`, causing tests to use stale cached versions instead of your local changes.
+
+## Repo metadata
+- Author: Gordon Mickel (gordon@mickel.tech)
+- Homepage: https://mickel.tech
+- Marketplace repo: https://github.com/gmickel/gmickel-claude-marketplace
+
+## Codex CLI Installation
+
+Install flow or flow-next to OpenAI Codex (requires Codex CLI 0.102.0+):
+
+```bash
+# Clone the marketplace repo (one-time)
+git clone https://github.com/gmickel/gmickel-claude-marketplace.git
+cd gmickel-claude-marketplace
+
+# Install flow-next (recommended)
+./scripts/install-codex.sh flow-next
+
+# Or install flow
+./scripts/install-codex.sh flow
+```
+
+> Codex has no plugin marketplace — clone this repo to install. Everything copies to `~/.codex/`, so the clone can be deleted after (re-clone to update).
+
+**What gets installed:**
+- `~/.codex/bin/flowctl` + `flowctl.py` - CLI tool
+- `~/.codex/skills/` - Skill definitions (patched for Codex paths)
+- `~/.codex/agents/*.toml` - Multi-agent role configs (20 roles)
+- `~/.codex/config.toml` - Agent entries merged (descriptions + config_file refs)
+- `~/.codex/prompts/` - Command prompts
+- `~/.codex/scripts/` - Helper scripts (worktree.sh)
+- `~/.codex/templates/` - Ralph/setup templates
+
+**Path patching:** All `${CLAUDE_PLUGIN_ROOT}` references are automatically replaced with `~/.codex` paths during install.
+
+**Agent conversion (multi-agent roles):** Claude Code `.md` agents → Codex `.toml` role configs:
+- Frontmatter → `model`, `sandbox_mode`, reasoning settings
+- Body → `developer_instructions` (backslashes auto-escaped for TOML)
+- `claude-md-scout` → `agents-md-scout` (CLAUDE.md refs patched to AGENTS.md)
+- Prime workflow patched: `Task flow-next:<scout>` → `Use the <scout_name> agent`
+
+**Model mapping (3-tier):**
+
+| Claude Code | Codex | Agents |
+|-------------|-------|--------|
+| `opus` | `gpt-5.4` (reasoning: high) | quality-auditor, flow-gap-analyst, context-scout |
+| `claude-sonnet-4-6` (smart) | `gpt-5.4` (reasoning: high) | epic-scout, agents-md-scout, docs-gap-scout |
+| `claude-sonnet-4-6` (fast) | `gpt-5.3-codex-spark` (no reasoning) | build-scout, env-scout, testing-scout, tooling-scout, observability-scout, security-scout, workflow-scout, memory-scout |
+| `inherit` | inherited from parent | worker, plan-sync |
+
+Smart scouts (epic-scout, agents-md-scout, docs-gap-scout) need deeper reasoning for context building. Remaining 8 scanning scouts run on Spark for speed. Spark agents skip `model_reasoning_effort` (not supported). `max_threads = 12` for parallel scout execution.
+
+Override defaults:
+```bash
+CODEX_MODEL_INTELLIGENT=gpt-5.4 \
+CODEX_MODEL_FAST=gpt-5.3-codex-spark \
+CODEX_REASONING_EFFORT=high \
+CODEX_MAX_THREADS=12 \
+./scripts/install-codex.sh flow-next
+```
+
+**Limitations:**
+- Hooks not supported (ralph-guard won't run)
+- Core `/flow-next:plan` and `/flow-next:work` commands work with native multi-agent roles
+- Prompts (`/prompts:*`) are global-only (`~/.codex/prompts/`). Agents, skills, and config support project-scoped `.codex/` but prompts don't yet — tracked in [openai/codex#4734](https://github.com/openai/codex/issues/4734). Once shipped, add `--target <dir>` to `install-codex.sh` for project-local installs.
+
+**Usage in Codex:**
+```bash
+# Add to PATH (optional)
+export PATH="$HOME/.codex/bin:$PATH"
+
+# Use flowctl directly
+~/.codex/bin/flowctl --help
+```
+
+<!-- BEGIN FLOW-NEXT -->
+## Flow-Next
+
+This project uses Flow-Next for task tracking. Use `.flow/bin/flowctl` instead of markdown TODOs or TodoWrite.
+
+**Quick commands:**
+```bash
+.flow/bin/flowctl list                # List all epics + tasks
+.flow/bin/flowctl epics               # List all epics
+.flow/bin/flowctl tasks --epic fn-N   # List tasks for epic
+.flow/bin/flowctl ready --epic fn-N   # What's ready
+.flow/bin/flowctl show fn-N.M         # View task
+.flow/bin/flowctl start fn-N.M        # Claim task
+.flow/bin/flowctl done fn-N.M --summary-file s.md --evidence-json e.json
+```
+
+**Creating a spec** ("create a spec", "spec out X", "write a spec for X"):
+
+A spec = an epic. Create one directly — do NOT use `/flow-next:plan` (that breaks specs into tasks).
+
+```bash
+.flow/bin/flowctl epic create --title "Short title" --json
+.flow/bin/flowctl epic set-plan <epic-id> --file - --json <<'EOF'
+# Title
+
+## Goal & Context
+Why this exists, what problem it solves.
+
+## Architecture & Data Models
+System design, data flow, key components.
+
+## API Contracts
+Endpoints, interfaces, input/output shapes.
+
+## Edge Cases & Constraints
+Failure modes, limits, performance requirements.
+
+## Acceptance Criteria
+- [ ] Testable criterion 1
+- [ ] Testable criterion 2
+
+## Boundaries
+What's explicitly out of scope.
+
+## Decision Context
+Why this approach over alternatives.
+EOF
+```
+
+After creating a spec, choose next step:
+- `/flow-next:plan <epic-id>` — research + break into tasks
+- `/flow-next:interview <epic-id>` — deep Q&A to refine the spec
+
+**Rules:**
+- Use `.flow/bin/flowctl` for ALL task tracking
+- Do NOT create markdown TODOs or use TodoWrite
+- Re-anchor (re-read spec + status) before every task
+
+**More info:** `.flow/bin/flowctl --help` or read `.flow/usage.md`
+<!-- END FLOW-NEXT -->

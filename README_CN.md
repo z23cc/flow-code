@@ -613,6 +613,49 @@ WORK_REVIEW=rp
 COMPLETION_REVIEW=rp
 ```
 
+### 范围隔离（Freeze Scope）
+
+Ralph 过夜运行时，外部对任务列表的修改可能导致不可预期的行为 — 新任务未经审查就被执行、删除的任务造成混乱、修改的 spec 使假设失效。
+
+**在 `scripts/ralph/config.env` 中配置：**
+
+```bash
+# 启动时捕获任务 ID + spec 哈希，每次迭代检查
+FREEZE_SCOPE=1
+
+# 范围变化时的动作：stop（停止）| warn（警告但继续）| ignore（仅记录）
+SCOPE_CHANGE_ACTION=stop
+```
+
+**检测内容：**
+
+| 变化类型 | 检测方法 | 结果 |
+|---------|---------|------|
+| 外部添加任务 | 任务 ID 不在冻结列表中 | SCOPE_CHANGED |
+| 外部删除任务 | 冻结的任务 ID 缺失 | SCOPE_CHANGED |
+| Spec 内容修改 | MD5 哈希不匹配 | SCOPE_CHANGED |
+| 状态变化（todo→done） | 不追踪 | 允许（正常） |
+
+**动作说明：**
+
+| 动作 | 行为 |
+|------|------|
+| `stop` | 以退出码 1 停止 Ralph，显示明确信息 |
+| `warn` | 记录变化，显示警告，继续执行 |
+| `ignore` | 静默记录变化，继续执行 |
+
+**推荐过夜运行配置：**
+```bash
+FREEZE_SCOPE=1
+SCOPE_CHANGE_ACTION=stop    # 安全：外部变化时停止
+```
+
+**有人监控时：**
+```bash
+FREEZE_SCOPE=1
+SCOPE_CHANGE_ACTION=warn    # 继续但标记变化
+```
+
 **任务重试/回滚：**
 ```bash
 # 将已完成/已阻塞的任务重置为 todo

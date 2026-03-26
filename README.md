@@ -679,6 +679,58 @@ tail -f scripts/ralph/runs/latest/ralph.log
 scripts/ralph/flowctl list
 ```
 
+### Scope Isolation (Freeze Scope)
+
+When running Ralph overnight, external changes to the backlog can cause unexpected behavior — new tasks picked up without review, removed tasks causing confusion, modified specs invalidating assumptions.
+
+**Configure in `scripts/ralph/config.env`:**
+
+```bash
+# Capture task IDs + spec hashes at start, check each iteration
+FREEZE_SCOPE=1
+
+# What to do on scope change: stop | warn | ignore
+SCOPE_CHANGE_ACTION=stop
+```
+
+**What it detects:**
+
+| Change Type | Detection | Outcome |
+|-------------|-----------|---------|
+| Task added externally | Task ID not in frozen list | SCOPE_CHANGED |
+| Task removed externally | Frozen task ID missing | SCOPE_CHANGED |
+| Spec content modified | MD5 hash mismatch | SCOPE_CHANGED |
+| Status change (todo→done) | Not tracked | Allowed (normal) |
+
+**Actions:**
+
+| Action | Behavior |
+|--------|----------|
+| `stop` | Halt Ralph with exit code 1 and clear message |
+| `warn` | Log changes, display warning, continue execution |
+| `ignore` | Log changes silently, continue execution |
+
+**Files created in `$RUN_DIR/scope/`:**
+
+| File | Content |
+|------|---------|
+| `scope.json` | Full snapshot (task IDs, statuses, spec hashes) |
+| `task_ids.txt` | Sorted task IDs for easy diff |
+| `hashes.txt` | `id:md5hash` pairs for specs and tasks |
+| `changes-iter-NNN.txt` | Detected changes per iteration (if any) |
+
+**Recommended for overnight runs:**
+```bash
+FREEZE_SCOPE=1
+SCOPE_CHANGE_ACTION=stop    # Safe: halt on external changes
+```
+
+**For monitored runs:**
+```bash
+FREEZE_SCOPE=1
+SCOPE_CHANGE_ACTION=warn    # Continue but flag changes
+```
+
 **Task retry/rollback:**
 ```bash
 # Reset completed/blocked task to todo

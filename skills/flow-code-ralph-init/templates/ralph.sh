@@ -233,6 +233,7 @@ ui_config() {
   [[ "$COMPLETION_REVIEW" == "codex" ]] && completion_display="Codex"
   ui "${C_DIM}   Review mode:${C_RESET} ${C_BOLD}$REVIEW_MODE${C_RESET}"
   ui "${C_DIM}   Reviews:${C_RESET} Plan=$plan_display ${C_DIM}•${C_RESET} Work=$work_display ${C_DIM}•${C_RESET} Completion=$completion_display"
+  [[ "$FREEZE_SCOPE" == "1" ]] && ui "${C_DIM}   Scope freeze:${C_RESET} ${C_BOLD}on${C_RESET} (action=$SCOPE_CHANGE_ACTION)"
   [[ -n "${EPICS:-}" ]] && ui "${C_DIM}   Scope:${C_RESET} $EPICS"
   ui ""
 }
@@ -386,6 +387,8 @@ WORK_REVIEW="${WORK_REVIEW:-none}"
 COMPLETION_REVIEW="${COMPLETION_REVIEW:-none}"
 CODEX_SANDBOX="${CODEX_SANDBOX:-auto}"  # Codex sandbox mode; flowctl reads this env var
 REVIEW_MODE="${REVIEW_MODE:-per-task}"
+FREEZE_SCOPE="${FREEZE_SCOPE:-0}"
+SCOPE_CHANGE_ACTION="${SCOPE_CHANGE_ACTION:-stop}"
 REQUIRE_PLAN_REVIEW="${REQUIRE_PLAN_REVIEW:-0}"
 YOLO="${YOLO:-0}"
 
@@ -506,7 +509,7 @@ render_template() {
 import os, sys
 path = sys.argv[1]
 text = open(path, encoding="utf-8").read()
-keys = ["EPIC_ID","TASK_ID","REVIEW_MODE","PLAN_REVIEW","WORK_REVIEW","COMPLETION_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH","RALPH_ITERATION"]
+keys = ["EPIC_ID","TASK_ID","REVIEW_MODE","FREEZE_SCOPE","SCOPE_CHANGE_ACTION","PLAN_REVIEW","WORK_REVIEW","COMPLETION_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH","RALPH_ITERATION"]
 for k in keys:
     text = text.replace("{{%s}}" % k, os.environ.get(k, ""))
 print(text)
@@ -879,6 +882,225 @@ ensure_run_branch() {
   git -C "$ROOT_DIR" checkout -b "$branch" >/dev/null 2>&1
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Scope isolation (opt-in via FREEZE_SCOPE=1)
+# Captures task IDs + spec hashes at start, detects external changes each iteration
+# ─────────────────────────────────────────────────────────────────────────────
+SCOPE_DIR="$RUN_DIR/scope"
+
+freeze_scope() {
+  [[ "$FREEZE_SCOPE" == "1" ]] || return 0
+  mkdir -p "$SCOPE_DIR"
+
+  # Capture all task IDs and spec hashes via flowctl
+  "$PYTHON_BIN" - "$ROOT_DIR" "${EPICS:-}" <<'PY' > "$SCOPE_DIR/scope.json"
+import json, hashlib, sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+epics_filter = sys.argv[2].replace(",", " ").split() if len(sys.argv) > 2 and sys.argv[2].strip() else []
+flow_dir = root / ".flow"
+tasks_dir = flow_dir / "tasks"
+specs_dir = flow_dir / "specs"
+epics_dir = flow_dir / "epics"
+
+def md5_file(p):
+    try:
+        return hashlib.md5(p.read_bytes()).hexdigest()
+    except:
+        return ""
+
+scope = {"tasks": {}, "specs": {}, "epics": {}}
+
+# Collect epic metadata
+for f in sorted(epics_dir.glob("fn-*.json")) if epics_dir.exists() else []:
+    try:
+        data = json.loads(f.read_text())
+        eid = data.get("id", f.stem)
+        if epics_filter and eid not in epics_filter:
+            continue
+        scope["epics"][eid] = {"status": data.get("status", ""), "hash": md5_file(f)}
+    except:
+        pass
+
+# Collect task metadata
+for f in sorted(tasks_dir.glob("fn-*.json")) if tasks_dir.exists() else []:
+    try:
+        data = json.loads(f.read_text())
+        tid = data.get("id", f.stem)
+        epic_id = tid.rsplit(".", 1)[0] if "." in tid else tid
+        if epics_filter and epic_id not in epics_filter:
+            continue
+        scope["tasks"][tid] = {"status": data.get("status", ""), "hash": md5_file(f)}
+    except:
+        pass
+
+# Collect spec hashes
+for f in sorted(specs_dir.glob("fn-*.md")) if specs_dir.exists() else []:
+    eid = f.stem
+    if epics_filter and eid not in epics_filter:
+        continue
+    scope["specs"][eid] = {"hash": md5_file(f)}
+
+print(json.dumps(scope, indent=2, sort_keys=True))
+PY
+
+  # Write sorted task IDs for easy diff
+  "$PYTHON_BIN" -c "
+import json, sys
+scope = json.load(sys.stdin)
+for tid in sorted(scope.get('tasks', {})):
+    print(tid)
+" < "$SCOPE_DIR/scope.json" > "$SCOPE_DIR/task_ids.txt"
+
+  # Write spec hashes for easy diff
+  "$PYTHON_BIN" -c "
+import json, sys
+scope = json.load(sys.stdin)
+for sid in sorted(scope.get('specs', {})):
+    print(f\"{sid}:{scope['specs'][sid]['hash']}\")
+for tid in sorted(scope.get('tasks', {})):
+    print(f\"{tid}:{scope['tasks'][tid]['hash']}\")
+" < "$SCOPE_DIR/scope.json" > "$SCOPE_DIR/hashes.txt"
+
+  local task_count spec_count
+  task_count="$(wc -l < "$SCOPE_DIR/task_ids.txt" | tr -d ' ')"
+  spec_count="$(grep -c ':' "$SCOPE_DIR/hashes.txt" 2>/dev/null || echo 0)"
+  log "scope frozen: $task_count tasks, $spec_count hashed files"
+  ui "   ${C_DIM}Scope frozen:${C_RESET} $task_count tasks, $spec_count hashed files"
+}
+
+check_scope_integrity() {
+  [[ "$FREEZE_SCOPE" == "1" ]] || return 0
+  [[ -f "$SCOPE_DIR/scope.json" ]] || return 0
+
+  local changes
+  changes="$("$PYTHON_BIN" - "$ROOT_DIR" "$SCOPE_DIR/scope.json" "${EPICS:-}" <<'PY'
+import json, hashlib, sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+scope_file = Path(sys.argv[2])
+epics_filter = sys.argv[3].replace(",", " ").split() if len(sys.argv) > 3 and sys.argv[3].strip() else []
+flow_dir = root / ".flow"
+tasks_dir = flow_dir / "tasks"
+specs_dir = flow_dir / "specs"
+
+frozen = json.loads(scope_file.read_text())
+frozen_tasks = set(frozen.get("tasks", {}).keys())
+frozen_hashes = {}
+for tid, v in frozen.get("tasks", {}).items():
+    frozen_hashes[f"task:{tid}"] = v.get("hash", "")
+for sid, v in frozen.get("specs", {}).items():
+    frozen_hashes[f"spec:{sid}"] = v.get("hash", "")
+
+def md5_file(p):
+    try:
+        return hashlib.md5(p.read_bytes()).hexdigest()
+    except:
+        return ""
+
+# Current task IDs
+current_tasks = set()
+for f in sorted(tasks_dir.glob("fn-*.json")) if tasks_dir.exists() else []:
+    try:
+        data = json.loads(f.read_text())
+        tid = data.get("id", f.stem)
+        epic_id = tid.rsplit(".", 1)[0] if "." in tid else tid
+        if epics_filter and epic_id not in epics_filter:
+            continue
+        current_tasks.add(tid)
+    except:
+        pass
+
+changes = []
+
+# Detect additions
+added = current_tasks - frozen_tasks
+for t in sorted(added):
+    changes.append(f"ADDED task {t}")
+
+# Detect removals
+removed = frozen_tasks - current_tasks
+for t in sorted(removed):
+    changes.append(f"REMOVED task {t}")
+
+# Detect spec content changes (only for specs that existed at freeze time)
+for f in sorted(specs_dir.glob("fn-*.md")) if specs_dir.exists() else []:
+    sid = f.stem
+    if epics_filter and sid not in epics_filter:
+        continue
+    key = f"spec:{sid}"
+    if key in frozen_hashes:
+        current_hash = md5_file(f)
+        if current_hash != frozen_hashes[key] and frozen_hashes[key]:
+            changes.append(f"MODIFIED spec {sid}")
+
+# Detect task JSON changes (excluding status changes which are normal)
+for f in sorted(tasks_dir.glob("fn-*.json")) if tasks_dir.exists() else []:
+    try:
+        data = json.loads(f.read_text())
+        tid = data.get("id", f.stem)
+        epic_id = tid.rsplit(".", 1)[0] if "." in tid else tid
+        if epics_filter and epic_id not in epics_filter:
+            continue
+        if tid in added:
+            continue  # Already reported
+        key = f"task:{tid}"
+        if key in frozen_hashes:
+            # Compare hash but ignore status-only changes
+            # Re-hash without status field to detect structural changes
+            data_no_status = {k: v for k, v in data.items() if k not in ("status", "assignee", "started_at", "completed_at")}
+            frozen_data_hash = frozen_hashes[key]
+            # We can only detect raw file changes; status changes are allowed
+            # So we check: if file hash changed, read frozen scope to see if only status changed
+            current_hash = md5_file(f)
+            if current_hash != frozen_data_hash and frozen_data_hash:
+                # File changed - check if it's just status/assignee (allowed)
+                frozen_task = frozen.get("tasks", {}).get(tid, {})
+                if frozen_task.get("hash", "") != current_hash:
+                    # Could be status change (allowed) - don't flag task JSON changes
+                    # Only spec content changes matter
+                    pass
+    except:
+        pass
+
+if changes:
+    print("\n".join(changes))
+PY
+)"
+
+  if [[ -n "$changes" ]]; then
+    local change_count
+    change_count="$(echo "$changes" | wc -l | tr -d ' ')"
+    log "SCOPE CHANGED ($change_count changes): $changes"
+    echo "$changes" > "$SCOPE_DIR/changes-iter-$(printf '%03d' "$iter").txt"
+
+    case "$SCOPE_CHANGE_ACTION" in
+      stop)
+        ui ""
+        ui "   ${C_RED}${C_BOLD}SCOPE CHANGED${C_RESET} — $change_count external change(s) detected:"
+        echo "$changes" | while IFS= read -r line; do
+          ui "     ${C_YELLOW}$line${C_RESET}"
+        done
+        ui "   ${C_RED}Stopping (SCOPE_CHANGE_ACTION=stop). Set to 'warn' to continue.${C_RESET}"
+        ui ""
+        write_completion_marker "SCOPE_CHANGED"
+        exit 1
+        ;;
+      warn)
+        ui "   ${C_YELLOW}SCOPE CHANGED${C_RESET} — $change_count change(s), continuing (SCOPE_CHANGE_ACTION=warn)"
+        echo "$changes" | while IFS= read -r line; do
+          ui "     ${C_DIM}$line${C_RESET}"
+        done
+        ;;
+      ignore)
+        log "scope changed ($change_count changes), ignoring (SCOPE_CHANGE_ACTION=ignore)"
+        ;;
+    esac
+  fi
+}
+
 EPICS_FILE=""
 if [[ -n "${EPICS// }" ]]; then
   EPICS_FILE="$RUN_DIR/run.json"
@@ -892,12 +1114,18 @@ ui_version_check
 # Create run branch once at start (all epics work on same branch)
 ensure_run_branch
 
+# Freeze scope snapshot (opt-in via FREEZE_SCOPE=1)
+freeze_scope
+
 iter=1
 while (( iter <= MAX_ITERATIONS )); do
   iter_log="$RUN_DIR/iter-$(printf '%03d' "$iter").log"
 
   # Check for pause/stop at start of iteration (before work selection)
   check_sentinels
+
+  # Check scope integrity (opt-in via FREEZE_SCOPE=1)
+  check_scope_integrity
 
   # Close any epics with all tasks done BEFORE calling selector
   # This ensures dependent epics become unblocked in the same iteration

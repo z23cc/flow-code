@@ -1204,14 +1204,17 @@ When enabled:
 - **Ralph**: NEEDS_WORK reviews auto-capture to `pitfalls.md`
 - **Auto-capture**: session end hook extracts decisions, discoveries, and pitfalls from transcript
 
-**Auto-memory** (zero-config, works with any session):
+**Auto-memory** (works with any session):
 
-The plugin's Stop hook automatically scans session transcripts for key patterns:
-- **Decisions**: "decided to X", "chose X over Y", "switched to X"
-- **Discoveries**: "found that X", "turns out X", "learned that X"
-- **Pitfalls**: "don't X", "avoid X", "the bug was X", "root cause was X"
+The plugin's Stop hook automatically extracts key learnings from session transcripts:
 
-Captured entries are appended to `.flow/memory/` files. No LLM call — pure pattern matching, runs in <1 second. Up to 5 entries per session to avoid noise.
+- **Default: Gemini AI summarization** — `gemini -p` analyzes the transcript and extracts the most important decisions, discoveries, and pitfalls. Understands context and semantics, not just keyword matching.
+- **Fallback: pattern matching** — if `gemini` CLI is not installed, falls back to regex extraction (zero dependencies).
+
+Captured entries (max 5 per session) are appended to `.flow/memory/` files:
+- `pitfalls.md` — bugs found, things to avoid
+- `conventions.md` — project patterns, coding conventions
+- `decisions.md` — architectural choices and rationale
 
 Memory retrieval works in all modes (manual, Ralph, auto-improve). Use `flowctl memory add` for manual entries.
 

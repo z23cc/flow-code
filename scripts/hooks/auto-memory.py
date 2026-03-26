@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Auto-memory hook: extracts key decisions, discoveries, and pitfalls from
-session transcripts and saves them to .flow/memory/ via flowctl.
+session transcripts using Gemini AI summarization, saves to .flow/memory/.
 
-Runs on Stop event. Zero external dependencies.
+Runs on Stop event. Requires `gemini` CLI (falls back to pattern matching).
 
 Only active when:
   - .flow/ exists (project uses flow-code)
@@ -13,6 +13,7 @@ Only active when:
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -33,7 +34,6 @@ def is_auto_memory_enabled(flow_dir: Path) -> bool:
         return False
     try:
         config = json.loads(config_path.read_text())
-        # Enabled if memory.auto is true, or memory.enabled is true
         mem = config.get("memory", {})
         if isinstance(mem, dict):
             return mem.get("auto", False) or mem.get("enabled", False)
@@ -71,69 +71,110 @@ def read_transcript(hook_input: dict) -> str:
     return "\n".join(texts)
 
 
-def extract_memories(text: str) -> list[dict]:
-    """Extract key decisions, discoveries, and pitfalls from session text.
+# ─────────────────────────────────────────────────────────────────────────────
+# AI summarization (default: gemini -p)
+# ─────────────────────────────────────────────────────────────────────────────
 
-    Uses pattern matching — no LLM call needed.
-    Looks for:
-    - Explicit decisions ("decided to", "chose", "went with", "using X instead of Y")
-    - Discoveries ("found that", "discovered", "turns out", "learned that")
-    - Pitfalls ("don't", "avoid", "careful with", "gotcha", "bug:", "warning:")
-    - Key fixes ("fixed by", "solved by", "the issue was", "root cause")
-    """
+SUMMARIZE_PROMPT = """Analyze this AI coding session transcript and extract the most important learnings.
+
+Output ONLY a JSON array of objects, each with "type" and "content" fields. No markdown, no explanation.
+
+Types:
+- "pitfall": things that went wrong, bugs found, things to avoid
+- "convention": project patterns discovered, coding conventions learned
+- "decision": architectural or design decisions made and why
+
+Rules:
+- Max 5 entries (only the most important)
+- Each "content" should be one concise sentence (under 150 chars)
+- Skip trivial things (file reads, git commands, routine operations)
+- Focus on what would help a FUTURE session avoid mistakes or follow decisions
+- If nothing important happened, return empty array: []
+
+Example output:
+[{"type":"pitfall","content":"Django select_related needed on UserProfile queries to avoid N+1"},{"type":"decision","content":"Chose per-epic review mode over per-task for faster Ralph runs"}]
+
+Transcript:
+"""
+
+
+def summarize_with_gemini(text: str) -> list[dict]:
+    """Use gemini -p to extract memories from transcript."""
+    # Truncate to ~50k chars to fit context
+    if len(text) > 50000:
+        text = text[:25000] + "\n...[truncated]...\n" + text[-25000:]
+
+    prompt = SUMMARIZE_PROMPT + text
+
+    try:
+        result = subprocess.run(
+            ["gemini", "-p", prompt],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode != 0:
+            return []
+
+        output = result.stdout.strip()
+        # Extract JSON array from output (may have surrounding text)
+        match = re.search(r'\[.*\]', output, re.S)
+        if not match:
+            return []
+
+        memories = json.loads(match.group(0))
+        # Validate structure
+        valid = []
+        for m in memories:
+            if isinstance(m, dict) and "type" in m and "content" in m:
+                if m["type"] in ("pitfall", "convention", "decision"):
+                    valid.append({"type": m["type"], "content": str(m["content"])[:200]})
+        return valid[:5]
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern matching fallback (when gemini not available)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def extract_by_pattern(text: str) -> list[dict]:
+    """Fallback: extract memories via regex pattern matching."""
     if not text or len(text) < 100:
         return []
 
     memories = []
-    lines = text.split("\n")
-
-    # Patterns → memory type
     patterns = [
-        # Decisions
-        (r"(?:decided|chose|chose to|went with|using .+ instead of|switched to|picked)\s+(.{20,150})",
-         "decision"),
-        # Discoveries
-        (r"(?:found that|discovered|turns out|learned that|realized|it appears)\s+(.{20,150})",
-         "convention"),
-        # Pitfalls
-        (r"(?:don'?t|avoid|careful with|gotcha|warning|bug:|issue:|never)\s+(.{20,150})",
-         "pitfall"),
-        # Fixes
-        (r"(?:fixed by|solved by|the (?:issue|problem|bug) was|root cause)\s+(.{20,150})",
-         "pitfall"),
+        (r"(?:decided|chose|chose to|went with|using .+ instead of|switched to)\s+(.{20,150})", "decision"),
+        (r"(?:found that|discovered|turns out|learned that|realized)\s+(.{20,150})", "convention"),
+        (r"(?:don'?t|avoid|careful with|gotcha|warning|bug:|issue:|never)\s+(.{20,150})", "pitfall"),
+        (r"(?:fixed by|solved by|the (?:issue|problem|bug) was|root cause)\s+(.{20,150})", "pitfall"),
     ]
 
     seen = set()
-    for line in lines:
+    for line in text.split("\n"):
         line_lower = line.lower().strip()
         if len(line_lower) < 20:
             continue
-
         for pattern, mem_type in patterns:
             match = re.search(pattern, line_lower)
             if match:
-                content = match.group(0).strip()
-                # Clean up and deduplicate
-                content = re.sub(r"\s+", " ", content)[:200]
+                content = re.sub(r"\s+", " ", match.group(0).strip())[:200]
                 key = content[:50]
                 if key not in seen:
                     seen.add(key)
-                    # Use the original case line for the memory content
-                    orig_content = line.strip()[:200]
-                    memories.append({
-                        "type": mem_type,
-                        "content": orig_content,
-                    })
-
-        # Cap at 5 memories per session to avoid noise
+                    memories.append({"type": mem_type, "content": line.strip()[:200]})
         if len(memories) >= 5:
             break
 
     return memories
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Save memories
+# ─────────────────────────────────────────────────────────────────────────────
+
 def save_memories(memories: list[dict], flow_dir: Path) -> int:
-    """Save memories using flowctl memory add."""
+    """Save memories via flowctl or direct file write."""
     if not memories:
         return 0
 
@@ -149,13 +190,11 @@ def save_memories(memories: list[dict], flow_dir: Path) -> int:
             break
 
     if not flowctl:
-        # Fallback: write directly to memory files
         return save_memories_direct(memories, flow_dir)
 
     saved = 0
     for mem in memories:
         try:
-            import subprocess
             result = subprocess.run(
                 [flowctl, "memory", "add", "--type", mem["type"], mem["content"]],
                 capture_output=True, text=True, timeout=5
@@ -195,8 +234,11 @@ def save_memories_direct(memories: list[dict], flow_dir: Path) -> int:
     return saved
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────────────
+
 def main():
-    # Read hook input from stdin
     try:
         hook_input = json.loads(sys.stdin.read())
     except Exception:
@@ -204,24 +246,28 @@ def main():
 
     flow_dir = get_flow_dir()
 
-    # Guard: only run if .flow/ exists and auto-memory enabled
     if not flow_dir.exists():
         sys.exit(0)
     if not is_auto_memory_enabled(flow_dir):
         sys.exit(0)
 
-    # Read transcript
     text = read_transcript(hook_input)
-    if not text:
+    if not text or len(text) < 200:
         sys.exit(0)
 
-    # Extract and save
-    memories = extract_memories(text)
+    # Default: AI summarization via gemini
+    # Fallback: pattern matching if gemini not available
+    memories = summarize_with_gemini(text)
+    method = "gemini"
+
+    if not memories:
+        memories = extract_by_pattern(text)
+        method = "pattern"
+
     saved = save_memories(memories, flow_dir)
 
     if saved > 0:
-        # Non-blocking output (exit 0)
-        print(f"auto-memory: captured {saved} memory entries", file=sys.stderr)
+        print(f"auto-memory: captured {saved} entries via {method}", file=sys.stderr)
 
     sys.exit(0)
 

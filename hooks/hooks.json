@@ -50,7 +50,7 @@
           {
             "type": "command",
             "command": "[ ! -d .flow/memory ] || python3 \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/auto-memory.py\"",
-            "timeout": 15
+            "timeout": 45
           }
         ],
         "description": "Auto-capture session memories to .flow/memory/ (requires memory.enabled or memory.auto in config)"

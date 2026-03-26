@@ -1088,14 +1088,17 @@ flowctl memory read --type pitfalls
 - **Ralph**：NEEDS_WORK 审查自动捕获到 `pitfalls.md`
 - **自动捕获**：会话结束 hook 从 transcript 中提取决策、发现和陷阱
 
-**自动记忆**（零配置，任何会话都生效）：
+**自动记忆**（任何会话都生效）：
 
-插件的 Stop hook 自动扫描会话 transcript 中的关键模式：
-- **决策**："decided to X"、"chose X over Y"、"switched to X"
-- **发现**："found that X"、"turns out X"、"learned that X"
-- **陷阱**："don't X"、"avoid X"、"the bug was X"、"root cause was X"
+插件的 Stop hook 自动从会话 transcript 中提取关键学习：
 
-捕获的条目追加到 `.flow/memory/` 文件。无 LLM 调用 — 纯模式匹配，运行 <1 秒。每个会话最多 5 条以避免噪音。
+- **默认：Gemini AI 总结** — `gemini -p` 分析 transcript，提取最重要的决策、发现和陷阱。理解上下文和语义，不只是关键词匹配。
+- **回退：模式匹配** — 如果未安装 `gemini` CLI，回退到正则提取（零依赖）。
+
+捕获的条目（每会话最多 5 条）追加到 `.flow/memory/` 文件：
+- `pitfalls.md` — 发现的 bug、要避免的事项
+- `conventions.md` — 项目模式、编码约定
+- `decisions.md` — 架构选择及理由
 
 配置存在于 `.flow/config.json`，与 Ralph 的 `scripts/ralph/config.env` 分开。
 

@@ -33,6 +33,7 @@
 - [When to Use What](#when-to-use-what) — Interview vs Plan vs Work
 - [Agent Readiness Assessment](#agent-readiness-assessment) — `/flow-code:prime`
 - [Troubleshooting](#troubleshooting)
+- [Codebase Map](#codebase-map) — Architecture documentation via parallel subagents
 - [Auto-Improve](#auto-improve-autonomous-optimization) — Autonomous code optimization
 - [Ralph (Autonomous Mode)](#ralph-autonomous-mode) — Run overnight
 - [Features](#features) — Re-anchoring, multi-user, reviews, dependencies
@@ -523,6 +524,41 @@ Flow-Code's plan-review and impl-review skills include specific instructions for
 - Chat commands failing or behaving differently
 
 **Fix:** Remove or comment out custom rp-cli instructions from your `CLAUDE.md`/`AGENTS.md` when using Flow-Code reviews. The plugin provides complete rp-cli guidance.
+
+---
+
+## Codebase Map
+
+Generate comprehensive architecture documentation using parallel Sonnet subagents.
+
+```bash
+/flow-code:map
+```
+
+Creates `docs/CODEBASE_MAP.md` with:
+- Architecture diagram (Mermaid)
+- Module guide (purpose, exports, dependencies per file)
+- Data flow diagrams
+- Conventions and gotchas
+- Navigation guide ("To add an API endpoint: touch these files")
+
+**How it works:**
+1. Scans file tree with token counts (respects .gitignore)
+2. Splits work into ~150k token chunks
+3. Spawns Sonnet subagents in parallel to analyze each chunk
+4. Synthesizes reports into a single map document
+
+**Update mode** — re-run to update only changed modules:
+```bash
+/flow-code:map --update
+```
+
+**Integrated with flow-code workflow:**
+- `repo-scout` reads the map first during planning (faster, more accurate)
+- `auto-improve` reads the map before each experiment (better context)
+- `context-scout` benefits from architecture overview
+
+Based on [Cartographer](https://github.com/kingbootoshi/cartographer) (MIT).
 
 ---
 

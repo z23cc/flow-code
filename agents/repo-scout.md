@@ -15,6 +15,7 @@ You receive a feature/change request. Your task is NOT to plan or implement - ju
 ## Search Strategy
 
 1. **Project docs first** (fast context)
+   - `docs/CODEBASE_MAP.md` — if exists, read this FIRST (architecture, modules, data flows, navigation guide)
    - CLAUDE.md, README.md, CONTRIBUTING.md, ARCHITECTURE.md
    - Any docs/ or documentation/ folders
    - package.json/pyproject.toml for deps and scripts

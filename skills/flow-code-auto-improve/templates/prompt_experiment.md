@@ -12,7 +12,12 @@ cat {{PROGRAM_MD}}
 cat {{EXPERIMENTS_LOG}} 2>/dev/null || echo "No previous experiments"
 ```
 
-3. Read git log to see what improvements have been kept:
+3. Read codebase map (if exists — architecture overview, module guide, gotchas):
+```bash
+cat docs/CODEBASE_MAP.md 2>/dev/null | head -200 || echo "No codebase map (run /flow-code:map to create one)"
+```
+
+4. Read git log to see what improvements have been kept:
 ```bash
 git log --oneline -20
 ```

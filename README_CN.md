@@ -33,6 +33,7 @@
 - [Agent 就绪评估](#agent-就绪评估) — `/flow-code:prime`
 - [交互式 vs 自治式](#交互式-vs-自治式)
 - [故障排除](#故障排除)
+- [代码库地图](#代码库地图) — 并行子 agent 生成架构文档
 - [Auto-Improve（自主优化）](#auto-improve自主优化) — 自主代码优化
 - [卸载](#卸载)
 - [Ralph（自治模式）](#ralph自治模式) — 无人值守运行
@@ -476,6 +477,41 @@ cat scripts/ralph/runs/*/receipts/impl-fn-1.1.json
 > **注意**：如果你在 `CLAUDE.md` 或 `AGENTS.md` 中有自定义 `rp-cli` 指令，它们可能与 Flow-Code 的 RepoPrompt 集成冲突。
 
 **修复：** 使用 Flow-Code 审查时，移除或注释掉自定义 rp-cli 指令。插件提供完整的 rp-cli 指导。
+
+---
+
+## 代码库地图
+
+使用并行 Sonnet 子 agent 生成全面的架构文档。
+
+```bash
+/flow-code:map
+```
+
+生成 `docs/CODEBASE_MAP.md`，包含：
+- 架构图（Mermaid）
+- 模块指南（每个文件的用途、导出、依赖）
+- 数据流图
+- 约定和陷阱
+- 导航指南（"要添加 API 端点：修改这些文件"）
+
+**工作原理：**
+1. 扫描文件树并计算 token 数（遵循 .gitignore）
+2. 按 ~150k token 分块
+3. 并行 spawn Sonnet 子 agent 分析每个分块
+4. 合并报告生成统一的地图文档
+
+**更新模式** — 重新运行仅更新变化的模块：
+```bash
+/flow-code:map --update
+```
+
+**与 flow-code 工作流集成：**
+- `repo-scout` 规划时优先读取地图（更快更准确）
+- `auto-improve` 实验前读取地图（更好的上下文）
+- `context-scout` 受益于架构概览
+
+基于 [Cartographer](https://github.com/kingbootoshi/cartographer)（MIT）。
 
 ---
 

@@ -1,12 +1,12 @@
 ---
-name: flow-next:epic-review
+name: flow-code:epic-review
 description: Epic completion review - verify implementation matches spec
 argument-hint: "<fn-N> [--review=rp|codex|none]"
 ---
 
-# IMPORTANT: This command MUST invoke the skill `flow-next-epic-review`
+# IMPORTANT: This command MUST invoke the skill `flow-code-epic-review`
 
-The ONLY purpose of this command is to call the `flow-next-epic-review` skill. You MUST use that skill now.
+The ONLY purpose of this command is to call the `flow-code-epic-review` skill. You MUST use that skill now.
 
 **Arguments:** $ARGUMENTS
 

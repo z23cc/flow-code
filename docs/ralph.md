@@ -1,6 +1,6 @@
 # Ralph — Autonomous Loop
 
-Ralph is Flow-Next's repo-local autonomous harness. It loops over tasks, applies multi-model review gates, and produces production-quality code overnight.
+Ralph is Flow-Code's repo-local autonomous harness. It loops over tasks, applies multi-model review gates, and produces production-quality code overnight.
 
 > **TL;DR**: External shell loop → fresh Claude session per task → cross-model review gates → receipt-based proof-of-work → iterate until SHIP.
 
@@ -40,10 +40,10 @@ Ralph is Flow-Next's repo-local autonomous harness. It loops over tasks, applies
 
 ```bash
 # Inside Claude Code
-/flow-next:ralph-init
+/flow-code:ralph-init
 
 # Or from terminal
-claude -p "/flow-next:ralph-init"
+claude -p "/flow-code:ralph-init"
 ```
 
 Creates `scripts/ralph/` with:
@@ -91,13 +91,13 @@ scripts/ralph/ralph.sh --config alt.env  # Use alternate config file
 ### 5. Monitor (Optional)
 
 ```bash
-bun add -g @gmickel/flow-next-tui
-flow-next-tui
+bun add -g @gmickel/flow-code-tui
+flow-code-tui
 ```
 
 Real-time TUI for task progress, streaming logs, and run state.
 
-![flow-next-tui](../../../assets/tui.png)
+![flow-code-tui](../../../assets/tui.png)
 
 ### Uninstall
 
@@ -118,7 +118,7 @@ rm -rf scripts/ralph/
 │  scripts/ralph/ralph.sh                                      │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │  while flowctl next returns work:                      │  │
-│  │    1. claude -p "/flow-next:plan" or :work             │  │
+│  │    1. claude -p "/flow-code:plan" or :work             │  │
 │  │    2. check review receipts                            │  │
 │  │    3. if missing/invalid → retry                       │  │
 │  │    4. if SHIP verdict → next task                      │  │
@@ -129,11 +129,11 @@ rm -rf scripts/ralph/
 ```mermaid
 flowchart TD
   A[ralph.sh loop] --> B[flowctl next]
-  B -->|plan needed| C[/flow-next:plan/]
-  C --> D[/flow-next:plan-review/]
-  B -->|work needed| E[/flow-next:work/]
-  E --> F[/flow-next:impl-review/]
-  B -->|completion review needed| K[/flow-next:epic-review/]
+  B -->|plan needed| C[/flow-code:plan/]
+  C --> D[/flow-code:plan-review/]
+  B -->|work needed| E[/flow-code:work/]
+  E --> F[/flow-code:impl-review/]
+  B -->|completion review needed| K[/flow-code:epic-review/]
   D --> G{Receipt valid?}
   F --> G
   K --> G
@@ -147,7 +147,7 @@ flowchart TD
 
 ### Why Ralph vs ralph-wiggum
 
-Anthropic's official ralph-wiggum uses a Stop hook to keep Claude in the same session. Flow-Next inverts this for production-grade reliability.
+Anthropic's official ralph-wiggum uses a Stop hook to keep Claude in the same session. Flow-Code inverts this for production-grade reliability.
 
 | Aspect | ralph-wiggum | Ralph |
 |--------|--------------|-------|
@@ -202,7 +202,7 @@ The plan review gate ensures epics are architecturally sound before any implemen
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │  1. Find epics with plan_review_status = unknown       │ │
 │  │  2. Return status=plan, epic=fn-1                      │ │
-│  │  3. Ralph invokes /flow-next:plan-review fn-1          │ │
+│  │  3. Ralph invokes /flow-code:plan-review fn-1          │ │
 │  │  4. Skill loops until <verdict>SHIP</verdict>          │ │
 │  │  5. flowctl epic set-plan-review-status fn-1 --status ship │
 │  │  6. Next iteration: epic unlocked for work             │ │
@@ -241,7 +241,7 @@ When `flowctl next` returns `status=plan`:
 
 2. **Review** — Invoke the plan review skill
    ```bash
-   /flow-next:plan-review fn-1 --review=codex
+   /flow-code:plan-review fn-1 --review=codex
    ```
 
 3. **Fix loop** — If `NEEDS_WORK`:
@@ -306,7 +306,7 @@ The epic-completion review gate ensures implementation matches the spec before c
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │  1. All tasks done, completion_review_status != ship   │ │
 │  │  2. Return status=completion_review, epic=fn-1         │ │
-│  │  3. Ralph invokes /flow-next:epic-review fn-1          │ │
+│  │  3. Ralph invokes /flow-code:epic-review fn-1          │ │
 │  │  4. Skill loops until <verdict>SHIP</verdict>          │ │
 │  │  5. flowctl epic set-completion-review-status fn-1 --status ship │
 │  │  6. Next iteration: epic can close                     │ │
@@ -335,7 +335,7 @@ When `flowctl next` returns `status=completion_review`:
 
 1. **Review** — Invoke the epic-review skill
    ```bash
-   /flow-next:epic-review fn-1 --review=codex
+   /flow-code:epic-review fn-1 --review=codex
    ```
 
 2. **Fix loop** — If `NEEDS_WORK`:
@@ -655,7 +655,7 @@ See [Docker sandbox docs](https://docs.docker.com/ai/sandboxes/claude-code/).
 
 **Community sandbox setups:**
 
-- [devcontainer-for-claude-yolo-and-flow-next](https://github.com/Ranudar/devcontainer-for-claude-yolo-and-flow-next) — VS Code devcontainer with Playwright, firewall whitelisting, RepoPrompt MCP bridge
+- [devcontainer-for-claude-yolo-and-flow-code](https://github.com/Ranudar/devcontainer-for-claude-yolo-and-flow-code) — VS Code devcontainer with Playwright, firewall whitelisting, RepoPrompt MCP bridge
 - [agent-sandbox](https://github.com/novotnyllc/agent-sandbox) — Docker Sandbox (Desktop 4.50+) with seccomp/namespace isolation
 
 ### DCG (Destructive Command Guard)
@@ -714,7 +714,7 @@ Plugin hooks enforce workflow rules deterministically.
 **Location:**
 
 ```
-plugins/flow-next/
+plugins/flow-code/
   hooks/hooks.json              # Config
   scripts/hooks/ralph-guard.py  # Logic
 ```
@@ -976,6 +976,6 @@ flowctl show fn-1.1 --json | jq '.evidence.commits'
 ## References
 
 - [flowctl CLI](flowctl.md)
-- [Flow-Next README](../README.md)
-- [flow-next-tui](../../../flow-next-tui/README.md)
-- Test scripts: `plugins/flow-next/scripts/ralph_e2e_*.sh`
+- [Flow-Code README](../README.md)
+- [flow-code-tui](../../../flow-code-tui/README.md)
+- Test scripts: `plugins/flow-code/scripts/ralph_e2e_*.sh`

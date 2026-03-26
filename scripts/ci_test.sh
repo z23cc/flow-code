@@ -48,7 +48,7 @@ flowctl() {
   "$PYTHON_BIN" "$TEST_DIR/scripts/flowctl.py" "$@"
 }
 
-echo -e "${YELLOW}=== flow-next CI tests ===${NC}"
+echo -e "${YELLOW}=== flow-code CI tests ===${NC}"
 echo "Python: $PYTHON_BIN"
 echo "Test dir: $TEST_DIR"
 

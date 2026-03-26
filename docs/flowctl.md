@@ -2,7 +2,7 @@
 
 CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 
-> **Note:** This is the full human reference. Agents should read `.flow/usage.md` (created by `/flow-next:setup`).
+> **Note:** This is the full human reference. Agents should read `.flow/usage.md` (created by `/flow-code:setup`).
 
 ## Available Commands
 
@@ -31,10 +31,10 @@ Works out of the box for parallel branches. No setup required.
 ├── tasks/fn-N-slug.M.json  # Task state (e.g., fn-1-add-oauth.1.json)
 ├── tasks/fn-N-slug.M.md    # Task spec (markdown)
 ├── memory/                 # Agent memory (reserved)
-├── bin/                    # (optional) Local flowctl install via /flow-next:setup
+├── bin/                    # (optional) Local flowctl install via /flow-code:setup
 │   ├── flowctl
 │   └── flowctl.py
-└── usage.md                # (optional) CLI reference via /flow-next:setup
+└── usage.md                # (optional) CLI reference via /flow-code:setup
 ```
 
 Flowctl accepts schema v1 and v2; new fields are optional and defaulted.
@@ -475,7 +475,7 @@ flowctl config toggle memory.enabled [--json]
 
 Priority: `--review=...` argument > `FLOW_REVIEW_BACKEND` env > `.flow/config.json` > error.
 
-No auto-detect. Run `/flow-next:setup` (or `flowctl config set review.backend ...`) to configure.
+No auto-detect. Run `/flow-code:setup` (or `flowctl config set review.backend ...`) to configure.
 
 ### memory
 
@@ -662,7 +662,7 @@ Completion review receipt:
 
 **Windows users:** Codex CLI's `read-only` sandbox blocks ALL shell commands on Windows (including reads). Use `--sandbox auto` or `--sandbox danger-full-access` for Windows compatibility.
 
-**Note:** After plugin update, re-run `/flow-next:setup` or `/flow-next:ralph-init` to get sandbox fixes.
+**Note:** After plugin update, re-run `/flow-code:setup` or `/flow-code:ralph-init` to get sandbox fixes.
 
 ### checkpoint
 

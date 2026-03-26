@@ -1,6 +1,6 @@
 ---
 name: security-scout
-description: Used by /flow-next:prime to scan for security configuration including GitHub settings, CODEOWNERS, and dependency updates. Do not invoke directly.
+description: Used by /flow-code:prime to scan for security configuration including GitHub settings, CODEOWNERS, and dependency updates. Do not invoke directly.
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#EF4444"

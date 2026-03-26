@@ -5,12 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Safety: never run tests from the main plugin repo
-if [[ -f "$PWD/.claude-plugin/marketplace.json" ]] || [[ -f "$PWD/plugins/flow-next/.claude-plugin/plugin.json" ]]; then
+if [[ -f "$PWD/.claude-plugin/marketplace.json" ]] || [[ -f "$PWD/plugins/flow-code/.claude-plugin/plugin.json" ]]; then
   echo "ERROR: refusing to run from main plugin repo. Run from any other directory." >&2
   exit 1
 fi
 
-TEST_DIR="${TEST_DIR:-/tmp/flow-next-ralph-e2e-rp-$$}"
+TEST_DIR="${TEST_DIR:-/tmp/flow-code-ralph-e2e-rp-$$}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 FLOWCTL=""
 
@@ -139,7 +139,7 @@ EOF
 
 cat > package.json <<'EOF'
 {
-  "name": "tmp-flow-next-ralph",
+  "name": "tmp-flow-code-ralph",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -150,7 +150,7 @@ cat > package.json <<'EOF'
 EOF
 
 cat > README.md <<'EOF'
-# tmp-flow-next-ralph
+# tmp-flow-code-ralph
 
 TBD
 EOF
@@ -159,7 +159,7 @@ git add .
 git commit -m "chore: init" >/dev/null
 
 mkdir -p scripts/ralph
-cp -R "$PLUGIN_ROOT/skills/flow-next-ralph-init/templates/." scripts/ralph/
+cp -R "$PLUGIN_ROOT/skills/flow-code-ralph-init/templates/." scripts/ralph/
 cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl.py
 cp "$PLUGIN_ROOT/scripts/flowctl" scripts/ralph/flowctl
 chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl
@@ -183,13 +183,13 @@ PY
 
 scripts/ralph/flowctl init --json >/dev/null
 
-# Mirror /flow-next:setup - add .flow/bin/ + usage.md + CLAUDE.md
+# Mirror /flow-code:setup - add .flow/bin/ + usage.md + CLAUDE.md
 mkdir -p .flow/bin
 cp "$PLUGIN_ROOT/scripts/flowctl" .flow/bin/flowctl
 cp "$PLUGIN_ROOT/scripts/flowctl.py" .flow/bin/flowctl.py
 chmod +x .flow/bin/flowctl
-cp "$PLUGIN_ROOT/skills/flow-next-setup/templates/usage.md" .flow/usage.md
-cat "$PLUGIN_ROOT/skills/flow-next-setup/templates/claude-md-snippet.md" > CLAUDE.md
+cp "$PLUGIN_ROOT/skills/flow-code-setup/templates/usage.md" .flow/usage.md
+cat "$PLUGIN_ROOT/skills/flow-code-setup/templates/claude-md-snippet.md" > CLAUDE.md
 echo -e "${GREEN}✓${NC} Setup mirrored (.flow/bin/, usage.md, CLAUDE.md)"
 
 scripts/ralph/flowctl epic create --title "Tiny lib" --json >/dev/null

@@ -19,7 +19,7 @@ PYTHON_BIN="$(pick_python)"
 [[ -n "$PYTHON_BIN" ]] || { echo "ERROR: python not found (need python3 or python in PATH)" >&2; exit 1; }
 
 # Safety: never run tests from the main plugin repo
-if [[ -f "$PWD/.claude-plugin/marketplace.json" ]] || [[ -f "$PWD/plugins/flow-next/.claude-plugin/plugin.json" ]]; then
+if [[ -f "$PWD/.claude-plugin/marketplace.json" ]] || [[ -f "$PWD/plugins/flow-code/.claude-plugin/plugin.json" ]]; then
   echo "ERROR: refusing to run from main plugin repo. Run from any other directory." >&2
   exit 1
 fi
@@ -53,7 +53,7 @@ git commit -m "chore: init" >/dev/null
 
 scaffold() {
   mkdir -p scripts/ralph
-  cp -R "$PLUGIN_ROOT/skills/flow-next-ralph-init/templates/." scripts/ralph/
+  cp -R "$PLUGIN_ROOT/skills/flow-code-ralph-init/templates/." scripts/ralph/
   cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl.py
   cp "$PLUGIN_ROOT/scripts/flowctl" scripts/ralph/flowctl
   chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl

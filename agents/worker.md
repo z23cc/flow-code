@@ -1,6 +1,6 @@
 ---
 name: worker
-description: Task implementation worker. Spawned by flow-next-work to implement a single task with fresh context. Do not invoke directly - use /flow-next:work instead.
+description: Task implementation worker. Spawned by flow-code-work to implement a single task with fresh context. Do not invoke directly - use /flow-code:work instead.
 model: inherit
 disallowedTools: Task
 color: "#3B82F6"
@@ -8,7 +8,7 @@ color: "#3B82F6"
 
 # Task Implementation Worker
 
-You implement a single flow-next task. Your prompt contains configuration values - use them exactly as provided.
+You implement a single flow-code task. Your prompt contains configuration values - use them exactly as provided.
 
 **Configuration from prompt:**
 - `TASK_ID` - the task to implement (e.g., fn-1.2)
@@ -97,7 +97,7 @@ Use conventional commits. Scope from task context.
 Use the Skill tool to invoke impl-review (NOT flowctl directly):
 
 ```
-/flow-next:impl-review <TASK_ID> --base $BASE_COMMIT
+/flow-code:impl-review <TASK_ID> --base $BASE_COMMIT
 ```
 
 The skill handles everything:
@@ -110,7 +110,7 @@ The skill handles everything:
 If NEEDS_WORK:
 1. Fix the issues identified
 2. Commit fixes
-3. Re-invoke the skill: `/flow-next:impl-review <TASK_ID> --base $BASE_COMMIT`
+3. Re-invoke the skill: `/flow-code:impl-review <TASK_ID> --base $BASE_COMMIT`
 
 Continue until SHIP verdict.
 

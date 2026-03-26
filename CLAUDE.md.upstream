@@ -1,7 +1,7 @@
 # Claude Code Project Guide
 
 ## Purpose
-This repo is a Claude Code plugin marketplace. It ships two plugins: **flow** and **flow-next**.
+This repo is a Claude Code plugin marketplace. It ships two plugins: **flow** and **flow-code**.
 
 ## Structure
 - Marketplace manifest: `.claude-plugin/marketplace.json`
@@ -10,18 +10,18 @@ This repo is a Claude Code plugin marketplace. It ships two plugins: **flow** an
 
 ## Plugins
 
-### flow-next (recommended)
+### flow-code (recommended)
 Zero-dependency workflow with bundled `flowctl.py`. All state in `.flow/` directory.
 
 Commands:
-- `/flow-next:plan` → creates epic + tasks in `.flow/`
-- `/flow-next:work` → executes tasks with re-anchoring
-- `/flow-next:interview` → deep spec refinement
-- `/flow-next:plan-review` → Carmack-level plan review via rp-cli
-- `/flow-next:impl-review` → Carmack-level impl review (current branch)
+- `/flow-code:plan` → creates epic + tasks in `.flow/`
+- `/flow-code:work` → executes tasks with re-anchoring
+- `/flow-code:interview` → deep spec refinement
+- `/flow-code:plan-review` → Carmack-level plan review via rp-cli
+- `/flow-code:impl-review` → Carmack-level impl review (current branch)
 
 Ralph (autonomous loop):
-- Script template lives in `plugins/flow-next/skills/flow-next-ralph-init/templates/`.
+- Script template lives in `plugins/flow-code/skills/flow-code-ralph-init/templates/`.
 - Ralph uses `flowctl rp` wrappers (not direct rp-cli) for reviews.
 - Receipts gate progress when `REVIEW_RECEIPT_PATH` is set.
 - Runbooks: `plans/ralph-e2e-notes.md`, `plans/ralph-getting-started.md`.
@@ -67,7 +67,7 @@ Commands:
 
 ## Cross-platform patterns (Claude Code + Factory Droid)
 
-flow-next supports both Claude Code and Factory Droid. Follow these patterns:
+flow-code supports both Claude Code and Factory Droid. Follow these patterns:
 
 **Variable references** — use bash fallback:
 ```bash
@@ -103,26 +103,26 @@ Runbooks:
 
 Tests:
 ```bash
-plugins/flow-next/scripts/smoke_test.sh
-plugins/flow-next/scripts/ralph_smoke_test.sh
+plugins/flow-code/scripts/smoke_test.sh
+plugins/flow-code/scripts/ralph_smoke_test.sh
 ```
 
 RP smoke (RP 1.5.68+ auto-opens window with --create, or open manually on `${TEST_DIR}/repo`):
 ```bash
-RP_SMOKE=1 TEST_DIR=/tmp/flow-next-ralph-smoke-rpN KEEP_TEST_DIR=1 \
-  plugins/flow-next/scripts/ralph_smoke_rp.sh
+RP_SMOKE=1 TEST_DIR=/tmp/flow-code-ralph-smoke-rpN KEEP_TEST_DIR=1 \
+  plugins/flow-code/scripts/ralph_smoke_rp.sh
 ```
 
 Full RP e2e (RP 1.5.68+ auto-opens window with --create, or open manually on `${TEST_DIR}/repo`):
 ```bash
-TEST_DIR=/tmp/flow-next-ralph-e2e-rpN KEEP_TEST_DIR=1 \
-  plugins/flow-next/scripts/ralph_e2e_rp_test.sh
+TEST_DIR=/tmp/flow-code-ralph-e2e-rpN KEEP_TEST_DIR=1 \
+  plugins/flow-code/scripts/ralph_e2e_rp_test.sh
 ```
 
 Short RP e2e (2 tasks, faster iteration):
 ```bash
-CREATE=1 TEST_DIR=/tmp/flow-next-ralph-e2e-short-rpN \
-  plugins/flow-next/scripts/ralph_e2e_short_rp_test.sh
+CREATE=1 TEST_DIR=/tmp/flow-code-ralph-e2e-short-rpN \
+  plugins/flow-code/scripts/ralph_e2e_short_rp_test.sh
 # With RP 1.5.68+: windows auto-open. Older: open RP on test repo, re-run without CREATE
 ```
 
@@ -147,12 +147,12 @@ FLOW_RALPH_CLAUDE_NO_SESSION_PERSISTENCE=1
 ```bash
 # From this repo root
 /plugin marketplace add ./
-/plugin install flow-next@gmickel-claude-marketplace
+/plugin install flow-code@gmickel-claude-marketplace
 
 # Test in any project - plugin hooks work via ${CLAUDE_PLUGIN_ROOT}
 ```
 
-Uninstall global version first if installed: `claude plugins uninstall flow-next`
+Uninstall global version first if installed: `claude plugins uninstall flow-code`
 
 **Alternative: --plugin-dir** (test scripts only):
 
@@ -168,18 +168,18 @@ Logs:
 - Receipts: `scripts/ralph/runs/<run>/receipts/`
 - Claude jsonl: `~/.claude/projects/**/<session_id>.jsonl`
 
-## Release checklist (flow-next)
+## Release checklist (flow-code)
 
-1. Run `./scripts/bump.sh <patch|minor|major> flow-next`
-2. Update `CHANGELOG.md` with `[flow-next X.Y.Z]` entry
+1. Run `./scripts/bump.sh <patch|minor|major> flow-code`
+2. Update `CHANGELOG.md` with `[flow-code X.Y.Z]` entry
 3. Commit and push:
    ```bash
-   git add -A && git commit -m "chore(flow-next): bump version to X.Y.Z"
+   git add -A && git commit -m "chore(flow-code): bump version to X.Y.Z"
    git push
    ```
 4. Tag to trigger release + Discord notification:
    ```bash
-   git tag flow-next-vX.Y.Z && git push origin flow-next-vX.Y.Z
+   git tag flow-code-vX.Y.Z && git push origin flow-code-vX.Y.Z
    ```
 
 ## Release checklist (flow)
@@ -203,7 +203,7 @@ Before running tests or developing plugins locally:
 
 ```bash
 # Uninstall marketplace plugins to avoid conflicts with local dev versions
-claude plugins uninstall flow-next
+claude plugins uninstall flow-code
 claude plugins uninstall flow
 ```
 
@@ -216,15 +216,15 @@ Global installs take precedence over `--plugin-dir`, causing tests to use stale 
 
 ## Codex CLI Installation
 
-Install flow or flow-next to OpenAI Codex (requires Codex CLI 0.102.0+):
+Install flow or flow-code to OpenAI Codex (requires Codex CLI 0.102.0+):
 
 ```bash
 # Clone the marketplace repo (one-time)
 git clone https://github.com/gmickel/gmickel-claude-marketplace.git
 cd gmickel-claude-marketplace
 
-# Install flow-next (recommended)
-./scripts/install-codex.sh flow-next
+# Install flow-code (recommended)
+./scripts/install-codex.sh flow-code
 
 # Or install flow
 ./scripts/install-codex.sh flow
@@ -247,7 +247,7 @@ cd gmickel-claude-marketplace
 - Frontmatter → `model`, `sandbox_mode`, reasoning settings
 - Body → `developer_instructions` (backslashes auto-escaped for TOML)
 - `claude-md-scout` → `agents-md-scout` (CLAUDE.md refs patched to AGENTS.md)
-- Prime workflow patched: `Task flow-next:<scout>` → `Use the <scout_name> agent`
+- Prime workflow patched: `Task flow-code:<scout>` → `Use the <scout_name> agent`
 
 **Model mapping (3-tier):**
 
@@ -266,12 +266,12 @@ CODEX_MODEL_INTELLIGENT=gpt-5.4 \
 CODEX_MODEL_FAST=gpt-5.3-codex-spark \
 CODEX_REASONING_EFFORT=high \
 CODEX_MAX_THREADS=12 \
-./scripts/install-codex.sh flow-next
+./scripts/install-codex.sh flow-code
 ```
 
 **Limitations:**
 - Hooks not supported (ralph-guard won't run)
-- Core `/flow-next:plan` and `/flow-next:work` commands work with native multi-agent roles
+- Core `/flow-code:plan` and `/flow-code:work` commands work with native multi-agent roles
 - Prompts (`/prompts:*`) are global-only (`~/.codex/prompts/`). Agents, skills, and config support project-scoped `.codex/` but prompts don't yet — tracked in [openai/codex#4734](https://github.com/openai/codex/issues/4734). Once shipped, add `--target <dir>` to `install-codex.sh` for project-local installs.
 
 **Usage in Codex:**
@@ -283,10 +283,10 @@ export PATH="$HOME/.codex/bin:$PATH"
 ~/.codex/bin/flowctl --help
 ```
 
-<!-- BEGIN FLOW-NEXT -->
-## Flow-Next
+<!-- BEGIN FLOW-CODE -->
+## Flow-Code
 
-This project uses Flow-Next for task tracking. Use `.flow/bin/flowctl` instead of markdown TODOs or TodoWrite.
+This project uses Flow-Code for task tracking. Use `.flow/bin/flowctl` instead of markdown TODOs or TodoWrite.
 
 **Quick commands:**
 ```bash
@@ -301,7 +301,7 @@ This project uses Flow-Next for task tracking. Use `.flow/bin/flowctl` instead o
 
 **Creating a spec** ("create a spec", "spec out X", "write a spec for X"):
 
-A spec = an epic. Create one directly — do NOT use `/flow-next:plan` (that breaks specs into tasks).
+A spec = an epic. Create one directly — do NOT use `/flow-code:plan` (that breaks specs into tasks).
 
 ```bash
 .flow/bin/flowctl epic create --title "Short title" --json
@@ -333,8 +333,8 @@ EOF
 ```
 
 After creating a spec, choose next step:
-- `/flow-next:plan <epic-id>` — research + break into tasks
-- `/flow-next:interview <epic-id>` — deep Q&A to refine the spec
+- `/flow-code:plan <epic-id>` — research + break into tasks
+- `/flow-code:interview <epic-id>` — deep Q&A to refine the spec
 
 **Rules:**
 - Use `.flow/bin/flowctl` for ALL task tracking
@@ -342,4 +342,4 @@ After creating a spec, choose next step:
 - Re-anchor (re-read spec + status) before every task
 
 **More info:** `.flow/bin/flowctl --help` or read `.flow/usage.md`
-<!-- END FLOW-NEXT -->
+<!-- END FLOW-CODE -->

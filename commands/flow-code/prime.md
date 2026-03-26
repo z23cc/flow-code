@@ -1,12 +1,12 @@
 ---
-name: flow-next:prime
+name: flow-code:prime
 description: Analyze codebase for agent readiness and propose improvements
 argument-hint: "[--report-only] [--fix-all] [path]"
 ---
 
-# IMPORTANT: This command MUST invoke the skill `flow-next-prime`
+# IMPORTANT: This command MUST invoke the skill `flow-code-prime`
 
-The ONLY purpose of this command is to call the `flow-next-prime` skill. You MUST use that skill now.
+The ONLY purpose of this command is to call the `flow-code-prime` skill. You MUST use that skill now.
 
 **User request:** $ARGUMENTS
 

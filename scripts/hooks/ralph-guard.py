@@ -507,7 +507,7 @@ def handle_post_tool_use(data: dict) -> None:
                             "WARNING: Reviewer responded with informal approval (LGTM/Looks good) "
                             "but did NOT use the required <verdict>SHIP</verdict> tag. "
                             "This means your review prompt was incorrect. "
-                            "You MUST use /flow-next:impl-review skill which has the correct prompt format. "
+                            "You MUST use /flow-code:impl-review skill which has the correct prompt format. "
                             "Do NOT improvise review prompts. Re-invoke the skill and try again."
                         ),
                     }
@@ -547,13 +547,13 @@ def handle_stop(data: dict) -> None:
             receipt_type, item_id = parse_receipt_path(receipt_path)
             # Tell worker to invoke the review skill, not write receipt manually
             if receipt_type == "impl_review":
-                skill = "/flow-next:impl-review"
+                skill = "/flow-code:impl-review"
                 skill_desc = "implementation review"
             elif receipt_type == "completion_review":
-                skill = "/flow-next:epic-review"
+                skill = "/flow-code:epic-review"
                 skill_desc = "epic completion review"
             else:
-                skill = "/flow-next:plan-review"
+                skill = "/flow-code:plan-review"
                 skill_desc = "plan review"
             # Block stop - review not completed
             output_json(

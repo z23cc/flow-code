@@ -1,0 +1,32 @@
+{
+  "name": "flow-code",
+  "owner": {
+    "name": "z23cc",
+    "url": "https://github.com/z23cc"
+  },
+  "metadata": {
+    "description": "Plan-first workflow orchestration for Claude Code. Zero external dependencies.",
+    "version": "0.26.1"
+  },
+  "plugins": [
+    {
+      "name": "flow-code",
+      "description": "Zero-dependency planning + execution with .flow/ task tracking and Ralph autonomous mode (multi-model review gates). Worker subagent per task for context isolation. Prime assesses 8 pillars (48 criteria) with GitHub API integration. Includes 20 subagents, 11 commands, 16 skills.",
+      "version": "0.26.1",
+      "author": {
+        "name": "z23cc",
+        "url": "https://github.com/z23cc"
+      },
+      "homepage": "https://github.com/z23cc/flow-code",
+      "tags": [
+        "claude-code",
+        "plugin",
+        "workflow",
+        "planning",
+        "execution",
+        "automation"
+      ],
+      "source": "."
+    }
+  ]
+}

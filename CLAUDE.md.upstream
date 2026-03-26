@@ -177,7 +177,7 @@ Logs:
    git add -A && git commit -m "chore(flow-code): bump version to X.Y.Z"
    git push
    ```
-4. Tag to trigger release + Discord notification:
+4. Tag to trigger release:
    ```bash
    git tag flow-code-vX.Y.Z && git push origin flow-code-vX.Y.Z
    ```

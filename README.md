@@ -8,7 +8,6 @@
 [![Version](https://img.shields.io/badge/Version-0.26.1-green)](../../CHANGELOG.md)
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/nHEmyJB5tg)
 
 **Plan first, work second. Zero external dependencies.**
 

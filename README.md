@@ -33,6 +33,7 @@
 - [When to Use What](#when-to-use-what) — Interview vs Plan vs Work
 - [Agent Readiness Assessment](#agent-readiness-assessment) — `/flow-code:prime`
 - [Troubleshooting](#troubleshooting)
+- [Auto-Improve](#auto-improve-autonomous-optimization) — Autonomous code optimization
 - [Ralph (Autonomous Mode)](#ralph-autonomous-mode) — Run overnight
 - [Features](#features) — Re-anchoring, multi-user, reviews, dependencies
 - [Commands](#commands) — All slash commands + flags
@@ -522,6 +523,86 @@ Flow-Code's plan-review and impl-review skills include specific instructions for
 - Chat commands failing or behaving differently
 
 **Fix:** Remove or comment out custom rp-cli instructions from your `CLAUDE.md`/`AGENTS.md` when using Flow-Code reviews. The plugin provides complete rp-cli guidance.
+
+---
+
+## Auto-Improve (Autonomous Optimization)
+
+> Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) — 700 experiments in 2 days, 19% performance gain at Shopify.
+
+Auto-improve runs an autonomous experiment loop on your project: discover improvement → implement → test → keep or discard → repeat. Each experiment runs in a fresh Claude process.
+
+**Setup (one-time):**
+```bash
+/flow-code:auto-improve --init
+```
+
+Auto-detects project type (Django / React / Next.js) and generates:
+- `scripts/auto-improve/program.md` — improvement instructions (edit to customize)
+- `scripts/auto-improve/config.env` — goal, scope, guard command
+- `scripts/auto-improve/auto-improve.sh` — experiment loop engine
+
+**Configure:**
+```bash
+# Edit config.env
+GOAL="Improve API performance and fix N+1 queries"
+SCOPE=src/api/ src/models/
+GUARD_CMD="python -m pytest -x -q && ruff check ."
+MAX_EXPERIMENTS=50
+```
+
+**Run:**
+```bash
+scripts/auto-improve/auto-improve.sh              # Quiet mode
+scripts/auto-improve/auto-improve.sh --watch       # See tool calls
+```
+
+**Experiment flow:**
+```
+for each experiment:
+  1. Agent reads code + previous experiments
+  2. Discovers ONE improvement opportunity
+  3. Writes test first (TDD style)
+  4. Implements minimal change (scope-restricted)
+  5. Runs guard (lint + tests must pass)
+  6. Judges: keep (git commit) or discard (git reset)
+  7. Logs to experiments.jsonl
+```
+
+**Key design:**
+- **Simplicity criterion** (from autoresearch): complexity increase > benefit = discard
+- **Scope restriction**: agent can only modify files in configured directories
+- **Guard enforcement**: lint + tests must pass before any keep
+- **Auto-rollback**: any failure = `git reset --hard`
+- **JSONL logging**: `experiments.jsonl` for analysis, `summary.md` at end
+
+**Example for Django:**
+```bash
+/flow-code:auto-improve --init --goal "fix N+1 queries and add missing tests" --scope src/
+# Edit config.env: GUARD_CMD="python -m pytest -x -q"
+scripts/auto-improve/auto-improve.sh --watch
+```
+
+**Example for Next.js:**
+```bash
+/flow-code:auto-improve --init --goal "reduce bundle size and improve Core Web Vitals" --scope src/ app/
+# Edit config.env: GUARD_CMD="npm run lint && npm test"
+scripts/auto-improve/auto-improve.sh
+```
+
+**Bootstrap** (if project lacks test infrastructure):
+```bash
+/flow-code:auto-improve --init --bootstrap
+```
+
+**Ralph vs Auto-Improve:**
+| | Ralph | Auto-Improve |
+|---|---|---|
+| Purpose | Execute planned tasks | Explore & optimize |
+| Input | Epic with spec + tasks | Goal + scope |
+| Approach | Follow plan exactly | Discover improvements |
+| Output | Completed features | Incremental code improvements |
+| When | You know WHAT to build | You want code to get BETTER |
 
 ---
 

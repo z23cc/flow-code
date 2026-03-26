@@ -530,70 +530,58 @@ Flow-Code's plan-review and impl-review skills include specific instructions for
 
 > Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) — 700 experiments in 2 days, 19% performance gain at Shopify.
 
-Auto-improve runs an autonomous experiment loop on your project: discover improvement → implement → test → keep or discard → repeat. Each experiment runs in a fresh Claude process.
+One command to start autonomous code improvement. Auto-detects project type, guard commands, and runs immediately.
 
-**Setup (one-time):**
 ```bash
-/flow-code:auto-improve --init
+/flow-code:auto-improve "fix N+1 queries and add missing tests" --scope src/
 ```
 
-Auto-detects project type (Django / React / Next.js) and generates:
-- `scripts/auto-improve/program.md` — improvement instructions (edit to customize)
-- `scripts/auto-improve/config.env` — goal, scope, guard command
-- `scripts/auto-improve/auto-improve.sh` — experiment loop engine
+That's it. Flow-Code detects your project (Django/React/Next.js), finds lint+test commands, creates an experiment branch, and starts improving. Each experiment: discover → implement → test → keep or discard.
 
-**Configure:**
+**More examples:**
 ```bash
-# Edit config.env
-GOAL="Improve API performance and fix N+1 queries"
-SCOPE=src/api/ src/models/
-GUARD_CMD="python -m pytest -x -q && ruff check ."
-MAX_EXPERIMENTS=50
+# Next.js bundle optimization
+/flow-code:auto-improve "reduce bundle size" --scope src/components/ --max 20
+
+# Security hardening
+/flow-code:auto-improve "fix security vulnerabilities" --scope src/api/ src/auth/
+
+# Test coverage
+/flow-code:auto-improve "improve test coverage to 80%"
+
+# Watch mode (see what agent is doing)
+/flow-code:auto-improve "optimize API performance" --scope src/ --watch
 ```
 
-**Run:**
-```bash
-scripts/auto-improve/auto-improve.sh              # Quiet mode
-scripts/auto-improve/auto-improve.sh --watch       # See tool calls
+**How it works:**
 ```
-
-**Experiment flow:**
-```
-for each experiment:
-  1. Agent reads code + previous experiments
+for each experiment (up to --max, default 50):
+  1. Agent reads code + previous experiments (learns from history)
   2. Discovers ONE improvement opportunity
   3. Writes test first (TDD style)
   4. Implements minimal change (scope-restricted)
-  5. Runs guard (lint + tests must pass)
+  5. Runs guard (auto-detected lint + tests must pass)
   6. Judges: keep (git commit) or discard (git reset)
-  7. Logs to experiments.jsonl
+  7. Logs to experiments.jsonl → summary.md at end
 ```
 
-**Key design:**
-- **Simplicity criterion** (from autoresearch): complexity increase > benefit = discard
-- **Scope restriction**: agent can only modify files in configured directories
-- **Guard enforcement**: lint + tests must pass before any keep
-- **Auto-rollback**: any failure = `git reset --hard`
-- **JSONL logging**: `experiments.jsonl` for analysis, `summary.md` at end
+**What's auto-detected:**
 
-**Example for Django:**
-```bash
-/flow-code:auto-improve --init --goal "fix N+1 queries and add missing tests" --scope src/
-# Edit config.env: GUARD_CMD="python -m pytest -x -q"
-scripts/auto-improve/auto-improve.sh --watch
-```
+| Project | Guard command |
+|---------|--------------|
+| Django + ruff | `ruff check . && python -m pytest -x -q` |
+| Django + pytest | `python -m pytest -x -q` |
+| Next.js/React | `npm run lint && npm test` |
+| No tests found | Warning — set `GUARD_CMD` in config.env |
 
-**Example for Next.js:**
-```bash
-/flow-code:auto-improve --init --goal "reduce bundle size and improve Core Web Vitals" --scope src/ app/
-# Edit config.env: GUARD_CMD="npm run lint && npm test"
-scripts/auto-improve/auto-improve.sh
-```
+**Customization:**
+- `scripts/auto-improve/program.md` — edit to change improvement focus and judgment criteria
+- `scripts/auto-improve/config.env` — override goal, scope, guard, max experiments
 
-**Bootstrap** (if project lacks test infrastructure):
-```bash
-/flow-code:auto-improve --init --bootstrap
-```
+**Output:**
+- `experiments.jsonl` — every experiment logged (hypothesis, result, commit)
+- `summary.md` — generated at end with kept/discarded/crashed counts
+- Kept improvements committed on `auto-improve/<date>` branch
 
 **Ralph vs Auto-Improve:**
 | | Ralph | Auto-Improve |

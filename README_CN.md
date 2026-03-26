@@ -483,70 +483,58 @@ cat scripts/ralph/runs/*/receipts/impl-fn-1.1.json
 
 > 灵感来自 [Karpathy 的 autoresearch](https://github.com/karpathy/autoresearch) — 2 天 700 次实验，Shopify 获得 19% 性能提升。
 
-Auto-improve 在你的项目上运行自主实验循环：发现改进点 → 实现 → 测试 → 保留或丢弃 → 重复。每次实验在全新的 Claude 进程中运行。
+一条命令启动自主代码改进。自动检测项目类型、守卫命令，立即开始运行。
 
-**设置（一次性）：**
 ```bash
-/flow-code:auto-improve --init
+/flow-code:auto-improve "修复 N+1 查询并添加缺失测试" --scope src/
 ```
 
-自动检测项目类型（Django / React / Next.js）并生成：
-- `scripts/auto-improve/program.md` — 改进指令（可编辑定制）
-- `scripts/auto-improve/config.env` — 目标、范围、守卫命令
-- `scripts/auto-improve/auto-improve.sh` — 实验循环引擎
+就这样。Flow-Code 检测你的项目（Django/React/Next.js），找到 lint+test 命令，创建实验分支，开始改进。每次实验：发现 → 实现 → 测试 → 保留或丢弃。
 
-**配置：**
+**更多示例：**
 ```bash
-# 编辑 config.env
-GOAL="优化 API 性能，修复 N+1 查询"
-SCOPE=src/api/ src/models/
-GUARD_CMD="python -m pytest -x -q && ruff check ."
-MAX_EXPERIMENTS=50
+# Next.js 包体积优化
+/flow-code:auto-improve "减小 bundle 体积" --scope src/components/ --max 20
+
+# 安全加固
+/flow-code:auto-improve "修复安全漏洞" --scope src/api/ src/auth/
+
+# 测试覆盖率
+/flow-code:auto-improve "提升测试覆盖率到 80%"
+
+# Watch 模式（查看 agent 在做什么）
+/flow-code:auto-improve "优化 API 性能" --scope src/ --watch
 ```
 
-**运行：**
-```bash
-scripts/auto-improve/auto-improve.sh              # 静默模式
-scripts/auto-improve/auto-improve.sh --watch       # 查看工具调用
+**工作原理：**
 ```
-
-**实验流程：**
-```
-每次实验：
-  1. Agent 读取代码 + 历史实验结果
+每次实验（最多 --max 次，默认 50）：
+  1. Agent 读取代码 + 历史实验结果（从历史中学习）
   2. 发现一个改进机会
   3. 先写测试（TDD 风格）
   4. 实现最小改动（范围受限）
-  5. 运行守卫命令（lint + 测试必须通过）
+  5. 运行守卫命令（自动检测的 lint + 测试必须通过）
   6. 判断：保留（git commit）或丢弃（git reset）
-  7. 记录到 experiments.jsonl
+  7. 记录到 experiments.jsonl → 结束时生成 summary.md
 ```
 
-**核心设计：**
-- **简洁性标准**（来自 autoresearch）：复杂度增加 > 收益 = 丢弃
-- **范围限制**：agent 只能修改配置目录中的文件
-- **守卫强制**：lint + 测试必须通过才能保留
-- **自动回滚**：任何失败 = `git reset --hard`
-- **JSONL 日志**：`experiments.jsonl` 用于分析，`summary.md` 在结束时生成
+**自动检测的内容：**
 
-**Django 示例：**
-```bash
-/flow-code:auto-improve --init --goal "修复 N+1 查询并添加缺失测试" --scope src/
-# 编辑 config.env: GUARD_CMD="python -m pytest -x -q"
-scripts/auto-improve/auto-improve.sh --watch
-```
+| 项目类型 | 守卫命令 |
+|---------|---------|
+| Django + ruff | `ruff check . && python -m pytest -x -q` |
+| Django + pytest | `python -m pytest -x -q` |
+| Next.js/React | `npm run lint && npm test` |
+| 未检测到测试 | 警告 — 在 config.env 中设置 `GUARD_CMD` |
 
-**Next.js 示例：**
-```bash
-/flow-code:auto-improve --init --goal "减小 bundle 体积并改善 Core Web Vitals" --scope src/ app/
-# 编辑 config.env: GUARD_CMD="npm run lint && npm test"
-scripts/auto-improve/auto-improve.sh
-```
+**定制：**
+- `scripts/auto-improve/program.md` — 编辑以调整改进重点和判断标准
+- `scripts/auto-improve/config.env` — 覆盖目标、范围、守卫、最大实验次数
 
-**Bootstrap**（如果项目缺少测试基础设施）：
-```bash
-/flow-code:auto-improve --init --bootstrap
-```
+**产出：**
+- `experiments.jsonl` — 每次实验记录（假设、结果、commit）
+- `summary.md` — 结束时生成，含保留/丢弃/崩溃统计
+- 保留的改进提交到 `auto-improve/<日期>` 分支
 
 **Ralph vs Auto-Improve：**
 | | Ralph | Auto-Improve |

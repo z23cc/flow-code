@@ -96,20 +96,28 @@ MAX_EXPERIMENTS="${MAX_EXPERIMENTS:-50}"
 YOLO="${YOLO:-0}"
 WATCH_MODE=""
 
-# Parse CLI args
+# Parse CLI args (override config.env values)
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --goal) GOAL="$2"; shift 2 ;;
+    --scope) SCOPE="$2"; shift 2 ;;
+    --max) MAX_EXPERIMENTS="$2"; shift 2 ;;
+    --guard) GUARD_CMD="$2"; shift 2 ;;
     --watch)
       if [[ "${2:-}" == "verbose" ]]; then WATCH_MODE="verbose"; shift; else WATCH_MODE="tools"; fi
       shift ;;
-    --config) shift 2 ;;  # already consumed
+    --config) shift 2 ;;  # already consumed in pre-scan
     --help|-h)
       echo "Usage: auto-improve.sh [options]"
       echo ""
       echo "Options:"
-      echo "  --config <path>  Alternate config file"
+      echo "  --goal <text>    What to improve"
+      echo "  --scope <dirs>   Directories to modify (space-separated)"
+      echo "  --max <n>        Max experiments (default: 50)"
+      echo "  --guard <cmd>    Guard command (auto-detected if omitted)"
       echo "  --watch          Show tool calls in real-time"
       echo "  --watch verbose  Show full model responses"
+      echo "  --config <path>  Alternate config file"
       echo "  --help           Show this help"
       exit 0 ;;
     *) fail "Unknown option: $1" ;;

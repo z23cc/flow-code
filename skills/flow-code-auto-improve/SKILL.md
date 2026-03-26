@@ -1,179 +1,143 @@
 ---
 name: flow-code-auto-improve
-description: Autonomous code improvement loop inspired by Karpathy's autoresearch. Detects project type, generates improvement program, runs experiments that modify code → test → keep/discard. Use when user wants to optimize code quality, performance, security, or test coverage autonomously. Triggers on /flow-code:auto-improve.
+description: Autonomous code improvement loop inspired by Karpathy's autoresearch. One command to start — auto-detects project type, guard commands, and runs experiments. Use when user wants to optimize code quality, performance, security, or test coverage. Triggers on /flow-code:auto-improve.
 user-invocable: false
 ---
 
 # Auto-Improve
 
-Autonomous code improvement loop. Agent discovers improvements, implements them, judges results, keeps or discards — repeating until stopped.
+One command to start autonomous code improvement. Auto-detects everything, starts immediately.
 
-Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
-
-**CRITICAL: flowctl is BUNDLED — NOT installed globally.** Always use:
-```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
+```
+/flow-code:auto-improve "优化 API 性能" --scope src/api/
 ```
 
 ## Input
 
 Full request: $ARGUMENTS
 
-**Modes:**
+**Format:** `/flow-code:auto-improve "<goal>" [--scope <dirs>] [--max <n>] [--watch]`
 
-- `--init` — Scaffold `scripts/auto-improve/` with config, program.md, and experiment loop
-- `--init --goal "optimize API performance" --scope src/api/` — Init with pre-configured goal and scope
-- `--bootstrap` — Also scaffold basic test infrastructure if missing
-- (no flags) — Show current config and print run command
+| Param | Required | Default | Description |
+|-------|----------|---------|-------------|
+| goal | YES | — | What to improve (natural language) |
+| --scope | no | `.` (whole project) | Directories agent may modify (space-separated) |
+| --max | no | 50 | Max experiments before stopping |
+| --watch | no | off | Show Claude tool calls in real-time |
 
 **Examples:**
 ```
-/flow-code:auto-improve --init
-/flow-code:auto-improve --init --goal "improve test coverage to 80%" --scope tests/ src/
-/flow-code:auto-improve --init --bootstrap
-/flow-code:auto-improve
+/flow-code:auto-improve "fix N+1 queries and add missing tests" --scope src/
+/flow-code:auto-improve "reduce bundle size" --scope src/components/ --max 20
+/flow-code:auto-improve "improve security" --scope src/api/ src/auth/
+/flow-code:auto-improve "提升测试覆盖率到 80%"
 ```
 
-## --init Mode
+## Execution (all automatic)
 
-### Step 1: Detect project type
+### Step 1: Setup (auto, first-time creates files, subsequent runs reuse)
 
 ```bash
 PLUGIN_ROOT="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
-PROJECT_TYPE=$(python3 "$PLUGIN_ROOT/skills/flow-code-auto-improve/templates/detect-project.py" . --json)
-```
-
-Returns: `django`, `nextjs`, `react`, or `generic`.
-
-### Step 2: Create directory
-
-```bash
-mkdir -p scripts/auto-improve/runs
-```
-
-### Step 3: Copy templates
-
-Copy from plugin templates to project:
-
-```bash
 TEMPLATES="$PLUGIN_ROOT/skills/flow-code-auto-improve/templates"
 
-# Core script
+mkdir -p scripts/auto-improve/runs
+
+# Detect project type
+PROJECT_TYPE=$(python3 "$TEMPLATES/detect-project.py" .)
+# Returns: django, nextjs, react, or generic
+
+# Copy/update core files (always refresh from plugin)
 cp "$TEMPLATES/auto-improve.sh" scripts/auto-improve/
 chmod +x scripts/auto-improve/auto-improve.sh
-
-# Config (preserve existing)
-if [[ ! -f scripts/auto-improve/config.env ]]; then
-  TAG=$(date -u +%Y%m%d)
-  sed "s/{{EXPERIMENT_TAG}}/$TAG/" "$TEMPLATES/config.env" > scripts/auto-improve/config.env
-fi
-
-# Prompt template
 cp "$TEMPLATES/prompt_experiment.md" scripts/auto-improve/
 
-# Program.md (project-type-specific)
-TYPE=$(echo "$PROJECT_TYPE" | python3 -c "import sys,json; print(json.load(sys.stdin)['project_type'])")
-cp "$TEMPLATES/programs/${TYPE}.md" scripts/auto-improve/program.md
+# Program.md: copy if missing, preserve if user edited
+if [[ ! -f scripts/auto-improve/program.md ]]; then
+  cp "$TEMPLATES/programs/${PROJECT_TYPE}.md" scripts/auto-improve/program.md
+fi
 
-# Copy flowctl for standalone use
-cp "$PLUGIN_ROOT/scripts/flowctl" scripts/auto-improve/ 2>/dev/null || true
-cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/auto-improve/ 2>/dev/null || true
-chmod +x scripts/auto-improve/flowctl 2>/dev/null || true
-```
-
-### Step 4: Apply user options
-
-If `--goal` provided, update config.env GOAL line.
-If `--scope` provided, update config.env SCOPE line.
-
-### Step 5: Create .gitignore
-
-```bash
-cat > scripts/auto-improve/.gitignore <<'EOF'
+# .gitignore
+cat > scripts/auto-improve/.gitignore <<'GITIGNORE'
 config.env
 runs/
 *.log
-EOF
+GITIGNORE
 ```
 
-### Step 6: Auto-detect guard command
+### Step 2: Auto-detect guard command
 
-Scan project for test/lint commands:
+Scan project and build the best guard command automatically:
 
 ```bash
-# Check for common guard commands
-if [[ -f "pyproject.toml" ]] && grep -q "pytest" pyproject.toml; then
-  echo "Detected: pytest"
-  # Suggest: GUARD_CMD="python -m pytest -x -q"
+GUARD_PARTS=()
+
+# Python: ruff/flake8 + pytest
+if [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]] || [[ -f "manage.py" ]]; then
+  command -v ruff >/dev/null && GUARD_PARTS+=("ruff check .")
+  if grep -q "pytest" pyproject.toml 2>/dev/null || [[ -f "pytest.ini" ]] || [[ -f "conftest.py" ]]; then
+    GUARD_PARTS+=("python -m pytest -x -q")
+  fi
 fi
+
+# Node: lint + test
 if [[ -f "package.json" ]]; then
-  if grep -q '"test"' package.json; then
-    echo "Detected: npm test"
-    # Suggest: GUARD_CMD="npm test"
-  fi
-  if grep -q '"lint"' package.json; then
-    echo "Detected: npm run lint"
-    # Suggest: GUARD_CMD="npm run lint && npm test"
-  fi
+  grep -q '"lint"' package.json && GUARD_PARTS+=("npm run lint")
+  grep -q '"test"' package.json && GUARD_PARTS+=("npm test")
 fi
-```
 
-Update config.env GUARD_CMD with detected command. If nothing detected, warn user to set it manually.
-
-### Step 7: Show summary
-
-```
-Auto-improve initialized!
-
-  Project type: Django
-  Program: scripts/auto-improve/program.md (edit to customize)
-  Config: scripts/auto-improve/config.env
-
-  Run:
-    scripts/auto-improve/auto-improve.sh
-    scripts/auto-improve/auto-improve.sh --watch
-
-  Edit config.env to set:
-    GOAL — what to improve
-    SCOPE — which files to touch
-    GUARD_CMD — tests that must pass
-```
-
-## --bootstrap Mode
-
-After --init, if `--bootstrap` flag present:
-
-**Django (no pytest):**
-```bash
-pip install pytest pytest-django pytest-cov
-cat > pytest.ini <<'EOF'
-[pytest]
-DJANGO_SETTINGS_MODULE = config.settings
-python_files = tests.py test_*.py *_tests.py
-EOF
-```
-
-**React/Next.js (no test script):**
-```bash
-npm install --save-dev jest @testing-library/react @testing-library/jest-dom
-```
-
-Show what was installed and suggest updating GUARD_CMD.
-
-## Default Mode (no flags)
-
-If `scripts/auto-improve/` exists, show current config:
-
-```bash
-if [[ -d scripts/auto-improve ]]; then
-  echo "Auto-improve is configured."
-  echo ""
-  cat scripts/auto-improve/config.env | grep -E "^(GOAL|SCOPE|GUARD_CMD|MAX_EXPERIMENTS)="
-  echo ""
-  echo "Run: scripts/auto-improve/auto-improve.sh"
-  echo "Edit: scripts/auto-improve/config.env"
-  echo "Customize: scripts/auto-improve/program.md"
+# Fallback
+if [[ ${#GUARD_PARTS[@]} -eq 0 ]]; then
+  GUARD_CMD="echo 'WARNING: no guard detected — set GUARD_CMD in scripts/auto-improve/config.env'"
 else
-  echo "Not initialized. Run: /flow-code:auto-improve --init"
+  GUARD_CMD=$(IFS=' && '; echo "${GUARD_PARTS[*]}")
 fi
 ```
+
+### Step 3: Write config.env (merge user params + detected values)
+
+```bash
+TAG=$(date -u +%Y%m%d)
+cat > scripts/auto-improve/config.env <<CONF
+GOAL=${GOAL}
+SCOPE=${SCOPE}
+GUARD_CMD=${GUARD_CMD}
+EXPERIMENT_TAG=${TAG}
+MAX_EXPERIMENTS=${MAX}
+YOLO=1
+CONF
+```
+
+Where `GOAL`, `SCOPE`, `MAX` come from parsed arguments.
+
+### Step 4: Show config and start
+
+```
+Auto-Improve starting!
+
+  Goal:    ${GOAL}
+  Scope:   ${SCOPE}
+  Guard:   ${GUARD_CMD}
+  Project: ${PROJECT_TYPE}
+  Max:     ${MAX} experiments
+
+  Logs:    scripts/auto-improve/runs/latest/
+  Program: scripts/auto-improve/program.md (edit to customize)
+
+Starting experiment loop...
+```
+
+Then immediately run:
+
+```bash
+scripts/auto-improve/auto-improve.sh
+```
+
+If `--watch` was passed, add `--watch` flag.
+
+## Notes
+
+- First run auto-scaffolds `scripts/auto-improve/`. Subsequent runs reuse existing program.md (preserves user edits).
+- User can edit `scripts/auto-improve/program.md` between runs to adjust improvement focus.
+- `config.env` is regenerated each run from command args (goal/scope/max override previous).
+- Guard command is auto-detected but can be overridden: add `--guard "custom command"` or edit config.env.

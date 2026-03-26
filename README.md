@@ -1201,9 +1201,19 @@ flowctl memory read --type pitfalls
 When enabled:
 - **Planning**: `memory-scout` runs in parallel with other scouts
 - **Work**: worker reads memory files directly during re-anchor
-- **Ralph only**: NEEDS_WORK reviews auto-capture to `pitfalls.md`
+- **Ralph**: NEEDS_WORK reviews auto-capture to `pitfalls.md`
+- **Auto-capture**: session end hook extracts decisions, discoveries, and pitfalls from transcript
 
-Memory retrieval works in both manual and Ralph modes. Auto-capture from reviews only happens in Ralph mode (via hooks). Use `flowctl memory add` for manual entries.
+**Auto-memory** (zero-config, works with any session):
+
+The plugin's Stop hook automatically scans session transcripts for key patterns:
+- **Decisions**: "decided to X", "chose X over Y", "switched to X"
+- **Discoveries**: "found that X", "turns out X", "learned that X"
+- **Pitfalls**: "don't X", "avoid X", "the bug was X", "root cause was X"
+
+Captured entries are appended to `.flow/memory/` files. No LLM call — pure pattern matching, runs in <1 second. Up to 5 entries per session to avoid noise.
+
+Memory retrieval works in all modes (manual, Ralph, auto-improve). Use `flowctl memory add` for manual entries.
 
 Config lives in `.flow/config.json`, separate from Ralph's `scripts/ralph/config.env`.
 

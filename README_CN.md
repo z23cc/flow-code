@@ -1085,7 +1085,17 @@ flowctl memory read --type pitfalls
 启用后：
 - **规划**：`memory-scout` 与其他 scout 并行运行
 - **执行**：worker 在重锚定期间直接读取记忆文件
-- **仅 Ralph**：NEEDS_WORK 审查自动捕获到 `pitfalls.md`
+- **Ralph**：NEEDS_WORK 审查自动捕获到 `pitfalls.md`
+- **自动捕获**：会话结束 hook 从 transcript 中提取决策、发现和陷阱
+
+**自动记忆**（零配置，任何会话都生效）：
+
+插件的 Stop hook 自动扫描会话 transcript 中的关键模式：
+- **决策**："decided to X"、"chose X over Y"、"switched to X"
+- **发现**："found that X"、"turns out X"、"learned that X"
+- **陷阱**："don't X"、"avoid X"、"the bug was X"、"root cause was X"
+
+捕获的条目追加到 `.flow/memory/` 文件。无 LLM 调用 — 纯模式匹配，运行 <1 秒。每个会话最多 5 条以避免噪音。
 
 配置存在于 `.flow/config.json`，与 Ralph 的 `scripts/ralph/config.env` 分开。
 

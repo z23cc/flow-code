@@ -1,6 +1,6 @@
 ---
 name: flow-code-map
-description: Map and document codebases using parallel subagents. Creates docs/CODEBASE_MAP.md with architecture, modules, data flows, and navigation guides. Use when user says "map this codebase", "document the architecture", "create codebase map", or "/flow-code:map". Auto-detects existing map and updates only changed sections.
+description: "Use when user says 'map this codebase', 'document the architecture', 'create codebase map', or /flow-code:map."
 user-invocable: false
 ---
 

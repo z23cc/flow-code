@@ -1,6 +1,6 @@
 ---
 name: flow-code-export-context
-description: Export RepoPrompt context for external LLM review (ChatGPT, Claude web, etc.). Use when you want to review code or plans with an external model. Triggers on /flow-code:export-context.
+description: "Use when you want to review code or plans with an external model (ChatGPT, Claude web, etc.). Triggers on /flow-code:export-context."
 ---
 
 # Export Context Mode

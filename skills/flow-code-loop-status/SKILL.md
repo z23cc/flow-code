@@ -1,6 +1,6 @@
 ---
 name: flow-code-loop-status
-description: Show the current status of a running Ralph or auto-improve loop without interrupting it. Reads status.json from the latest run directory. Use when user asks "how's the run going", "loop status", "ralph status", "what iteration", or "/flow-code:loop-status".
+description: "Use when user asks 'how is the run going', 'loop status', 'ralph status', 'what iteration', or /flow-code:loop-status."
 user-invocable: false
 ---
 

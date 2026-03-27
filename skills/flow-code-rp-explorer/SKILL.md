@@ -1,6 +1,6 @@
 ---
 name: flow-code-rp-explorer
-description: Token-efficient codebase exploration using RepoPrompt CLI. Use when user says "use rp to..." or "use repoprompt to..." followed by explore, find, understand, search, or similar actions.
+description: "Use when user says 'use rp to...' or 'use repoprompt to...' followed by explore, find, understand, search, or similar actions."
 ---
 
 # RP-Explorer

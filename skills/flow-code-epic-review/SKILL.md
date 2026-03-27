@@ -1,6 +1,6 @@
 ---
 name: flow-code-epic-review
-description: Epic completion review - verifies all epic tasks implement spec requirements. Triggers on /flow-code:epic-review.
+description: "Use when all epic tasks are done and need a final review before closing. Triggers on /flow-code:epic-review."
 user-invocable: false
 ---
 

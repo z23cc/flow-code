@@ -1,6 +1,6 @@
 ---
 name: flow-code-prime
-description: Comprehensive codebase assessment for agent and production readiness. Scans 8 pillars (48 criteria), verifies commands work, checks GitHub settings. Reports everything, fixes agent readiness only. Triggers on /flow-code:prime.
+description: "Use when assessing codebase readiness for agents or production. Triggers on /flow-code:prime, 'assess this codebase', or 'is this repo ready'."
 user-invocable: false
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: flow-code-impl-review
-description: John Carmack-level implementation review via RepoPrompt or Codex. Use when reviewing code changes, PRs, or implementations. Triggers on /flow-code:impl-review.
+description: "Use when reviewing code changes, PRs, or implementations. Triggers on /flow-code:impl-review."
 user-invocable: false
 ---
 

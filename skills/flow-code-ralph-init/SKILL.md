@@ -1,6 +1,6 @@
 ---
 name: flow-code-ralph-init
-description: Scaffold repo-local Ralph autonomous harness under scripts/ralph/. Use when user runs /flow-code:ralph-init.
+description: "Use when user wants to set up the Ralph autonomous loop. Triggers on /flow-code:ralph-init."
 user-invocable: false
 ---
 

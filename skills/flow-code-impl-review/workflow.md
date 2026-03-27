@@ -195,17 +195,33 @@ Commits: [COMMIT SUMMARY]
 ## Review Focus
 [USER'S FOCUS AREAS]
 
-## Review Criteria
+## Review Structure: Two-Layer Review
 
-Conduct a John Carmack-level review:
+You MUST conduct the review in two distinct layers, in order. Do NOT merge them.
 
-1. **Correctness** - Matches spec? Logic errors?
+### Layer 1: Spec Compliance
+
+Answer: "Did the implementation build what was asked — nothing more, nothing less?"
+
+For each spec requirement, check:
+- [ ] Implemented as specified (not a different interpretation)
+- [ ] No gold-plating (features not in spec)
+- [ ] No missing requirements (spec items not implemented)
+- [ ] No scope creep (changes outside the spec boundary)
+
+If spec is unknown, skip Layer 1 and proceed to Layer 2.
+
+### Layer 2: Code Quality
+
+Answer: "Is the implementation well-built?"
+
+1. **Correctness** - Logic errors? Off-by-one? Null handling?
 2. **Simplicity** - Simplest solution? Over-engineering?
-3. **DRY** - Duplicated logic? Existing patterns?
+3. **DRY** - Duplicated logic? Existing patterns ignored?
 4. **Architecture** - Data flow? Clear boundaries?
 5. **Edge Cases** - Failure modes? Race conditions?
-6. **Tests** - Adequate coverage? Testing behavior?
-7. **Security** - Injection? Auth gaps?
+6. **Tests** - Adequate coverage? Testing behavior not implementation?
+7. **Security** - Injection? Auth gaps? Input validation?
 
 ## Scenario Exploration (for changed code only)
 
@@ -225,6 +241,12 @@ Only flag issues that apply to the **changed code** - not pre-existing patterns.
 
 ## Output Format
 
+Structure output as two sections:
+
+### Spec Compliance
+- PASS or list of spec gaps (with file:line references)
+
+### Code Quality
 For each issue:
 - **Severity**: Critical / Major / Minor / Nitpick
 - **File:Line**: Exact location
@@ -233,6 +255,11 @@ For each issue:
 
 **REQUIRED**: You MUST end your response with exactly one verdict tag. This is mandatory:
 `<verdict>SHIP</verdict>` or `<verdict>NEEDS_WORK</verdict>` or `<verdict>MAJOR_RETHINK</verdict>`
+
+Verdict rules:
+- Any spec compliance gap → NEEDS_WORK (regardless of code quality)
+- Any Critical code quality issue → NEEDS_WORK
+- Only Minor/Nitpick issues remaining → SHIP
 
 Do NOT skip this tag. The automation depends on it.
 EOF

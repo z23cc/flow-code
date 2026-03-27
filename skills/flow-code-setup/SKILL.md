@@ -1,6 +1,6 @@
 ---
 name: flow-code-setup
-description: Optional local install of flowctl CLI and CLAUDE.md/AGENTS.md instructions. Use when user runs /flow-code:setup.
+description: "Use when user runs /flow-code:setup or asks to install flow-code locally."
 user-invocable: false
 ---
 

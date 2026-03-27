@@ -1,6 +1,6 @@
 ---
 name: flow-code-deps
-description: "Show epic dependency graph and execution order. Use when asking 'what's blocking what', 'execution order', 'dependency graph', 'what order should epics run', 'critical path', 'which epics can run in parallel'."
+description: "Use when asking 'what's blocking what', 'execution order', 'dependency graph', 'what order should epics run', 'critical path', or 'which epics can run in parallel'."
 ---
 
 # Flow-Code Dependency Graph

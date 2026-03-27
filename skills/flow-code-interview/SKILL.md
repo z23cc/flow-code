@@ -1,6 +1,6 @@
 ---
 name: flow-code-interview
-description: Interview user in-depth about an epic, task, or spec file to extract complete implementation details. Use when user wants to flesh out a spec, refine requirements, or clarify a feature before building. Triggers on /flow-code:interview with Flow IDs (fn-1-add-oauth, fn-1-add-oauth.2, or legacy fn-1, fn-1.2, fn-1-xxx, fn-1-xxx.2) or file paths.
+description: "Use when user wants to flesh out a spec, refine requirements, or clarify a feature before building. Triggers on /flow-code:interview with Flow IDs or file paths."
 user-invocable: false
 ---
 

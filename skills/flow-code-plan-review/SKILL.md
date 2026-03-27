@@ -1,6 +1,6 @@
 ---
 name: flow-code-plan-review
-description: Carmack-level plan review via RepoPrompt or Codex. Use when reviewing Flow epic specs or design docs. Triggers on /flow-code:plan-review.
+description: "Use when reviewing Flow epic specs or design docs. Triggers on /flow-code:plan-review."
 user-invocable: false
 ---
 

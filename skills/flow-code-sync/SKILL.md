@@ -1,6 +1,6 @@
 ---
 name: flow-code-sync
-description: Manually trigger plan-sync to update downstream task specs after implementation drift. Use when code changes outpace specs.
+description: "Use when code changes outpace specs and downstream task specs need updating. Triggers on /flow-code:sync."
 user-invocable: false
 ---
 

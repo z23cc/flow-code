@@ -215,7 +215,7 @@ print(m[-1].strip() if m else '')
 write_status_json() {
   local phase="${1:-idle}" current_exp="${2:-0}"
   "$PYTHON_BIN" - "$RUN_ID" "$current_exp" "$MAX_EXPERIMENTS" "$phase" \
-    "$kept_count" "$discarded_count" "$crash_count" "$GOAL" "$SCOPE" \
+    "${kept_count:-0}" "${discarded_count:-0}" "${crash_count:-0}" "$GOAL" "$SCOPE" \
     "$BRANCH" "$RUN_DIR/status.json" <<'PY'
 import json, sys
 from datetime import datetime, timezone

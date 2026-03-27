@@ -116,6 +116,7 @@ EPIC_ID: fn-X
 FLOWCTL: /path/to/flowctl
 REVIEW_MODE: none|rp|codex
 RALPH_MODE: true|false
+TDD_MODE: true|false
 
 Follow your phases in worker.md exactly.
 ```

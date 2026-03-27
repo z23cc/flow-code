@@ -84,6 +84,9 @@ Parse the arguments for these patterns. If found, use them and skip correspondin
 **Interactive mode**:
 - `--interactive` or "step by step" or "pause between tasks" → pause for human confirmation at each checkpoint (post-plan, post-impl, post-review). Default: off (autonomous). When enabled, print checkpoint summary and wait for user confirmation before proceeding to next phase.
 
+**TDD mode**:
+- `--tdd` or "test first" or "test driven" or "red green refactor" → enforce test-first development. Worker writes failing tests before implementation code. Default: off. When enabled, worker executes Phase 2a (TDD Red-Green) before Phase 2 (Implement).
+
 ### If options NOT found in arguments
 
 **If REVIEW_BACKEND is rp, codex, or none** (already configured): Only ask branch question. Show override hint:

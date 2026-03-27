@@ -436,6 +436,8 @@ if [[ "$REVIEW_MODE" == "per-epic" ]]; then
   fi
 fi
 EPICS="${EPICS:-}"
+MEMORY_AUTO_SAVE="${MEMORY_AUTO_SAVE:-0}"
+TDD_MODE="${TDD_MODE:-0}"
 export CODEX_SANDBOX  # Ensure available to Claude worker for flowctl codex commands
 
 # Parse command line arguments
@@ -543,7 +545,7 @@ render_template() {
 import os, sys
 path = sys.argv[1]
 text = open(path, encoding="utf-8").read()
-keys = ["EPIC_ID","TASK_ID","REVIEW_MODE","FREEZE_SCOPE","SCOPE_CHANGE_ACTION","REANCHOR_INTERVAL","REANCHOR_ACTION","PLAN_REVIEW","WORK_REVIEW","COMPLETION_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH","RALPH_ITERATION"]
+keys = ["EPIC_ID","TASK_ID","REVIEW_MODE","FREEZE_SCOPE","SCOPE_CHANGE_ACTION","REANCHOR_INTERVAL","REANCHOR_ACTION","PLAN_REVIEW","WORK_REVIEW","COMPLETION_REVIEW","BRANCH_MODE","BRANCH_MODE_EFFECTIVE","REQUIRE_PLAN_REVIEW","REVIEW_RECEIPT_PATH","RALPH_ITERATION","MEMORY_AUTO_SAVE","TDD_MODE"]
 for k in keys:
     text = text.replace("{{%s}}" % k, os.environ.get(k, ""))
 print(text)

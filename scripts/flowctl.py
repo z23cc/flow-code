@@ -4561,6 +4561,138 @@ def cmd_next(args: argparse.Namespace) -> None:
             print("none")
 
 
+def cmd_queue(args: argparse.Namespace) -> None:
+    """Show multi-epic queue status with dependency visualization."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    flow_dir = get_flow_dir()
+    epics_dir = flow_dir / EPICS_DIR
+    tasks_dir = flow_dir / TASKS_DIR
+
+    if not epics_dir.exists():
+        error_exit("No epics found.", use_json=args.json)
+
+    current_actor = get_actor()
+
+    # Collect all epics
+    epics: list[dict] = []
+    for epic_file in sorted(epics_dir.glob("fn-*.json")):
+        match = re.match(
+            r"^fn-(\d+)(?:-[a-z0-9][a-z0-9-]*[a-z0-9]|-[a-z0-9]{1,3})?\.json$",
+            epic_file.name,
+        )
+        if not match:
+            continue
+        epic_data = normalize_epic(
+            load_json_or_exit(epic_file, f"Epic {epic_file.stem}", use_json=args.json)
+        )
+        epic_id = epic_data.get("id", epic_file.stem)
+
+        # Count tasks by status
+        task_counts = {"todo": 0, "in_progress": 0, "done": 0, "blocked": 0, "ready": 0}
+        task_list = []
+        if tasks_dir.exists():
+            for task_file in tasks_dir.glob(f"{epic_id}.*.json"):
+                task_id = task_file.stem
+                if not is_task_id(task_id):
+                    continue
+                task_data = load_task_with_state(task_id, use_json=args.json)
+                if "id" not in task_data:
+                    continue
+                task_list.append(task_data)
+                status = task_data.get("status", "todo")
+                if status in task_counts:
+                    task_counts[status] += 1
+
+        # Calculate ready tasks
+        all_tasks = {t["id"]: t for t in task_list}
+        for task in task_list:
+            if task.get("status") != "todo":
+                continue
+            deps_done = all(
+                all_tasks.get(d, {}).get("status") == "done"
+                for d in task.get("depends_on", [])
+            )
+            if deps_done:
+                task_counts["ready"] += 1
+
+        # Check epic-level deps
+        epic_deps = epic_data.get("depends_on_epics", []) or []
+        blocked_by: list[str] = []
+        for dep in epic_deps:
+            if dep == epic_id:
+                continue
+            dep_path = epics_dir / f"{dep}.json"
+            if not dep_path.exists():
+                blocked_by.append(dep)
+                continue
+            dep_data = normalize_epic(
+                load_json_or_exit(dep_path, f"Epic {dep}", use_json=args.json)
+            )
+            if dep_data.get("status") != "done":
+                blocked_by.append(dep)
+
+        total_tasks = sum(task_counts.values())
+        epics.append({
+            "id": epic_id,
+            "title": epic_data.get("title", ""),
+            "status": epic_data.get("status", "open"),
+            "plan_review_status": epic_data.get("plan_review_status", "unknown"),
+            "completion_review_status": epic_data.get("completion_review_status", "unknown"),
+            "depends_on_epics": epic_deps,
+            "blocked_by": blocked_by,
+            "tasks": task_counts,
+            "total_tasks": total_tasks,
+            "progress": round(task_counts["done"] / total_tasks * 100) if total_tasks > 0 else 0,
+        })
+
+    # Sort: open epics first (with unblocked before blocked), then done
+    def epic_sort_key(e: dict) -> tuple:
+        status_order = 0 if e["status"] != "done" else 2
+        if e["blocked_by"]:
+            status_order = 1
+        epic_num, _ = parse_id(e["id"])
+        return (status_order, epic_num or 0)
+
+    epics.sort(key=epic_sort_key)
+
+    if args.json:
+        json_output({"actor": current_actor, "epics": epics, "total": len(epics)})
+    else:
+        open_epics = [e for e in epics if e["status"] != "done"]
+        done_epics = [e for e in epics if e["status"] == "done"]
+
+        print(f"Queue ({len(open_epics)} open, {len(done_epics)} done):\n")
+
+        for e in epics:
+            if e["status"] == "done":
+                status_icon = "✓"
+            elif e["blocked_by"]:
+                status_icon = "⊘"
+            elif e["tasks"]["ready"] > 0:
+                status_icon = "▶"
+            else:
+                status_icon = "○"
+
+            tc = e["tasks"]
+            bar_len = 20
+            done_bars = round(e["progress"] / 100 * bar_len) if e["total_tasks"] > 0 else 0
+            bar = "█" * done_bars + "░" * (bar_len - done_bars)
+
+            print(f"  {status_icon} {e['id']}: {e['title']}")
+            print(f"    [{bar}] {e['progress']}%  done={tc['done']} ready={tc['ready']} todo={tc['todo']} in_progress={tc['in_progress']} blocked={tc['blocked']}")
+
+            if e["blocked_by"]:
+                print(f"    ⊘ blocked by: {', '.join(e['blocked_by'])}")
+            if e["depends_on_epics"] and not e["blocked_by"]:
+                print(f"    → deps (resolved): {', '.join(e['depends_on_epics'])}")
+
+            print()
+
+
 def cmd_start(args: argparse.Namespace) -> None:
     """Start a task (set status to in_progress)."""
     if not ensure_flow_exists():
@@ -7086,6 +7218,11 @@ def main() -> None:
     p_ready.add_argument("--epic", required=True, help="Epic ID (e.g., fn-1, fn-1-add-auth)")
     p_ready.add_argument("--json", action="store_true", help="JSON output")
     p_ready.set_defaults(func=cmd_ready)
+
+    # queue
+    p_queue = subparsers.add_parser("queue", help="Show multi-epic queue status")
+    p_queue.add_argument("--json", action="store_true", help="JSON output")
+    p_queue.set_defaults(func=cmd_queue)
 
     # next
     p_next = subparsers.add_parser("next", help="Select next plan/work unit")

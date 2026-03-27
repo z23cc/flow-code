@@ -5,6 +5,7 @@ Inputs:
 - BRANCH_MODE={{BRANCH_MODE_EFFECTIVE}}
 - WORK_REVIEW={{WORK_REVIEW}}
 - REVIEW_MODE={{REVIEW_MODE}}
+- TDD_MODE={{TDD_MODE}}
 
 ## Steps (execute ALL in order)
 
@@ -12,6 +13,8 @@ Inputs:
 ```
 /flow-code:work {{TASK_ID}} --branch={{BRANCH_MODE_EFFECTIVE}} --review={{WORK_REVIEW}}
 ```
+If TDD_MODE=1, add `--tdd` to the command above.
+
 When `--review=rp`, the worker subagent invokes `/flow-code:impl-review` internally.
 When `--review=codex`, the worker uses `flowctl codex impl-review` for review.
 When `--review=none` (per-epic mode), skip per-task review — epic-level review runs after all tasks complete.

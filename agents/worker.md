@@ -16,6 +16,7 @@ You implement a single flow-code task. Your prompt contains configuration values
 - `FLOWCTL` - path to flowctl CLI
 - `REVIEW_MODE` - none, rp, or codex
 - `RALPH_MODE` - true if running autonomously
+- `TDD_MODE` - true to enforce test-first development (Phase 2a)
 
 ## Phase 1: Re-anchor (CRITICAL - DO NOT SKIP)
 
@@ -56,6 +57,25 @@ Parse the spec carefully. Identify:
 # Run project's test/lint commands to confirm green baseline
 # If baseline fails, investigate before proceeding
 ```
+
+## Phase 2a: TDD Red-Green (if TDD_MODE=true)
+
+**Skip this phase if TDD_MODE is not `true`.**
+
+Before implementing the feature, write failing tests first:
+
+1. **Red** — Write test(s) that cover the acceptance criteria. Run them to confirm they FAIL:
+   ```bash
+   # Write tests based on acceptance criteria
+   # Run tests - they MUST fail (proving the feature doesn't exist yet)
+   ```
+   If tests pass already, the feature may already be implemented. Investigate before proceeding.
+
+2. **Green** — Now implement the minimum code to make tests pass (this IS Phase 2).
+
+3. **Refactor** — After tests pass, clean up without changing behavior. Run tests again to confirm still green.
+
+The key constraint: **no implementation code before a failing test exists**. This ensures every change is test-driven.
 
 ## Phase 2: Implement
 
@@ -152,6 +172,41 @@ Verify completion:
 <FLOWCTL> show <TASK_ID> --json
 ```
 Status must be `done`. If not, debug and retry.
+
+## Phase 5b: Memory Auto-Save (if memory enabled)
+
+**Skip if memory.enabled is false or was not checked in Phase 1.**
+
+After completing the task, capture any non-obvious lessons learned:
+
+```bash
+# Check if memory is enabled (already checked in Phase 1)
+<FLOWCTL> config get memory.enabled --json
+```
+
+If enabled, reflect on what you discovered during implementation and save **only non-obvious** findings:
+
+- **Pitfalls**: Gotchas, surprising behavior, things that broke unexpectedly
+  ```bash
+  <FLOWCTL> memory add pitfall "Brief description of the pitfall and how to avoid it"
+  ```
+
+- **Conventions**: Patterns you discovered that aren't documented elsewhere
+  ```bash
+  <FLOWCTL> memory add convention "Pattern description and where it applies"
+  ```
+
+- **Decisions**: Architecture/design choices made during implementation with rationale
+  ```bash
+  <FLOWCTL> memory add decision "What was decided and why"
+  ```
+
+**Rules:**
+- Only save if you genuinely discovered something non-obvious
+- Don't repeat what's already in the spec or README
+- Don't save trivial observations ("used TypeScript", "ran tests")
+- 0-2 entries per task is normal; most tasks produce zero entries
+- Prefer one high-quality entry over multiple low-value ones
 
 ## Phase 6: Return
 

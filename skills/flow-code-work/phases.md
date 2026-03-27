@@ -148,6 +148,25 @@ $FLOWCTL show <task-id> --json
 
 If status is not `done`, the worker failed. Check output and retry or investigate.
 
+### 3d½. Interactive Checkpoint (if `--interactive`)
+
+If `--interactive` was passed, pause after each task completes and show a checkpoint:
+
+```
+Checkpoint: Task <task-id> complete
+  Files changed: <list from git diff --stat>
+  Tests: <pass/fail>
+  Review: <verdict if review ran>
+
+Continue to next task? (y/n/skip/abort)
+  y = continue (default)
+  n = pause here, I'll review manually
+  skip = skip remaining tasks, go to Phase 4
+  abort = stop execution entirely
+```
+
+Use AskUserQuestion to wait for response. If no `--interactive` flag, skip this step entirely.
+
 ### 3e. Plan Sync (if enabled) — BOTH MODES
 
 **Runs in SINGLE_TASK_MODE and EPIC_MODE.** Only the loop-back in 3f differs by mode.

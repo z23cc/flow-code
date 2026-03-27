@@ -140,3 +140,23 @@ If verdict is NEEDS_WORK, loop internally until SHIP:
 5. **Repeat** until `<verdict>SHIP</verdict>`
 
 **CRITICAL**: For RP, re-reviews must stay in the SAME chat so reviewer has context. Only use `--new-chat` on the FIRST review.
+
+## Goal-Backward Verification (after SHIP)
+
+After the reviewer returns SHIP, perform one final semantic check before closing:
+
+1. **Read the epic's original goal**:
+   ```bash
+   $FLOWCTL cat <epic-id>
+   ```
+   Extract the `## Overview` or `## Goal` section (the original user intent).
+
+2. **Ask the reviewing agent** (or yourself if no backend):
+   > "Looking at the implemented code as it stands — does this satisfy the original goal for the end user? Answer: Yes / Partial / No, with one sentence explaining why."
+
+3. **Gate on the answer**:
+   - **Yes** → proceed to receipt + status update
+   - **Partial** → treat as NEEDS_WORK, log the gap, enter fix loop
+   - **No** → treat as MAJOR_RETHINK, output `<promise>FAIL</promise>`
+
+This catches cases where all tests pass and spec items are checked off, but the product behavior still doesn't match what the user actually wanted.

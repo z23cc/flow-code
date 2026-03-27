@@ -306,6 +306,44 @@ $FLOWCTL validate --epic <epic-id> --json
 
 Fix any errors before proceeding.
 
+### Step 6b: Auto-Extract Acceptance Checklist
+
+After validation passes, auto-generate a machine-readable checklist from acceptance criteria:
+
+```bash
+# Extract acceptance criteria from epic spec and all task specs into checklist.json
+$FLOWCTL cat <epic-id> > /tmp/epic-spec.md
+```
+
+Parse the epic spec and all task specs for `## Acceptance` sections. Extract each `- [ ]` bullet point.
+
+Write a structured checklist to `.flow/checklists/<epic-id>.json`:
+
+```bash
+mkdir -p .flow/checklists
+cat > .flow/checklists/<epic-id>.json <<'EOF'
+{
+  "epic_id": "<epic-id>",
+  "generated_at": "<ISO timestamp>",
+  "items": [
+    {"id": "epic.1", "source": "<epic-id>", "criterion": "First acceptance criterion from epic spec", "status": "pending"},
+    {"id": "epic.2", "source": "<epic-id>", "criterion": "Second acceptance criterion from epic spec", "status": "pending"},
+    {"id": "<task-id>.1", "source": "<task-id>", "criterion": "First acceptance criterion from task spec", "status": "pending"},
+    {"id": "<task-id>.2", "source": "<task-id>", "criterion": "Second acceptance criterion from task spec", "status": "pending"}
+  ]
+}
+EOF
+```
+
+Rules:
+- Each `- [ ]` line becomes one checklist item
+- `source` tracks which spec (epic or task) it came from
+- `status` starts as `pending`, set to `pass`/`fail` during review
+- If no acceptance criteria found, skip (don't create empty checklist)
+- Commit the checklist with the plan: `git add .flow/checklists/`
+
+This checklist is consumed by `/flow-code:epic-review` for structured verification.
+
 ## Step 7: Review (if chosen at start)
 
 If user chose "Yes" to review in SKILL.md setup question:

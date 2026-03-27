@@ -1,0 +1,15 @@
+# Runtime
+.flow/
+.tasks/.sessions/
+.tasks/metrics/
+.tasks/pipeline/
+.tasks/perf.jsonl
+skills/.tasks/
+scripts/hooks/__pycache__/
+
+# Ref repos (submodules, too large for main repo)
+ref/
+gmickel-claude-marketplace/
+
+# OS
+.DS_Store

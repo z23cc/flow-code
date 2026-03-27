@@ -37,13 +37,15 @@ git log -5 --oneline
 <FLOWCTL> config get memory.enabled --json
 ```
 
-**If memory.enabled is true**, read relevant memory:
+**If memory.enabled is true**, inject relevant memory (L1: compact index):
 ```bash
-cat .flow/memory/pitfalls.md 2>/dev/null || true
-cat .flow/memory/conventions.md 2>/dev/null || true
-cat .flow/memory/decisions.md 2>/dev/null || true
+<FLOWCTL> memory inject --json
 ```
-Look for entries relevant to your task's technology/domain.
+This returns a compact index (~50 tokens/entry). If you see relevant entries, fetch full content:
+```bash
+<FLOWCTL> memory search "<keyword>"
+```
+Only fetch full content for entries relevant to your task's technology/domain.
 
 Parse the spec carefully. Identify:
 - Acceptance criteria

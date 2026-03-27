@@ -13,3 +13,4 @@ gmickel-claude-marketplace/
 
 # OS
 .DS_Store
+.gstack/

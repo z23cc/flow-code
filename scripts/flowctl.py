@@ -2427,36 +2427,226 @@ def cmd_review_backend(args: argparse.Namespace) -> None:
         print(backend)
 
 
-MEMORY_TEMPLATES = {
-    "pitfalls.md": """# Pitfalls
+# ─────────────────────────────────────────────────────────────────────────────
+# Memory System v2: Atomic entries + index + progressive disclosure
+# ─────────────────────────────────────────────────────────────────────────────
+# Storage layout:
+#   .flow/memory/
+#   ├── index.jsonl       ← compact index (~50 tokens/entry)
+#   ├── stats.json        ← reference counts + last referenced time
+#   └── entries/
+#       ├── 001-pitfall.md
+#       ├── 002-convention.md
+#       └── ...
+#
+# Legacy files (pitfalls.md, conventions.md, decisions.md) are auto-migrated
+# on first use if they contain entries.
+# ─────────────────────────────────────────────────────────────────────────────
 
-Lessons learned from NEEDS_WORK feedback. Things models tend to miss.
-
-<!-- Entries added automatically by hooks or manually via `flowctl memory add` -->
-""",
-    "conventions.md": """# Conventions
-
-Project patterns discovered during work. Not in CLAUDE.md but important.
-
-<!-- Entries added manually via `flowctl memory add` -->
-""",
-    "decisions.md": """# Decisions
-
-Architectural choices with rationale. Why we chose X over Y.
-
-<!-- Entries added manually via `flowctl memory add` -->
-""",
-}
+MEMORY_VALID_TYPES = {"pitfall", "convention", "decision"}
 
 
-def cmd_memory_init(args: argparse.Namespace) -> None:
-    """Initialize memory directory with templates."""
+def _memory_dir() -> Path:
+    return get_flow_dir() / MEMORY_DIR
+
+
+def _memory_entries_dir() -> Path:
+    d = _memory_dir() / "entries"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _memory_index_path() -> Path:
+    return _memory_dir() / "index.jsonl"
+
+
+def _memory_stats_path() -> Path:
+    return _memory_dir() / "stats.json"
+
+
+def _normalize_memory_type(raw: str) -> str:
+    """Normalize type input: 'pitfalls' -> 'pitfall', etc."""
+    t = raw.lower().rstrip("s")
+    if t not in MEMORY_VALID_TYPES:
+        return ""
+    return t
+
+
+def _content_hash(content: str) -> str:
+    """SHA256 prefix for deduplication."""
+    import hashlib
+    return hashlib.sha256(content.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def _next_entry_id(entries_dir: Path) -> int:
+    """Scan existing entries to find next numeric ID."""
+    max_id = 0
+    for f in entries_dir.glob("*.md"):
+        m = re.match(r"^(\d+)-", f.name)
+        if m:
+            max_id = max(max_id, int(m.group(1)))
+    return max_id + 1
+
+
+def _load_index(index_path: Path) -> list[dict]:
+    """Load index.jsonl entries."""
+    entries = []
+    if not index_path.exists():
+        return entries
+    for line in index_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return entries
+
+
+def _save_index(index_path: Path, entries: list[dict]) -> None:
+    """Write index.jsonl atomically."""
+    lines = [json.dumps(e, separators=(",", ":")) for e in entries]
+    atomic_write(index_path, "\n".join(lines) + "\n" if lines else "")
+
+
+def _load_stats(stats_path: Path) -> dict:
+    """Load stats.json."""
+    if not stats_path.exists():
+        return {}
+    try:
+        return json.loads(stats_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_stats(stats_path: Path, stats: dict) -> None:
+    """Write stats.json atomically."""
+    atomic_write_json(stats_path, stats)
+
+
+def _bump_refs(stats_path: Path, entry_ids: list[str]) -> None:
+    """Increment reference counts for injected entries."""
+    if not entry_ids:
+        return
+    from datetime import datetime, timezone
+    stats = _load_stats(stats_path)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for eid in entry_ids:
+        eid_str = str(eid)
+        if eid_str not in stats:
+            stats[eid_str] = {"refs": 0, "last_ref": ""}
+        stats[eid_str]["refs"] = stats[eid_str].get("refs", 0) + 1
+        stats[eid_str]["last_ref"] = now
+    _save_stats(stats_path, stats)
+
+
+def _migrate_legacy_memory(memory_dir: Path) -> int:
+    """Migrate legacy markdown files to atomic entries. Returns count migrated."""
+    legacy_map = {
+        "pitfalls.md": "pitfall",
+        "conventions.md": "convention",
+        "decisions.md": "decision",
+    }
+    entries_dir = memory_dir / "entries"
+    entries_dir.mkdir(parents=True, exist_ok=True)
+    index_path = memory_dir / "index.jsonl"
+    existing_index = _load_index(index_path)
+    existing_hashes = {e.get("hash", "") for e in existing_index}
+
+    migrated = 0
+    from datetime import datetime, timezone
+
+    for filename, entry_type in legacy_map.items():
+        filepath = memory_dir / filename
+        if not filepath.exists():
+            continue
+        text = filepath.read_text(encoding="utf-8")
+        # Split into entries by ## date headers
+        raw_entries = re.split(r"(?=^## \d{4}-\d{2}-\d{2})", text, flags=re.MULTILINE)
+        for raw in raw_entries:
+            raw = raw.strip()
+            if not raw or not re.match(r"^## \d{4}-\d{2}-\d{2}", raw):
+                continue
+            # Extract date and content
+            lines = raw.splitlines()
+            header = lines[0]  # ## 2025-03-27 manual [pitfall]
+            content = "\n".join(lines[1:]).strip()
+            if not content:
+                continue
+
+            # Check dedup
+            chash = _content_hash(content)
+            if chash in existing_hashes:
+                continue
+
+            # Extract date from header
+            date_match = re.search(r"(\d{4}-\d{2}-\d{2})", header)
+            created = date_match.group(1) if date_match else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+            # Extract tags from content (simple keyword extraction)
+            tags = _extract_tags(content)
+
+            # Write entry file
+            entry_id = _next_entry_id(entries_dir)
+            entry_filename = f"{entry_id:03d}-{entry_type}.md"
+            atomic_write(entries_dir / entry_filename, content)
+
+            # Build summary (first line, truncated)
+            summary = content.splitlines()[0][:120]
+
+            # Append to index
+            idx_entry = {
+                "id": entry_id,
+                "type": entry_type,
+                "summary": summary,
+                "tags": tags,
+                "hash": chash,
+                "created": created,
+                "file": entry_filename,
+            }
+            existing_index.append(idx_entry)
+            existing_hashes.add(chash)
+            migrated += 1
+
+    if migrated > 0:
+        _save_index(index_path, existing_index)
+        # Rename legacy files to .bak
+        for filename in legacy_map:
+            filepath = memory_dir / filename
+            if filepath.exists():
+                bak = filepath.with_suffix(".md.bak")
+                if not bak.exists():
+                    filepath.rename(bak)
+
+    return migrated
+
+
+def _extract_tags(content: str) -> list[str]:
+    """Extract simple keyword tags from content."""
+    # Common technical terms as tags
+    tag_patterns = [
+        r"\b(typescript|javascript|python|rust|go|java|ruby|swift)\b",
+        r"\b(react|vue|angular|svelte|nextjs|django|flask|fastapi|express)\b",
+        r"\b(postgres|mysql|sqlite|redis|mongodb|supabase)\b",
+        r"\b(docker|kubernetes|ci|cd|github|gitlab)\b",
+        r"\b(api|auth|oauth|jwt|cors|csrf|xss|sql)\b",
+        r"\b(test|lint|build|deploy|migration|schema)\b",
+    ]
+    tags = set()
+    lower = content.lower()
+    for pattern in tag_patterns:
+        for m in re.finditer(pattern, lower):
+            tags.add(m.group(1))
+    return sorted(tags)[:8]  # Cap at 8 tags
+
+
+def require_memory_enabled(args) -> Path:
+    """Check memory is enabled, auto-init and auto-migrate. Returns memory dir."""
     if not ensure_flow_exists():
         error_exit(
             ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
         )
 
-    # Check if memory is enabled
     if not get_config("memory.enabled", False):
         if args.json:
             json_output(
@@ -2470,235 +2660,446 @@ def cmd_memory_init(args: argparse.Namespace) -> None:
             print("Enable with: flowctl config set memory.enabled true")
         sys.exit(1)
 
-    flow_dir = get_flow_dir()
-    memory_dir = flow_dir / MEMORY_DIR
-
-    # Create memory dir if missing
+    memory_dir = _memory_dir()
     memory_dir.mkdir(parents=True, exist_ok=True)
+    entries_dir = memory_dir / "entries"
+    entries_dir.mkdir(parents=True, exist_ok=True)
+
+    # Auto-migrate legacy files if present and index doesn't exist yet
+    index_path = _memory_index_path()
+    legacy_exists = any(
+        (memory_dir / f).exists()
+        for f in ["pitfalls.md", "conventions.md", "decisions.md"]
+    )
+    if legacy_exists and not index_path.exists():
+        migrated = _migrate_legacy_memory(memory_dir)
+        if migrated > 0 and not getattr(args, "json", False):
+            print(f"Migrated {migrated} legacy memory entries to v2 format")
+
+    return memory_dir
+
+
+def cmd_memory_init(args: argparse.Namespace) -> None:
+    """Initialize memory directory (v2: atomic entries)."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    if not get_config("memory.enabled", False):
+        if args.json:
+            json_output(
+                {
+                    "error": "Memory not enabled. Run: flowctl config set memory.enabled true"
+                },
+                success=False,
+            )
+        else:
+            print("Error: Memory not enabled.")
+            print("Enable with: flowctl config set memory.enabled true")
+        sys.exit(1)
+
+    memory_dir = _memory_dir()
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    entries_dir = memory_dir / "entries"
+    entries_dir.mkdir(parents=True, exist_ok=True)
 
     created = []
-    for filename, content in MEMORY_TEMPLATES.items():
-        filepath = memory_dir / filename
-        if not filepath.exists():
-            atomic_write(filepath, content)
-            created.append(filename)
+    index_path = _memory_index_path()
+    if not index_path.exists():
+        atomic_write(index_path, "")
+        created.append("index.jsonl")
+
+    stats_path = _memory_stats_path()
+    if not stats_path.exists():
+        _save_stats(stats_path, {})
+        created.append("stats.json")
+
+    # Auto-migrate legacy if present
+    legacy_exists = any(
+        (memory_dir / f).exists()
+        for f in ["pitfalls.md", "conventions.md", "decisions.md"]
+    )
+    migrated = 0
+    if legacy_exists:
+        migrated = _migrate_legacy_memory(memory_dir)
 
     if args.json:
         json_output(
             {
                 "path": str(memory_dir),
                 "created": created,
-                "message": "Memory initialized"
-                if created
-                else "Memory already initialized",
+                "migrated": migrated,
+                "message": "Memory v2 initialized",
             }
         )
     else:
+        print(f"Memory v2 initialized at {memory_dir}")
         if created:
-            print(f"Memory initialized at {memory_dir}")
             for f in created:
                 print(f"  Created: {f}")
-        else:
-            print(f"Memory already initialized at {memory_dir}")
-
-
-def require_memory_enabled(args) -> Path:
-    """Check memory is enabled and return memory dir. Exits on error."""
-    if not ensure_flow_exists():
-        error_exit(
-            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
-        )
-
-    if not get_config("memory.enabled", False):
-        if args.json:
-            json_output(
-                {
-                    "error": "Memory not enabled. Run: flowctl config set memory.enabled true"
-                },
-                success=False,
-            )
-        else:
-            print("Error: Memory not enabled.")
-            print("Enable with: flowctl config set memory.enabled true")
-        sys.exit(1)
-
-    memory_dir = get_flow_dir() / MEMORY_DIR
-    required_files = ["pitfalls.md", "conventions.md", "decisions.md"]
-    missing = [f for f in required_files if not (memory_dir / f).exists()]
-    if missing:
-        if args.json:
-            json_output(
-                {"error": "Memory not initialized. Run: flowctl memory init"},
-                success=False,
-            )
-        else:
-            print("Error: Memory not initialized.")
-            print("Run: flowctl memory init")
-        sys.exit(1)
-
-    return memory_dir
+        if migrated:
+            print(f"  Migrated {migrated} legacy entries")
 
 
 def cmd_memory_add(args: argparse.Namespace) -> None:
-    """Add a memory entry manually."""
+    """Add an atomic memory entry with dedup."""
     memory_dir = require_memory_enabled(args)
 
-    # Map type to file
-    type_map = {
-        "pitfall": "pitfalls.md",
-        "pitfalls": "pitfalls.md",
-        "convention": "conventions.md",
-        "conventions": "conventions.md",
-        "decision": "decisions.md",
-        "decisions": "decisions.md",
-    }
-
-    filename = type_map.get(args.type.lower())
-    if not filename:
+    type_name = _normalize_memory_type(args.type)
+    if not type_name:
         error_exit(
             f"Invalid type '{args.type}'. Use: pitfall, convention, or decision",
             use_json=args.json,
         )
 
-    filepath = memory_dir / filename
-    if not filepath.exists():
-        error_exit(
-            f"Memory file {filename} not found. Run: flowctl memory init",
-            use_json=args.json,
-        )
+    content = args.content.strip()
+    if not content:
+        error_exit("Content cannot be empty", use_json=args.json)
 
-    # Format entry
-    from datetime import datetime
+    # Dedup check
+    chash = _content_hash(content)
+    index_path = _memory_index_path()
+    existing = _load_index(index_path)
+    for e in existing:
+        if e.get("hash") == chash:
+            if args.json:
+                json_output(
+                    {"id": e["id"], "duplicate": True, "message": "Duplicate entry, skipped"}
+                )
+            else:
+                print(f"Duplicate of entry #{e['id']}, skipped")
+            return
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    # Write atomic entry
+    from datetime import datetime, timezone
 
-    # Normalize type name
-    type_name = args.type.lower().rstrip("s")  # pitfalls -> pitfall
+    entries_dir = _memory_entries_dir()
+    entry_id = _next_entry_id(entries_dir)
+    entry_filename = f"{entry_id:03d}-{type_name}.md"
+    atomic_write(entries_dir / entry_filename, content)
 
-    entry = f"""
-## {today} manual [{type_name}]
-{args.content}
-"""
+    # Extract tags and summary
+    tags = _extract_tags(content)
+    summary = content.splitlines()[0][:120]
+    created = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # Append to file
-    with filepath.open("a", encoding="utf-8") as f:
-        f.write(entry)
+    # Append to index
+    idx_entry = {
+        "id": entry_id,
+        "type": type_name,
+        "summary": summary,
+        "tags": tags,
+        "hash": chash,
+        "created": created,
+        "file": entry_filename,
+    }
+    existing.append(idx_entry)
+    _save_index(index_path, existing)
 
     if args.json:
         json_output(
-            {"type": type_name, "file": filename, "message": f"Added {type_name} entry"}
+            {"id": entry_id, "type": type_name, "file": entry_filename, "tags": tags}
         )
     else:
-        print(f"Added {type_name} entry to {filename}")
+        print(f"Added {type_name} #{entry_id}: {summary}")
+        if tags:
+            print(f"  Tags: {', '.join(tags)}")
 
 
 def cmd_memory_read(args: argparse.Namespace) -> None:
-    """Read memory entries."""
+    """Read memory entries (L3: full content)."""
     memory_dir = require_memory_enabled(args)
 
-    # Determine which files to read
+    index = _load_index(_memory_index_path())
+
+    # Filter by type if specified
+    type_filter = None
     if args.type:
-        type_map = {
-            "pitfall": "pitfalls.md",
-            "pitfalls": "pitfalls.md",
-            "convention": "conventions.md",
-            "conventions": "conventions.md",
-            "decision": "decisions.md",
-            "decisions": "decisions.md",
-        }
-        filename = type_map.get(args.type.lower())
-        if not filename:
+        type_filter = _normalize_memory_type(args.type)
+        if not type_filter:
             error_exit(
-                f"Invalid type '{args.type}'. Use: pitfalls, conventions, or decisions",
+                f"Invalid type '{args.type}'. Use: pitfall, convention, or decision",
                 use_json=args.json,
             )
-        files = [filename]
-    else:
-        files = ["pitfalls.md", "conventions.md", "decisions.md"]
 
-    content = {}
-    for filename in files:
-        filepath = memory_dir / filename
-        if filepath.exists():
-            content[filename] = filepath.read_text(encoding="utf-8")
-        else:
-            content[filename] = ""
+    entries_dir = _memory_entries_dir()
+    results = []
+    for idx in index:
+        if type_filter and idx.get("type") != type_filter:
+            continue
+        entry_path = entries_dir / idx["file"]
+        content = ""
+        if entry_path.exists():
+            content = entry_path.read_text(encoding="utf-8")
+        results.append({
+            "id": idx["id"],
+            "type": idx["type"],
+            "summary": idx["summary"],
+            "tags": idx.get("tags", []),
+            "created": idx.get("created", ""),
+            "content": content,
+        })
 
     if args.json:
-        json_output({"files": content})
+        json_output({"entries": results, "count": len(results)})
     else:
-        for filename, text in content.items():
-            if text.strip():
-                print(f"=== {filename} ===")
-                print(text)
+        if results:
+            for r in results:
+                print(f"--- #{r['id']} [{r['type']}] {r['created']} ---")
+                print(r["content"])
+                if r["tags"]:
+                    print(f"  Tags: {', '.join(r['tags'])}")
                 print()
+            print(f"Total: {len(results)} entries")
+        else:
+            print("No memory entries" + (f" of type '{type_filter}'" if type_filter else ""))
 
 
 def cmd_memory_list(args: argparse.Namespace) -> None:
-    """List memory entry counts."""
+    """List memory entries with stats."""
     memory_dir = require_memory_enabled(args)
 
-    counts = {}
-    for filename in ["pitfalls.md", "conventions.md", "decisions.md"]:
-        filepath = memory_dir / filename
-        if filepath.exists():
-            text = filepath.read_text(encoding="utf-8")
-            # Count ## entries (each entry starts with ## date)
-            entries = len(re.findall(r"^## \d{4}-\d{2}-\d{2}", text, re.MULTILINE))
-            counts[filename] = entries
-        else:
-            counts[filename] = 0
+    index = _load_index(_memory_index_path())
+    stats = _load_stats(_memory_stats_path())
+
+    counts: dict[str, int] = {}
+    for idx in index:
+        t = idx.get("type", "unknown")
+        counts[t] = counts.get(t, 0) + 1
+
+    total = len(index)
+    total_refs = sum(s.get("refs", 0) for s in stats.values())
 
     if args.json:
-        json_output({"counts": counts, "total": sum(counts.values())})
+        json_output({
+            "counts": counts,
+            "total": total,
+            "total_refs": total_refs,
+            "index": [
+                {
+                    "id": idx["id"],
+                    "type": idx["type"],
+                    "summary": idx["summary"],
+                    "tags": idx.get("tags", []),
+                    "created": idx.get("created", ""),
+                    "refs": stats.get(str(idx["id"]), {}).get("refs", 0),
+                }
+                for idx in index
+            ],
+        })
     else:
-        total = 0
-        for filename, count in counts.items():
-            print(f"  {filename}: {count} entries")
-            total += count
-        print(f"  Total: {total} entries")
+        print(f"Memory: {total} entries, {total_refs} total references\n")
+        for idx in index:
+            eid = str(idx["id"])
+            refs = stats.get(eid, {}).get("refs", 0)
+            last = stats.get(eid, {}).get("last_ref", "never")
+            print(f"  #{idx['id']:3d} [{idx['type']:10s}] refs={refs:2d}  {idx['summary'][:80]}")
+        print()
+        for t, c in sorted(counts.items()):
+            print(f"  {t}: {c}")
+        print(f"  Total: {total}")
 
 
 def cmd_memory_search(args: argparse.Namespace) -> None:
-    """Search memory entries."""
+    """Search memory entries by pattern (regex) or tags."""
     memory_dir = require_memory_enabled(args)
 
     pattern = args.pattern
 
     # Validate regex pattern
     try:
-        re.compile(pattern)
+        compiled = re.compile(pattern, re.IGNORECASE)
     except re.error as e:
         error_exit(f"Invalid regex pattern: {e}", use_json=args.json)
 
+    index = _load_index(_memory_index_path())
+    entries_dir = _memory_entries_dir()
     matches = []
 
-    for filename in ["pitfalls.md", "conventions.md", "decisions.md"]:
-        filepath = memory_dir / filename
-        if not filepath.exists():
-            continue
+    for idx in index:
+        # Search in summary, tags, and full content
+        hit = False
+        if compiled.search(idx.get("summary", "")):
+            hit = True
+        elif any(compiled.search(t) for t in idx.get("tags", [])):
+            hit = True
+        else:
+            entry_path = entries_dir / idx["file"]
+            if entry_path.exists():
+                content = entry_path.read_text(encoding="utf-8")
+                if compiled.search(content):
+                    hit = True
 
-        text = filepath.read_text(encoding="utf-8")
-        # Split into entries
-        entries = re.split(r"(?=^## \d{4}-\d{2}-\d{2})", text, flags=re.MULTILINE)
-
-        for entry in entries:
-            if not entry.strip():
-                continue
-            if re.search(pattern, entry, re.IGNORECASE):
-                matches.append({"file": filename, "entry": entry.strip()})
+        if hit:
+            content = ""
+            entry_path = entries_dir / idx["file"]
+            if entry_path.exists():
+                content = entry_path.read_text(encoding="utf-8")
+            matches.append({
+                "id": idx["id"],
+                "type": idx["type"],
+                "summary": idx["summary"],
+                "tags": idx.get("tags", []),
+                "content": content,
+            })
 
     if args.json:
         json_output({"pattern": pattern, "matches": matches, "count": len(matches)})
     else:
         if matches:
             for m in matches:
-                print(f"=== {m['file']} ===")
-                print(m["entry"])
+                print(f"--- #{m['id']} [{m['type']}] ---")
+                print(m["content"])
                 print()
-            print(f"Found {len(matches)} matches")
+            print(f"Found {len(matches)} matches for '{pattern}'")
         else:
             print(f"No matches for '{pattern}'")
+
+
+def cmd_memory_inject(args: argparse.Namespace) -> None:
+    """Inject relevant memory entries for a task context (progressive disclosure).
+
+    L1 (default): Compact index only (~50 tokens/entry)
+    L2 (--type/--tags): Filtered full content
+    L3 (--full): All entries full content
+    """
+    memory_dir = require_memory_enabled(args)
+
+    index = _load_index(_memory_index_path())
+    if not index:
+        if args.json:
+            json_output({"entries": [], "level": "L1", "count": 0})
+        else:
+            print("No memory entries")
+        return
+
+    entries_dir = _memory_entries_dir()
+
+    # Determine filter
+    type_filter = _normalize_memory_type(args.type) if args.type else None
+    tag_filter = [t.strip().lower() for t in args.tags.split(",")] if args.tags else []
+
+    # Filter entries
+    filtered = []
+    for idx in index:
+        if type_filter and idx.get("type") != type_filter:
+            continue
+        if tag_filter:
+            entry_tags = [t.lower() for t in idx.get("tags", [])]
+            if not any(t in entry_tags for t in tag_filter):
+                continue
+        filtered.append(idx)
+
+    # Determine level
+    level = "L1"
+    if args.full or type_filter or tag_filter:
+        level = "L2" if (type_filter or tag_filter) else "L3"
+
+    # Bump reference counts
+    _bump_refs(_memory_stats_path(), [str(e["id"]) for e in filtered])
+
+    if level == "L1":
+        # Compact index: one line per entry
+        if args.json:
+            json_output({
+                "entries": [
+                    {"id": e["id"], "type": e["type"], "summary": e["summary"], "tags": e.get("tags", [])}
+                    for e in filtered
+                ],
+                "level": "L1",
+                "count": len(filtered),
+            })
+        else:
+            print(f"Memory index ({len(filtered)} entries):")
+            for e in filtered:
+                tags_str = f" [{','.join(e.get('tags', [])[:3])}]" if e.get("tags") else ""
+                print(f"  #{e['id']} [{e['type']}]{tags_str} {e['summary'][:100]}")
+            print(f"\nUse `memory search <pattern>` for full content of specific entries.")
+    else:
+        # Full content for filtered entries
+        results = []
+        for idx in filtered:
+            entry_path = entries_dir / idx["file"]
+            content = entry_path.read_text(encoding="utf-8") if entry_path.exists() else ""
+            results.append({
+                "id": idx["id"],
+                "type": idx["type"],
+                "summary": idx["summary"],
+                "tags": idx.get("tags", []),
+                "content": content,
+            })
+
+        if args.json:
+            json_output({"entries": results, "level": level, "count": len(results)})
+        else:
+            for r in results:
+                print(f"--- #{r['id']} [{r['type']}] ---")
+                print(r["content"])
+                print()
+
+
+def cmd_memory_gc(args: argparse.Namespace) -> None:
+    """Garbage collect stale memory entries (0 refs + older than --days)."""
+    memory_dir = require_memory_enabled(args)
+
+    from datetime import datetime, timezone, timedelta
+
+    index = _load_index(_memory_index_path())
+    stats = _load_stats(_memory_stats_path())
+    entries_dir = _memory_entries_dir()
+
+    cutoff_days = args.days
+    now = datetime.now(timezone.utc)
+    cutoff_date = (now - timedelta(days=cutoff_days)).strftime("%Y-%m-%d")
+
+    stale = []
+    keep = []
+
+    for idx in index:
+        eid_str = str(idx["id"])
+        refs = stats.get(eid_str, {}).get("refs", 0)
+        created = idx.get("created", "9999-99-99")
+
+        if refs == 0 and created < cutoff_date:
+            stale.append(idx)
+        else:
+            keep.append(idx)
+
+    if args.dry_run:
+        if args.json:
+            json_output({
+                "dry_run": True,
+                "stale": [{"id": s["id"], "type": s["type"], "summary": s["summary"]} for s in stale],
+                "count": len(stale),
+                "kept": len(keep),
+            })
+        else:
+            print(f"Dry run: {len(stale)} stale entries (0 refs, older than {cutoff_days} days)")
+            for s in stale:
+                print(f"  #{s['id']} [{s['type']}] {s['summary'][:80]}")
+            print(f"Would keep: {len(keep)} entries")
+        return
+
+    # Remove stale entries
+    removed = 0
+    for s in stale:
+        entry_path = entries_dir / s["file"]
+        if entry_path.exists():
+            entry_path.unlink()
+        # Remove from stats
+        eid_str = str(s["id"])
+        stats.pop(eid_str, None)
+        removed += 1
+
+    # Rewrite index without stale entries
+    _save_index(_memory_index_path(), keep)
+    _save_stats(_memory_stats_path(), stats)
+
+    if args.json:
+        json_output({"removed": removed, "kept": len(keep)})
+    else:
+        print(f"Removed {removed} stale entries, kept {len(keep)}")
 
 
 def cmd_epic_create(args: argparse.Namespace) -> None:
@@ -6965,36 +7366,57 @@ def main() -> None:
     p_review_backend.set_defaults(func=cmd_review_backend)
 
     # memory
-    p_memory = subparsers.add_parser("memory", help="Memory commands")
+    p_memory = subparsers.add_parser("memory", help="Memory commands (v2: atomic entries)")
     memory_sub = p_memory.add_subparsers(dest="memory_cmd", required=True)
 
-    p_memory_init = memory_sub.add_parser("init", help="Initialize memory templates")
+    p_memory_init = memory_sub.add_parser("init", help="Initialize memory (auto-migrates legacy)")
     p_memory_init.add_argument("--json", action="store_true", help="JSON output")
     p_memory_init.set_defaults(func=cmd_memory_init)
 
-    p_memory_add = memory_sub.add_parser("add", help="Add memory entry")
-    p_memory_add.add_argument(
-        "--type", required=True, help="Type: pitfall, convention, or decision"
-    )
+    p_memory_add = memory_sub.add_parser("add", help="Add atomic memory entry")
+    p_memory_add.add_argument("type", help="Type: pitfall, convention, or decision")
     p_memory_add.add_argument("content", help="Entry content")
     p_memory_add.add_argument("--json", action="store_true", help="JSON output")
     p_memory_add.set_defaults(func=cmd_memory_add)
 
-    p_memory_read = memory_sub.add_parser("read", help="Read memory entries")
+    p_memory_read = memory_sub.add_parser("read", help="Read entries (L3: full content)")
     p_memory_read.add_argument(
-        "--type", help="Filter by type: pitfalls, conventions, or decisions"
+        "--type", help="Filter by type: pitfall, convention, or decision"
     )
     p_memory_read.add_argument("--json", action="store_true", help="JSON output")
     p_memory_read.set_defaults(func=cmd_memory_read)
 
-    p_memory_list = memory_sub.add_parser("list", help="List memory entry counts")
+    p_memory_list = memory_sub.add_parser("list", help="List entries with ref counts")
     p_memory_list.add_argument("--json", action="store_true", help="JSON output")
     p_memory_list.set_defaults(func=cmd_memory_list)
 
-    p_memory_search = memory_sub.add_parser("search", help="Search memory entries")
+    p_memory_search = memory_sub.add_parser("search", help="Search entries by pattern")
     p_memory_search.add_argument("pattern", help="Search pattern (regex)")
     p_memory_search.add_argument("--json", action="store_true", help="JSON output")
     p_memory_search.set_defaults(func=cmd_memory_search)
+
+    p_memory_inject = memory_sub.add_parser(
+        "inject", help="Inject relevant entries (progressive disclosure)"
+    )
+    p_memory_inject.add_argument("--type", help="Filter by type")
+    p_memory_inject.add_argument("--tags", help="Filter by tags (comma-separated)")
+    p_memory_inject.add_argument(
+        "--full", action="store_true", help="L3: inject full content of all entries"
+    )
+    p_memory_inject.add_argument("--json", action="store_true", help="JSON output")
+    p_memory_inject.set_defaults(func=cmd_memory_inject)
+
+    p_memory_gc = memory_sub.add_parser(
+        "gc", help="Garbage collect stale entries"
+    )
+    p_memory_gc.add_argument(
+        "--days", type=int, default=90, help="Remove entries older than N days with 0 refs (default: 90)"
+    )
+    p_memory_gc.add_argument(
+        "--dry-run", action="store_true", help="Show what would be removed"
+    )
+    p_memory_gc.add_argument("--json", action="store_true", help="JSON output")
+    p_memory_gc.set_defaults(func=cmd_memory_gc)
 
     # epic create
     p_epic = subparsers.add_parser("epic", help="Epic commands")

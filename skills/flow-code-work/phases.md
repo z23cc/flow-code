@@ -186,7 +186,7 @@ git branch -d <worker-branch> 2>/dev/null || true
 
 **If all merges succeed**: Continue to 3d for all tasks in the batch.
 
-### 3d. Verify Completion
+### 3d. Verify Completion & Batch Checkpoint
 
 After worker(s) return, verify each task completed:
 
@@ -197,6 +197,58 @@ $FLOWCTL show <task-id> --json
 If status is not `done`, the worker failed. Check output and retry or investigate.
 
 **Parallel mode note:** If a merge failed in 3c½, the task may show `done` in flowctl (worker completed in its worktree) but changes are not on the working branch. Flag this to the user.
+
+#### Batch Checkpoint (parallel mode — MANDATORY after each wave)
+
+After ALL workers in a parallel batch return and merges complete (3c½), run a structured checkpoint before finding the next wave of tasks. This prevents cascading failures and ensures integration quality.
+
+**Step 1 — Aggregate Results:**
+Collect from every worker in the batch:
+- Status: done / failed / spec_conflict
+- Files changed (from worker summary)
+- Tests: pass / fail / skipped
+- Review verdict (if REVIEW_MODE != none)
+
+**Step 2 — Integration Verification:**
+```bash
+# Run guards on the merged result (catches cross-task breakage)
+$FLOWCTL guard
+
+# Check architecture invariants still hold
+$FLOWCTL invariants check
+
+# Quick integration test if available
+# (use the epic's quick commands or the project's default test runner)
+```
+
+If guards or invariants fail after merge, identify which task's changes caused the regression:
+1. Check `git log --oneline -<batch_size>` to see merge order
+2. If identifiable, revert the offending merge and flag the task for retry
+3. If ambiguous, report to user before continuing
+
+**Step 3 — Wave Summary:**
+Output a concise checkpoint report:
+```
+── Wave N Checkpoint ──────────────────────
+  Tasks completed: 3/3 (fn-1.1, fn-1.2, fn-1.3)
+  Files changed:   12
+  Guards:          ✓ pass
+  Invariants:      ✓ pass
+  Issues:          none
+  Next ready:      fn-1.4, fn-1.5
+───────────────────────────────────────────
+```
+
+**Step 4 — Wave 2 Planning:**
+Before looping to 3a, assess the next batch:
+- If checkpoint found integration issues → fix before spawning next wave
+- If a failed task blocks downstream tasks → resolve or skip before continuing
+- If remaining ready tasks have shared files with just-completed tasks → consider sequential execution to avoid conflicts
+
+**When to STOP the wave loop:**
+- Guards or invariants fail and cannot be auto-fixed → report to user
+- ≥ 2 tasks in the same wave failed → likely a systemic issue, pause and investigate
+- Merge conflicts in 3c½ → resolve before next wave
 
 ### 3d½. Interactive Checkpoint (if `--interactive`)
 
@@ -370,6 +422,7 @@ Confirm before ship:
 
 ## Example flow
 
+**Sequential mode:**
 ```
 Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
   ├─ 3a-c: find task → start → spawn worker
@@ -379,5 +432,24 @@ Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
   ├─ no more tasks → 3g: check completion_review_status
   │   ├─ status != ship → invoke /flow-code:epic-review → fix loop until SHIP → set status=ship
   │   └─ status = ship → Phase 4
+  └─ Phase 4 (quality) → Phase 5 (ship)
+```
+
+**Parallel mode (Wave-Checkpoint-Wave):**
+```
+Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
+  ├─ 3a: find ALL ready tasks (Wave 1)
+  ├─ 3b: readiness check all
+  ├─ 3c: spawn workers in parallel (worktree isolation)
+  ├─ 3c½: merge branches back sequentially
+  ├─ 3d: verify done + BATCH CHECKPOINT
+  │   ├─ aggregate results (status, files, tests, reviews)
+  │   ├─ integration verification (guard + invariants)
+  │   ├─ wave summary report
+  │   └─ wave 2 planning (assess next batch safety)
+  ├─ 3d½: interactive pause (if --interactive)
+  ├─ 3e: plan-sync for each completed task
+  ├─ 3f: loop to 3a for next wave (or Phase 4 if done)
+  ├─ no more tasks → 3g: completion review gate
   └─ Phase 4 (quality) → Phase 5 (ship)
 ```

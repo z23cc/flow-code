@@ -96,6 +96,41 @@ echo "BASE_COMMIT=$BASE_COMMIT"
 ```
 Save this - you'll pass it to impl-review so it only reviews THIS task's changes.
 
+### Wave-Checkpoint-Wave Execution
+
+When a task touches **3+ files**, use the Wave pattern to parallelize file I/O. This achieves 3-4x speedup over sequential reads/edits.
+
+**Wave 1 — Parallel Read:**
+Issue ALL file reads in a **single message** with multiple tool calls:
+```
+[Read file1]  [Read file2]  [Read file3]  [Read file4]   ← one message, all parallel
+```
+Include: target files from spec, related imports, test files, config files — everything needed to understand the change.
+
+**Checkpoint — Analyze & Plan:**
+Sequential. With all file contents loaded:
+1. Map dependencies between files (who imports whom, shared types)
+2. Identify which edits are independent (no shared lines/symbols) vs coupled
+3. Plan edit groups: independent edits go in one Wave; coupled edits go sequential
+4. If < 3 files or all edits are coupled → skip Wave 2, edit sequentially
+
+**Wave 2 — Parallel Edit:**
+Issue ALL independent edits in a **single message** with multiple tool calls:
+```
+[Edit file1]  [Edit file3]  [Edit file4]   ← independent edits, one message
+```
+Then apply coupled edits sequentially (e.g., file2 depends on file1's new export).
+
+**Wave 3+ — Repeat if needed:**
+If more files remain (tests, docs, config), repeat: parallel read → checkpoint → parallel edit.
+
+**When NOT to use Wave pattern:**
+- Task touches ≤ 2 files → just read and edit sequentially
+- All files have tight coupling (each depends on previous edit) → sequential is correct
+- Exploratory work where you don't know which files to touch yet → discover first, then Wave
+
+### General Implementation Rules
+
 Read relevant code, implement the feature/fix. Follow existing patterns.
 
 Rules:

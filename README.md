@@ -99,7 +99,9 @@ Work task-by-task with full review cycles for maximum control. Or throw the whol
 
 All modes get: re-anchoring before each task, evidence recording, cross-model review (if rp-cli available).
 
-**Parallel mode**: Spawns workers for ALL ready tasks (no unresolved dependencies) simultaneously. After each batch completes, newly unblocked tasks become ready for the next batch. Safe because `flowctl ready` only returns tasks with all dependencies resolved.
+**Parallel mode** (Wave-Checkpoint-Wave): Spawns workers for ALL ready tasks (no unresolved dependencies) simultaneously. After each batch completes, a structured **Batch Checkpoint** runs: aggregate results, verify integration (guards + invariants), output a wave summary, then plan the next wave. Newly unblocked tasks become ready for the next batch. Safe because `flowctl ready` only returns tasks with all dependencies resolved.
+
+Workers also use **file-level Wave parallelism** within each task — when touching 3+ files, they issue parallel reads in one message, analyze dependencies at a checkpoint, then issue parallel edits. This achieves 3-4x speedup over sequential file I/O.
 
 **Review timing**: The RepoPrompt review runs once at the end of the work package—after a single task if you specified `fn-N.M`, or after all tasks if you specified `fn-N`. For tighter review loops on large epics, work task-by-task.
 

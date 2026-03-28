@@ -305,16 +305,21 @@ If no verdict tag in response, output `<promise>RETRY</promise>` and stop.
 If verdict is NEEDS_WORK:
 
 1. **Parse issues** - Extract ALL issues by severity (Critical → Major → Minor)
-2. **Fix the code** - Address each issue in order
-3. **Run tests/lints** - Verify fixes don't break anything
-4. **Commit fixes** (MANDATORY before re-review):
+2. **Verify before fixing** - For each issue, check:
+   - Will this change break existing tests or functionality? If yes, skip with a note in re-review.
+   - Is the suggested addition actually used? (YAGNI check — grep for callers before adding code)
+   - Do you understand the suggestion? If unclear, skip it and note "unclear, skipped" in re-review.
+   - Only implement issues you can verify are correct for this codebase.
+3. **Fix verified issues** - Address each verified issue in order (blocking → simple → complex)
+4. **Run tests/lints** - Verify fixes don't break anything
+5. **Commit fixes** (MANDATORY before re-review):
    ```bash
    git add -A
    git commit -m "fix: address review feedback"
    ```
    **If you skip this and re-review without committing changes, reviewer will return NEEDS_WORK again.**
 
-5. **Request re-review** (only AFTER step 4):
+6. **Request re-review** (only AFTER step 5):
 
    **IMPORTANT**: Do NOT re-add files already in the selection. RepoPrompt auto-refreshes
    file contents on every message. Only use `select-add` for NEW files created during fixes:
@@ -338,7 +343,7 @@ If verdict is NEEDS_WORK:
 
    $FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/re-review.md
    ```
-6. **Repeat** until Ship
+7. **Repeat** until Ship
 
 **Anti-pattern**: Re-adding already-selected files before re-review. RP auto-refreshes; re-adding can cause issues.
 

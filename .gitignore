@@ -1,13 +1,16 @@
 # Runtime
 .flow/
-.tasks/.sessions/
-.tasks/metrics/
-.tasks/pipeline/
-.tasks/perf.jsonl
+.tasks/
 skills/.tasks/
-scripts/hooks/__pycache__/
+__pycache__/
 
-# Ref repos (submodules, too large for main repo)
+# Upstream backups
+*.upstream
+
+# Plugins / local config
+.claude-plugin/
+
+# Ref repos
 ref/
 gmickel-claude-marketplace/
 

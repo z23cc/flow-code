@@ -81,15 +81,10 @@ $FLOWCTL config get scouts.github --json
 $FLOWCTL stack show --json
 ```
 
-If stack is empty, auto-detect it:
-```bash
-$FLOWCTL stack detect --json
-```
-
-**If stack config exists**, use it throughout planning:
+Stack is auto-detected on `init`. If present, use it throughout planning:
 - Include framework/language in scout prompts (e.g., "Django DRF patterns", "Next.js App Router")
 - Use `stack.*.conventions` to guide task spec writing
-- Include `stack.*.test` / `stack.*.lint` commands in epic's Quick commands section
+- Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
 **Based on user's choice in SKILL.md setup:**

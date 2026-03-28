@@ -2596,6 +2596,85 @@ def detect_stack() -> dict:
     return stack
 
 
+def cmd_guard(args: argparse.Namespace) -> None:
+    """Run all guard commands (test/lint/typecheck) from stack config."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    stack = get_config("stack", {})
+    if not stack:
+        # Auto-detect on the fly
+        stack = detect_stack()
+        if stack:
+            set_config("stack", stack)
+
+    if not stack:
+        if args.json:
+            json_output({"success": True, "results": [], "message": "no stack detected, nothing to run"})
+        else:
+            print("No stack detected. Nothing to run.")
+        return
+
+    layer = getattr(args, "layer", "all")
+    cmd_types = ["test", "lint", "typecheck"]
+
+    # Collect commands to run
+    commands: list[tuple[str, str, str]] = []  # (layer, type, cmd)
+    for layer_name, layer_conf in stack.items():
+        if layer != "all" and layer_name != layer:
+            continue
+        if not isinstance(layer_conf, dict):
+            continue
+        for ct in cmd_types:
+            if ct in layer_conf and layer_conf[ct]:
+                commands.append((layer_name, ct, layer_conf[ct]))
+
+    if not commands:
+        if args.json:
+            json_output({"success": True, "results": [], "message": "no guard commands configured"})
+        else:
+            print("No guard commands found in stack config.")
+        return
+
+    results = []
+    all_passed = True
+
+    for layer_name, cmd_type, cmd in commands:
+        if not args.json:
+            print(f"▸ [{layer_name}] {cmd_type}: {cmd}")
+
+        rc = subprocess.run(
+            cmd, shell=True, cwd=str(get_repo_root()),
+            capture_output=args.json, text=True,
+        ).returncode
+
+        passed = rc == 0
+        if not passed:
+            all_passed = False
+
+        results.append({
+            "layer": layer_name,
+            "type": cmd_type,
+            "command": cmd,
+            "passed": passed,
+            "exit_code": rc,
+        })
+
+        if not args.json:
+            status = "✓" if passed else "✗"
+            print(f"  {status} exit {rc}")
+
+    if args.json:
+        json_output({"success": all_passed, "results": results})
+    else:
+        total = len(results)
+        passed = sum(1 for r in results if r["passed"])
+        print(f"\n{passed}/{total} guards passed" + ("" if all_passed else " — FAILED"))
+
+    if not all_passed:
+        sys.exit(1)
+
+
 def cmd_stack_detect(args: argparse.Namespace) -> None:
     """Auto-detect project stack and write to config."""
     if not ensure_flow_exists():
@@ -7621,6 +7700,12 @@ def main() -> None:
     p_config_set.add_argument("value", help="Config value")
     p_config_set.add_argument("--json", action="store_true", help="JSON output")
     p_config_set.set_defaults(func=cmd_config_set)
+
+    # guard
+    p_guard = subparsers.add_parser("guard", help="Run test/lint/typecheck guards from stack config")
+    p_guard.add_argument("--layer", default="all", help="Run guards for specific layer (backend, frontend, or all)")
+    p_guard.add_argument("--json", action="store_true", help="JSON output")
+    p_guard.set_defaults(func=cmd_guard)
 
     # stack
     p_stack = subparsers.add_parser("stack", help="Stack profile commands")

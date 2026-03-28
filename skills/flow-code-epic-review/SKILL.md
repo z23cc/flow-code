@@ -160,3 +160,12 @@ After the reviewer returns SHIP, perform one final semantic check before closing
    - **No** → treat as MAJOR_RETHINK, output `<promise>FAIL</promise>`
 
 This catches cases where all tests pass and spec items are checked off, but the product behavior still doesn't match what the user actually wanted.
+
+## After SHIP
+
+```
+Epic review passed. Next:
+1) Run retrospective: `/flow-code:retro <epic-id>`
+2) Ship the code: push + create PR
+3) Start next epic: `/flow-code:plan <idea>`
+```

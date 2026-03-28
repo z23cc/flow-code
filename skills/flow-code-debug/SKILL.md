@@ -103,3 +103,11 @@ If you haven't completed Phase 1, you cannot propose fixes.
 | 2. Pattern | Find working examples, compare differences | Identified the delta |
 | 3. Hypothesis | Form theory, test ONE variable | Confirmed or new hypothesis |
 | 4. Implement | Write test, fix root cause, verify | Bug resolved, guards pass |
+
+## After Fix
+
+```
+Bug fixed. Next:
+1) Review the fix: `/flow-code:impl-review --base <pre-fix-commit>`
+2) Continue current work: `/flow-code:work <epic-id>`
+```

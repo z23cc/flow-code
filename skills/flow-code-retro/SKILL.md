@@ -103,3 +103,12 @@ If analysis reveals systemic issues, suggest:
 - Planning template improvements
 - New guard commands
 - Skill updates
+
+### 6. Next Steps
+
+```
+Retro complete. Next:
+1) Start next epic: `/flow-code:plan <idea>`
+2) Check project readiness: `/flow-code:prime`
+3) View all epics: `flowctl epics --json`
+```

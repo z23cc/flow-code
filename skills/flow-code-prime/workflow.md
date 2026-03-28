@@ -362,4 +362,12 @@ Run assessment again to see updated score?
 If yes, run Phase 1-4 again and show:
 - New Agent Readiness score and maturity level
 - Score changes per pillar
+
+**Suggest next steps:**
+```
+Assessment complete. Next:
+1) Plan a feature: `/flow-code:plan <idea>`
+2) Set up review backend: `/flow-code:setup`
+3) Initialize Ralph for autonomous work: `/flow-code:ralph-init`
+```
 - Remaining recommendations

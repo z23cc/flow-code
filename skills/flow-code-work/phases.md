@@ -350,6 +350,14 @@ Ralph closes done epics at the end of the loop.
 
 Then push + open PR if user wants.
 
+**Suggest next steps:**
+```
+Done! Next:
+1) Review the epic: `/flow-code:epic-review <epic-id>`
+2) Run retrospective: `/flow-code:retro <epic-id>`
+3) Start next epic: `/flow-code:work <next-epic-id>`
+```
+
 ## Definition of Done
 
 Confirm before ship:

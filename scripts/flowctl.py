@@ -2503,12 +2503,17 @@ def detect_stack() -> dict:
 
     pkg_json: dict = {}
     pkg_path = None
+    # Pick the package.json with the most dependencies (richest frontend config)
+    best_dep_count = -1
     for p in pkg_paths:
         if p.exists():
             try:
-                pkg_json = json.loads(p.read_text(encoding="utf-8"))
-                pkg_path = p
-                break
+                candidate = json.loads(p.read_text(encoding="utf-8"))
+                dep_count = len(candidate.get("dependencies", {})) + len(candidate.get("devDependencies", {}))
+                if dep_count > best_dep_count:
+                    best_dep_count = dep_count
+                    pkg_json = candidate
+                    pkg_path = p
             except (json.JSONDecodeError, Exception):
                 pass
 
@@ -2570,8 +2575,9 @@ def detect_stack() -> dict:
         elif frontend.get("language") == "typescript":
             frontend["typecheck"] = f"{prefix}{pkg_mgr} run tsc --noEmit" if pkg_mgr != "npx" else f"{prefix}npx tsc --noEmit"
 
-        # CSS framework
-        if "tailwindcss" in all_deps:
+        # CSS framework (check deps + config files)
+        has_tailwind = "tailwindcss" in all_deps or (repo / "tailwind.config.js").exists() or (repo / "tailwind.config.ts").exists()
+        if has_tailwind:
             frontend.setdefault("conventions", "")
             frontend["conventions"] = ("Tailwind" + (", " + frontend["conventions"] if frontend["conventions"] else ""))
 
@@ -2581,7 +2587,7 @@ def detect_stack() -> dict:
     # --- Infra detection ---
     infra: dict = {}
 
-    if (repo / "Dockerfile").exists() or any(repo.glob("**/Dockerfile")):
+    if (repo / "Dockerfile").exists() or any(repo.glob("Dockerfile.*")) or any(repo.glob("**/Dockerfile")):
         infra["runtime"] = "docker"
     if (repo / "docker-compose.yml").exists() or (repo / "docker-compose.yaml").exists() or (repo / "compose.yml").exists() or (repo / "compose.yaml").exists():
         infra["compose"] = True

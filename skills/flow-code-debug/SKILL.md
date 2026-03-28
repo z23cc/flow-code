@@ -72,9 +72,28 @@ If you haven't completed Phase 1, you cannot propose fixes.
    <FLOWCTL> guard
    ```
 
-4. **If fix doesn't work:**
-   - < 3 attempts: return to Phase 1, re-analyze
-   - **>= 3 attempts: STOP — question the architecture.** 3+ failures = architectural problem, not hypothesis problem. Discuss with user before attempting more fixes.
+4. **If fix doesn't work — failure escalation:**
+
+   **Track your attempt count.** Each failed fix escalates the response:
+
+   | Attempt | Level | Forced Action |
+   |---------|-------|---------------|
+   | 2nd | L1 — Switch approach | Use a **fundamentally different** method. Tweaking the same logic doesn't count. |
+   | 3rd | L2 — Deep investigation | Search online + read source code + list 3 distinct hypotheses before trying anything. |
+   | 4th | L3 — 7-point checklist | Complete ALL items below. Skipping any = you're still guessing. |
+   | 5th+ | L4 — Architecture review | **STOP.** Discuss with user. This is not a bug — it's a design problem. |
+
+   ### 7-Point Checklist (mandatory at L3+)
+
+   - [ ] Read the error message character-by-character? (not skimming)
+   - [ ] Used tools to search the core problem? (grep, web search, docs)
+   - [ ] Read 50+ lines of context around the failure location?
+   - [ ] Verified ALL assumptions with tools? (versions, paths, permissions, deps)
+   - [ ] Tried the **opposite** assumption? (if "problem is in A" failed, try "problem is NOT in A")
+   - [ ] Can reproduce in minimal scope? (smallest possible repro case)
+   - [ ] Switched tools/method/angle? (different debugger, different approach, different layer)
+
+   **All 7 must be checked before attempting another fix at L3+.**
 
 ## Red Flags — STOP and Return to Phase 1
 
@@ -94,6 +113,11 @@ If you haven't completed Phase 1, you cannot propose fixes.
 | "Multiple fixes at once saves time" | Can't isolate what worked; causes new bugs |
 | "I see the problem, let me fix it" | Seeing symptoms != understanding root cause |
 | "One more fix attempt" (after 2+) | 3+ failures = architectural problem |
+| "Tried everything" | Did you search? Read source? Complete the 7-point checklist? |
+| "Probably an environment issue" | Did you verify that? Unverified attribution = guessing |
+| "Need more context" | You have tools. Search first, ask only what's truly unavailable |
+| "Suggest handling manually" | This is your bug. Own it. Exhaust all options first |
+| Same logic, different parameters | Tweaking parameters is NOT a different approach. Change the method. |
 
 ## Quick Reference
 

@@ -1,7 +1,7 @@
 ---
 name: flow-code-django
 description: "Use when working on Django projects — architecture, DRF APIs, ORM patterns, security, testing, and deployment verification. Triggers on Django-related tasks."
-user-invocable: true
+user-invocable: false
 ---
 
 # Django Development

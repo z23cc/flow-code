@@ -74,11 +74,18 @@ $FLOWCTL init --json
 
 **If input is a Flow ID** (fn-N-slug or fn-N-slug.M, including legacy fn-N/fn-N-xxx): First fetch it with `$FLOWCTL show <id> --json` and `$FLOWCTL cat <id>` to get the request context.
 
-**Check if memory and github-scout are enabled:**
+**Check config flags and stack profile:**
 ```bash
 $FLOWCTL config get memory.enabled --json
 $FLOWCTL config get scouts.github --json
+$FLOWCTL stack show --json
 ```
+
+**If stack config exists**, use it throughout planning:
+- Include framework/language in scout prompts (e.g., "Django DRF patterns", "Next.js App Router")
+- Use `stack.*.conventions` to guide task spec writing
+- Include `stack.*.test` / `stack.*.lint` commands in epic's Quick commands section
+- Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
 **Based on user's choice in SKILL.md setup:**
 
@@ -265,6 +272,7 @@ Default to standard unless complexity demands more or less.
    [What to build, not how to build it]
 
    **Size:** S/M (L tasks should be split)
+   **Layer:** backend | frontend | infra | full-stack
    **Files:** list expected files
 
    ## Approach
@@ -273,11 +281,14 @@ Default to standard unless complexity demands more or less.
 
    ## Key context
    [Only for recent API changes, surprising patterns, or non-obvious gotchas]
+   [If stack config exists, include relevant framework conventions here]
 
    ## Acceptance
    - [ ] Criterion 1
    - [ ] Criterion 2
    ```
+
+   **Layer field**: If stack config is set, tag each task with its primary layer. This helps the worker select the right guard commands (e.g., `pytest` for backend, `pnpm test` for frontend). Full-stack tasks run all guards.
 
 7. Add task dependencies (if not already set via `--deps`):
 

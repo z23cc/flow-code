@@ -291,6 +291,7 @@ def get_default_config() -> dict:
         "planSync": {"enabled": True, "crossEpic": False},
         "review": {"backend": None},
         "scouts": {"github": False},
+        "stack": {},
     }
 
 
@@ -2400,6 +2401,49 @@ def cmd_config_set(args: argparse.Namespace) -> None:
         json_output({"key": args.key, "value": new_value, "message": f"{args.key} set"})
     else:
         print(f"{args.key} set to {new_value}")
+
+
+def cmd_stack_set(args: argparse.Namespace) -> None:
+    """Set stack config from JSON file or stdin."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    try:
+        if args.file == "-":
+            import sys
+            raw = sys.stdin.read()
+        else:
+            raw = Path(args.file).read_text(encoding="utf-8")
+        stack_data = json.loads(raw)
+    except (json.JSONDecodeError, Exception) as e:
+        error_exit(f"Invalid JSON: {e}", use_json=args.json)
+
+    if not isinstance(stack_data, dict):
+        error_exit("Stack config must be a JSON object", use_json=args.json)
+
+    set_config("stack", stack_data)
+    result = get_config("stack")
+
+    if args.json:
+        json_output({"stack": result, "message": "stack config updated"})
+    else:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+def cmd_stack_show(args: argparse.Namespace) -> None:
+    """Show current stack config."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    stack = get_config("stack", {})
+
+    if args.json:
+        json_output({"stack": stack})
+    else:
+        if not stack:
+            print("No stack configured. Use 'flowctl stack set --file <path>' to set.")
+        else:
+            print(json.dumps(stack, indent=2, ensure_ascii=False))
 
 
 def cmd_review_backend(args: argparse.Namespace) -> None:
@@ -7357,6 +7401,19 @@ def main() -> None:
     p_config_set.add_argument("value", help="Config value")
     p_config_set.add_argument("--json", action="store_true", help="JSON output")
     p_config_set.set_defaults(func=cmd_config_set)
+
+    # stack
+    p_stack = subparsers.add_parser("stack", help="Stack profile commands")
+    stack_sub = p_stack.add_subparsers(dest="stack_cmd", required=True)
+
+    p_stack_set = stack_sub.add_parser("set", help="Set stack config from JSON file")
+    p_stack_set.add_argument("--file", required=True, help="JSON file path (or - for stdin)")
+    p_stack_set.add_argument("--json", action="store_true", help="JSON output")
+    p_stack_set.set_defaults(func=cmd_stack_set)
+
+    p_stack_show = stack_sub.add_parser("show", help="Show current stack config")
+    p_stack_show.add_argument("--json", action="store_true", help="JSON output")
+    p_stack_show.set_defaults(func=cmd_stack_show)
 
     # review-backend (helper for skills)
     p_review_backend = subparsers.add_parser(

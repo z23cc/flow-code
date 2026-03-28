@@ -58,9 +58,21 @@ Parse the spec carefully. Identify:
 - Test requirements
 - Quick commands from epic spec (run these for verification)
 
-**Baseline check (if project has tests/lints):**
+**Stack-aware baseline check:**
 ```bash
-# Run project's test/lint commands to confirm green baseline
+# 4. Read stack config for guard commands
+<FLOWCTL> config get stack --json
+```
+
+If stack config exists, use its commands for baseline verification. Determine which guards to run based on files in the task spec:
+- Backend files (e.g., `*.py`, `models/`, `views/`, `api/`) → run `stack.backend.test`, `stack.backend.lint`, `stack.backend.typecheck`
+- Frontend files (e.g., `*.tsx`, `*.ts`, `components/`, `pages/`) → run `stack.frontend.test`, `stack.frontend.lint`, `stack.frontend.typecheck`
+- Both → run all applicable guards
+
+If stack config is empty, fall back to auto-detecting test/lint commands from the project (package.json scripts, pyproject.toml, Makefile, etc).
+
+```bash
+# Run the applicable guard commands to confirm green baseline
 # If baseline fails, investigate before proceeding
 ```
 
@@ -142,9 +154,10 @@ Continue until SHIP verdict.
 
 ## Phase 5: Complete
 
-**Verify before completing (if project has tests/lints):**
+**Verify before completing — run the same stack guards as baseline (Phase 1):**
 ```bash
-# Run same tests/lints as baseline
+# Run the same guard commands from stack config (or auto-detected) as baseline
+# Backend guards if backend files changed, frontend guards if frontend files changed
 # Must pass before marking done
 ```
 If verification fails, fix and re-commit before proceeding.

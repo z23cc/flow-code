@@ -1,6 +1,6 @@
 ---
 name: flow-code-skill-create
-description: Use when creating new flow-code skills, editing existing skills, or verifying skills work before deployment. TDD applied to documentation.
+description: Use when creating new flow-code skills, editing existing skills, or verifying skills work before deployment
 ---
 
 # Creating Flow-Code Skills

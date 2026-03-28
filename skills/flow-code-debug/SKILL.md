@@ -1,6 +1,6 @@
 ---
 name: flow-code-debug
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes. Enforces root cause investigation before any fix attempt.
+description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
 ---
 
 # Systematic Debugging
@@ -24,7 +24,7 @@ If you haven't completed Phase 1, you cannot propose fixes.
 
 1. **Read error messages completely** — stack traces, line numbers, error codes. Don't skip.
 
-2. **Reproduce consistently** — exact steps, every time. If not reproducible, gather more data, don't guess.
+2. **Reproduce consistently** — exact steps, every time. If not reproducible, **STOP** — gather more data (logs, environment, timing). Do NOT proceed to Phase 2 without reproduction. Guessing without reproduction = symptom fixing.
 
 3. **Check recent changes:**
    ```bash
@@ -64,7 +64,8 @@ If you haven't completed Phase 1, you cannot propose fixes.
    <FLOWCTL> guard --layer <affected-layer>
    ```
 
-2. **Implement single fix** — address root cause, ONE change, no "while I'm here" improvements
+2. **Implement single fix** — address root cause, ONE change, no "while I'm here" improvements.
+   **No bundling:** Do NOT fix multiple things at once. If you're tempted to "also fix this other thing", STOP — commit the single fix first, verify, then address the next issue separately.
 
 3. **Verify fix:**
    ```bash

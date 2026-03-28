@@ -2602,6 +2602,124 @@ def detect_stack() -> dict:
     return stack
 
 
+INVARIANTS_FILE = "invariants.md"
+
+
+def get_invariants_path() -> Path:
+    """Get path to .flow/invariants.md."""
+    return get_flow_dir() / INVARIANTS_FILE
+
+
+def cmd_invariants_show(args: argparse.Namespace) -> None:
+    """Show architecture invariants."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    inv_path = get_invariants_path()
+    if not inv_path.exists():
+        if args.json:
+            json_output({"invariants": None, "message": "no invariants.md — create with 'flowctl invariants init'"})
+        else:
+            print("No invariants.md. Create with: flowctl invariants init")
+        return
+
+    content = inv_path.read_text(encoding="utf-8")
+    if args.json:
+        json_output({"invariants": content, "path": str(inv_path)})
+    else:
+        print(content)
+
+
+def cmd_invariants_init(args: argparse.Namespace) -> None:
+    """Create .flow/invariants.md with template."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    inv_path = get_invariants_path()
+    if inv_path.exists() and not getattr(args, "force", False):
+        if args.json:
+            json_output({"success": False, "message": "invariants.md already exists. Use --force to overwrite."})
+        else:
+            print("invariants.md already exists. Use --force to overwrite.")
+        return
+
+    template = """# Architecture Invariants
+
+Rules that must NEVER be violated, regardless of task or feature.
+Workers check these during Phase 1. Planners check during Step 1.
+
+<!-- Add your project's invariants below. Format:
+
+## [Concept Name]
+- **Rule:** [what must always hold]
+- **Verify:** `shell command that exits 0 if invariant holds`
+- **Fix:** [how to fix if violated]
+
+-->
+"""
+    inv_path.write_text(template, encoding="utf-8")
+    if args.json:
+        json_output({"success": True, "path": str(inv_path), "message": "invariants.md created"})
+    else:
+        print(f"Created: {inv_path}")
+
+
+def cmd_invariants_check(args: argparse.Namespace) -> None:
+    """Run all verify commands from invariants.md."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist.", use_json=args.json)
+
+    inv_path = get_invariants_path()
+    if not inv_path.exists():
+        if args.json:
+            json_output({"success": True, "results": [], "message": "no invariants.md"})
+        else:
+            print("No invariants.md — nothing to check.")
+        return
+
+    content = inv_path.read_text(encoding="utf-8")
+    import re
+
+    results = []
+    all_passed = True
+
+    # Strip HTML comments (template examples) before parsing
+    content_clean = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
+
+    current_name = None
+    for line in content_clean.splitlines():
+        if line.startswith("## "):
+            current_name = line[3:].strip()
+        elif "**Verify:**" in line and current_name:
+            match = re.search(r"`([^`]+)`", line)
+            if match:
+                cmd = match.group(1)
+                if not args.json:
+                    print(f"▸ [{current_name}] {cmd}")
+                rc = subprocess.run(cmd, shell=True, cwd=str(get_repo_root()),
+                                    capture_output=args.json, text=True).returncode
+                passed = rc == 0
+                if not passed:
+                    all_passed = False
+                results.append({"name": current_name, "command": cmd, "passed": passed, "exit_code": rc})
+                if not args.json:
+                    print(f"  {'✓' if passed else '✗'} exit {rc}")
+                current_name = None
+
+    if args.json:
+        json_output({"success": all_passed, "results": results})
+    else:
+        total = len(results)
+        passed_count = sum(1 for r in results if r["passed"])
+        if total == 0:
+            print("No verify commands found in invariants.md.")
+        else:
+            print(f"\n{passed_count}/{total} invariants hold" + ("" if all_passed else " — VIOLATED"))
+
+    if not all_passed:
+        sys.exit(1)
+
+
 def cmd_guard(args: argparse.Namespace) -> None:
     """Run all guard commands (test/lint/typecheck) from stack config."""
     if not ensure_flow_exists():
@@ -7706,6 +7824,24 @@ def main() -> None:
     p_config_set.add_argument("value", help="Config value")
     p_config_set.add_argument("--json", action="store_true", help="JSON output")
     p_config_set.set_defaults(func=cmd_config_set)
+
+    # guard
+    # invariants
+    p_inv = subparsers.add_parser("invariants", help="Architecture invariant registry")
+    inv_sub = p_inv.add_subparsers(dest="inv_cmd", required=True)
+
+    p_inv_init = inv_sub.add_parser("init", help="Create invariants.md template")
+    p_inv_init.add_argument("--force", action="store_true", help="Overwrite existing")
+    p_inv_init.add_argument("--json", action="store_true", help="JSON output")
+    p_inv_init.set_defaults(func=cmd_invariants_init)
+
+    p_inv_show = inv_sub.add_parser("show", help="Show invariants")
+    p_inv_show.add_argument("--json", action="store_true", help="JSON output")
+    p_inv_show.set_defaults(func=cmd_invariants_show)
+
+    p_inv_check = inv_sub.add_parser("check", help="Run all verify commands")
+    p_inv_check.add_argument("--json", action="store_true", help="JSON output")
+    p_inv_check.set_defaults(func=cmd_invariants_check)
 
     # guard
     p_guard = subparsers.add_parser("guard", help="Run test/lint/typecheck guards from stack config")

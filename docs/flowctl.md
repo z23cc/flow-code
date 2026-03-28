@@ -7,7 +7,7 @@ CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 ## Available Commands
 
 ```
-init, detect, epic, task, dep, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, guard, stack, memory, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
+init, detect, epic, task, dep, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, invariants, guard, stack, memory, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
 ```
 
 ## Multi-User Safety
@@ -494,6 +494,31 @@ flowctl guard --layer frontend [--json]
 Exits non-zero if any guard fails. Output includes per-command pass/fail status.
 
 Workers use this for baseline check (Phase 1) and verification (Phase 5) — one command replaces manual test/lint/typecheck invocations.
+
+### invariants
+
+Architecture invariant registry — rules that must never be violated.
+
+```bash
+# Create template
+flowctl invariants init [--force] [--json]
+
+# Show current invariants
+flowctl invariants show [--json]
+
+# Run all verify commands from invariants.md
+flowctl invariants check [--json]
+```
+
+**Format** (in `.flow/invariants.md`):
+```markdown
+## [Concept Name]
+- **Rule:** [what must always hold]
+- **Verify:** `shell command that exits 0 if invariant holds`
+- **Fix:** [how to fix if violated]
+```
+
+Workers check invariants in Phase 1 (baseline) and Phase 5 (verification). Planners check during Step 1 to ensure tasks don't violate constraints.
 
 ### stack
 

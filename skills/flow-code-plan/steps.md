@@ -81,6 +81,12 @@ $FLOWCTL config get scouts.github --json
 $FLOWCTL stack show --json
 ```
 
+**Check architecture invariants:**
+```bash
+$FLOWCTL invariants show --json
+```
+If invariants exist, ensure all planned tasks respect them. If a task would violate an invariant, note the conflict in the task spec and flag it.
+
 Stack is auto-detected on `init`. If present, use it throughout planning:
 - Include framework/language in scout prompts (e.g., "Django DRF patterns", "Next.js App Router")
 - Use `stack.*.conventions` to guide task spec writing

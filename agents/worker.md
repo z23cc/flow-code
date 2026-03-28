@@ -62,8 +62,11 @@ Parse the spec carefully. Identify:
 ```bash
 # 4. Run all guards (auto-detects stack if not configured)
 <FLOWCTL> guard
+
+# 5. Check architecture invariants (if they exist)
+<FLOWCTL> invariants check
 ```
-If baseline fails, investigate before proceeding.
+If baseline or invariants fail, investigate before proceeding. Never violate an invariant — if your task conflicts with one, return `SPEC_CONFLICT`.
 
 ## Phase 2a: TDD Red-Green (if TDD_MODE=true)
 
@@ -165,8 +168,9 @@ Continue until SHIP verdict.
 **Verify before completing:**
 ```bash
 <FLOWCTL> guard
+<FLOWCTL> invariants check
 ```
-If verification fails, fix and re-commit before proceeding.
+If guards or invariants fail, fix and re-commit before proceeding.
 
 Capture the commit hash:
 ```bash

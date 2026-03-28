@@ -1272,6 +1272,7 @@ Ten commands, complete workflow:
 | `/flow-code:plan-review <id>` | Carmack-level plan review via RepoPrompt |
 | `/flow-code:impl-review` | Carmack-level impl review of current branch |
 | `/flow-code:epic-review <id>` | Epic-completion review: verify implementation matches spec |
+| `/flow-code:debug` | Systematic debugging: root cause investigation → pattern analysis → hypothesis → fix |
 | `/flow-code:prime` | Assess codebase agent-readiness, propose fixes ([details](#agent-readiness-assessment)) |
 | `/flow-code:sync <id>` | Manual plan-sync: update downstream tasks after implementation drift |
 | `/flow-code:ralph-init` | Scaffold repo-local Ralph harness (`scripts/ralph/`) |

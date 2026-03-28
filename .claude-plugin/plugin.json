@@ -1,7 +1,7 @@
 {
   "name": "flow-code",
   "version": "0.1.0",
-  "description": "Zero-dependency planning + execution with .flow/ task tracking and Ralph autonomous mode (multi-model review gates). Worker subagent per task with git worktree isolation for parallel execution. Auto-detected stack profiles with one-command guard (test/lint/typecheck). Memory v2 with atomic entries, dedup, and progressive disclosure. TDD enforcement mode. Multi-epic queue with dependency visualization. Systematic debugging with root-cause-first enforcement. Includes 20 subagents, 18 commands, 20 skills.",
+  "description": "Zero-dependency planning + execution with .flow/ task tracking and Ralph autonomous mode (multi-model review gates). Worker subagent per task with git worktree isolation for parallel execution. Auto-detected stack profiles with one-command guard (test/lint/typecheck). Memory v2 with atomic entries, dedup, and progressive disclosure. TDD enforcement mode. Multi-epic queue with dependency visualization. Systematic debugging with root-cause-first enforcement. Review fix loop with YAGNI verification before implementing suggestions. Includes 20 subagents, 18 commands, 20 skills.",
   "author": {
     "name": "z23cc",
     "url": "https://github.com/z23cc"

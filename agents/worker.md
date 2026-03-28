@@ -101,6 +101,25 @@ Rules:
 - Add tests if spec requires them
 - If you break something mid-implementation, fix it before continuing
 
+**Correct Course — spec conflict protocol:**
+
+If during implementation you discover the spec is wrong, incomplete, or contradicts the codebase:
+1. **STOP implementing** — do not guess or improvise
+2. **Document the conflict** clearly:
+   - What the spec says vs what reality requires
+   - Why the spec approach won't work
+   - A suggested correction (if you have one)
+3. **Return early** with status `SPEC_CONFLICT` in your Phase 6 summary
+4. Do NOT mark the task as done — leave it `in_progress`
+
+The main conversation will resolve the conflict and re-dispatch you (or update the spec).
+
+**Examples of spec conflicts:**
+- Spec says "add field to User model" but User model doesn't exist
+- Spec says "use library X" but it's incompatible with current stack
+- Acceptance criteria contradict each other
+- Required API endpoint already exists with different signature
+
 ## Phase 3: Commit
 
 ```bash

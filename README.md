@@ -1276,6 +1276,7 @@ Ten commands, complete workflow:
 | `/flow-code:prime` | Assess codebase agent-readiness, propose fixes ([details](#agent-readiness-assessment)) |
 | `/flow-code:sync <id>` | Manual plan-sync: update downstream tasks after implementation drift |
 | `/flow-code:ralph-init` | Scaffold repo-local Ralph harness (`scripts/ralph/`) |
+| `/flow-code:retro` | Post-epic retrospective: what worked, what didn't, lessons → memory |
 | `/flow-code:skill-create` | TDD-based skill creation: baseline test → write → bulletproof |
 | `/flow-code:setup` | Optional: install flowctl locally + add docs (for power users) |
 | `/flow-code:uninstall` | Remove flow-code from project (keeps tasks if desired) |

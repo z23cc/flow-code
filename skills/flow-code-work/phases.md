@@ -87,13 +87,29 @@ $FLOWCTL ready --epic <epic-id> --json
 
 If no ready tasks, check for completion review gate (see 3g below).
 
-### 3b. Start Task(s)
+### 3b. Readiness Check + Start Task(s)
 
+Before starting, validate each task spec is implementation-ready:
+
+```bash
+$FLOWCTL cat <task-id>
+```
+
+**Check these fields exist and are non-empty:**
+- `## Description` — what to build (not just a title)
+- `## Acceptance` — at least one testable `- [ ]` criterion
+- `**Files:**` — expected files to create/modify
+
+**If any are missing or vague:**
+- Use AskUserQuestion: "Task `<id>` spec is missing [field]. Add it before starting?"
+- Do NOT spawn a worker with an incomplete spec — workers guess when specs are vague
+
+**If all checks pass:**
 ```bash
 $FLOWCTL start <task-id> --json
 ```
 
-In parallel mode, start all ready tasks before spawning workers.
+In parallel mode, check all ready tasks, then start them before spawning workers.
 
 ### 3c. Spawn Worker(s)
 

@@ -199,7 +199,42 @@ case "$cmd" in
     done
     exit "$failed"
     ;;
+  merge-back)
+    [[ -n "$name" ]] || fail "usage: merge-back <branch> [target]"
+    validate_name "$name"
+
+    # Verify branch exists
+    git show-ref --verify --quiet "refs/heads/$name" || fail "branch not found: $name"
+
+    # Target defaults to current branch
+    target_branch="${base:-$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)}"
+    [[ -n "$target_branch" ]] || fail "not on a branch and no target specified"
+    [[ "$name" != "$target_branch" ]] || fail "cannot merge branch into itself"
+
+    # Merge with --no-ff for audit trail; abort on conflict
+    if ! git merge --no-ff --no-edit "$name" -m "merge: $name into $target_branch"; then
+      git merge --abort 2>/dev/null || true
+      fail "merge conflict — aborted, working tree restored"
+    fi
+
+    echo "merged: $name -> $target_branch"
+    ;;
+  remove)
+    [[ -n "$name" ]] || fail "usage: remove <name> [--delete-branch]"
+    validate_name "$name"
+    assert_worktrees_dir
+    assert_safe_worktree_path "$name"
+    target="${worktrees_dir}/${name}"
+    worktree_exists "$target" || fail "not a registered worktree: $target"
+
+    git worktree remove -- "$target" || fail "failed to remove worktree: $target"
+    echo "removed: $target"
+
+    if [[ "$base" == "--delete-branch" ]] && git show-ref --verify --quiet "refs/heads/$name"; then
+      git branch -d "$name" 2>/dev/null || echo "warning: branch $name not fully merged, kept"
+    fi
+    ;;
   *)
-    fail "commands: create | list | switch | cleanup | copy-env"
+    fail "commands: create | list | switch | cleanup | copy-env | merge-back | remove"
     ;;
 esac

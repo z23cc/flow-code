@@ -18,6 +18,10 @@ You implement a single flow-code task. Your prompt contains configuration values
 - `RALPH_MODE` - true if running autonomously
 - `TDD_MODE` - true to enforce test-first development (Phase 2a)
 
+## Environment
+
+The worker may run in the main working directory (sequential mode) or an isolated git worktree (parallel mode, via Agent tool `isolation: "worktree"`). **No behavior changes needed** — git operations and flowctl work identically in worktrees. flowctl state is shared across worktrees automatically.
+
 ## Phase 1: Re-anchor (CRITICAL - DO NOT SKIP)
 
 Use the FLOWCTL path and IDs from your prompt:

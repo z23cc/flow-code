@@ -123,21 +123,52 @@ Follow your phases in worker.md exactly.
 
 **Worker returns**: Summary of implementation, files changed, test results, review verdict.
 
-**Parallel mode:** Spawn ALL ready task workers in a SINGLE message with multiple Task tool calls. Each worker runs independently with fresh context. Example with 3 ready tasks:
+**Parallel mode:** Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls. **Add `isolation: "worktree"` to each call** so each worker gets its own git worktree. Example with 3 ready tasks:
 
 ```
-[Task tool call 1: worker for fn-1.1]
-[Task tool call 2: worker for fn-1.2]
-[Task tool call 3: worker for fn-1.3]
+[Agent tool call 1: worker for fn-1.1, isolation: "worktree"]
+[Agent tool call 2: worker for fn-1.2, isolation: "worktree"]
+[Agent tool call 3: worker for fn-1.3, isolation: "worktree"]
 ```
 
-All three run concurrently. Wait for all to complete before proceeding to 3d.
+All three run concurrently in isolated worktrees. The Agent tool automatically creates a temporary git worktree, runs the worker in it, and returns the `worktree_path` and `branch` if changes were made. flowctl state is shared across worktrees automatically (uses git-common-dir). Wait for all workers to complete before proceeding to 3c½.
 
 **Important parallel constraints:**
 - Only tasks with NO unresolved dependencies are eligible (flowctl ready guarantees this)
-- Each worker operates on different files (task specs define scope)
-- If two tasks touch the same file, they MUST have a dependency — if not, this is a planning defect
-- After parallel batch completes, newly unblocked tasks become ready for the next batch
+- Each worker commits to its own branch in its own worktree
+- flowctl state (task status, locks, evidence) is shared across worktrees automatically
+- After parallel batch completes, merge branches back (3c½) before finding next batch
+
+### 3c½. Merge Parallel Branches (parallel mode only)
+
+**Skip if sequential mode or if no workers made changes.**
+
+After all parallel workers return, each worker's changes are on a separate branch in a Claude Code-managed worktree. Merge them back to the working branch sequentially:
+
+```bash
+WORKTREE_SH="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-worktree-kit/scripts/worktree.sh"
+```
+
+For each worker that returned a branch name (in spawn order):
+
+```bash
+# 1. Merge the worker branch back (--no-ff for audit trail)
+bash "$WORKTREE_SH" merge-back <worker-branch>
+
+# 2. Clean up the branch (worktree auto-cleaned by Agent tool if merge succeeds)
+git branch -d <worker-branch> 2>/dev/null || true
+```
+
+**Merge order**: Merge in the order workers were spawned. Deterministic order makes conflict debugging easier.
+
+**Conflict handling**: If `merge-back` fails:
+1. The merge is automatically aborted (working tree stays clean)
+2. Log which worker branch conflicted
+3. **Stop the merge sequence** — do NOT merge remaining branches
+4. Report to the user: conflicting branch name + suggestion to resolve manually
+5. Tasks that merged successfully proceed to 3d; failed task stays `in_progress`
+
+**If all merges succeed**: Continue to 3d for all tasks in the batch.
 
 ### 3d. Verify Completion
 
@@ -148,6 +179,8 @@ $FLOWCTL show <task-id> --json
 ```
 
 If status is not `done`, the worker failed. Check output and retry or investigate.
+
+**Parallel mode note:** If a merge failed in 3c½, the task may show `done` in flowctl (worker completed in its worktree) but changes are not on the working branch. Flag this to the user.
 
 ### 3d½. Interactive Checkpoint (if `--interactive`)
 

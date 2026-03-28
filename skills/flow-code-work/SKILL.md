@@ -79,7 +79,7 @@ Parse the arguments for these patterns. If found, use them and skip correspondin
 - `--review=none` or `--no-review` or "no review" or "skip review" → no review
 
 **Parallel mode**:
-- `--parallel` or "run tasks in parallel" or "parallel execution" → spawn all ready tasks simultaneously (only for EPIC_MODE, skipped for single task)
+- `--parallel` or "run tasks in parallel" or "parallel execution" → spawn all ready tasks simultaneously with git worktree isolation; branches merged back after batch completes (only for EPIC_MODE, skipped for single task)
 
 **Interactive mode**:
 - `--interactive` or "step by step" or "pause between tasks" → pause for human confirmation at each checkpoint (post-plan, post-impl, post-review). Default: off (autonomous). When enabled, print checkpoint summary and wait for user confirmation before proceeding to next phase.

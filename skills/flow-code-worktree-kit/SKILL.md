@@ -17,6 +17,8 @@ Commands:
 - `switch <name>` (prints path)
 - `cleanup`
 - `copy-env <name>`
+- `merge-back <branch> [target]` — merge branch into target (default: current), --no-ff, abort on conflict
+- `remove <name> [--delete-branch]` — non-interactive single worktree removal
 
 Safety notes:
 - `create` does not change the current branch
@@ -28,3 +30,5 @@ Safety notes:
 - `origin` fetch is optional; local base refs are allowed
 - fetch from `origin` only when base looks like a branch
 - Worktrees live under `.worktrees/`
+- `remove` does not force-remove; fails if worktree has uncommitted changes
+- `merge-back` aborts and restores on conflict (no partial merges)

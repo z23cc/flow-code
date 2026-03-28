@@ -7,7 +7,7 @@ CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 ## Available Commands
 
 ```
-init, detect, epic, task, dep, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, memory, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
+init, detect, epic, task, dep, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, guard, stack, memory, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
 ```
 
 ## Multi-User Safety
@@ -472,10 +472,54 @@ flowctl config toggle memory.enabled [--json]
 | `planSync.enabled` | bool | `false` | Enable plan-sync after task completion |
 | `scouts.github` | bool | `false` | Enable github-scout during planning (requires gh CLI) |
 | `review.backend` | string | `null` | Default review backend (`rp`, `codex`, `none`). If unset, review commands require `--review` or `FLOW_REVIEW_BACKEND`. |
+| `stack` | object | `{}` | Tech stack profile (auto-detected on `init`). See `flowctl stack show`. |
 
 Priority: `--review=...` argument > `FLOW_REVIEW_BACKEND` env > `.flow/config.json` > error.
 
 No auto-detect. Run `/flow-code:setup` (or `flowctl config set review.backend ...`) to configure.
+
+### guard
+
+Run all test/lint/typecheck commands from the stack config. Auto-detects stack if not configured.
+
+```bash
+# Run all guards
+flowctl guard [--json]
+
+# Run guards for a specific layer
+flowctl guard --layer backend [--json]
+flowctl guard --layer frontend [--json]
+```
+
+Exits non-zero if any guard fails. Output includes per-command pass/fail status.
+
+Workers use this for baseline check (Phase 1) and verification (Phase 5) — one command replaces manual test/lint/typecheck invocations.
+
+### stack
+
+Manage the project's tech stack profile. Auto-detected on `init`.
+
+```bash
+# Auto-detect from project files (pyproject.toml, package.json, Dockerfile, etc.)
+flowctl stack detect [--dry-run] [--json]
+
+# Show current stack config
+flowctl stack show [--json]
+
+# Set from JSON file (manual override)
+flowctl stack set --file stack.json [--json]
+flowctl stack set --file - [--json]   # stdin
+```
+
+**Auto-detection** runs during `flowctl init` if no stack is configured. Detects:
+
+| Layer | Frameworks | Commands |
+|-------|-----------|----------|
+| backend | Django, Flask, FastAPI, Go (Gin/Echo/Fiber) | pytest/ruff/mypy from pyproject.toml |
+| frontend | React, Vue, Svelte, Angular + Next.js/Nuxt/Remix | test/lint/typecheck from package.json scripts |
+| infra | Docker, Compose, Terraform, Pulumi | — |
+
+Also detects package manager (pnpm/yarn/bun/npm) and adds `cd <subdir> &&` prefix for non-root package.json.
 
 ### memory
 

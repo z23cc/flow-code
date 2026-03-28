@@ -1159,6 +1159,7 @@ flowctl memory read --type pitfalls
 | `/flow-code:prime` | 评估代码库 agent 就绪度，提出修复（[详情](#agent-就绪评估)） |
 | `/flow-code:sync <id>` | 手动 plan-sync：实现偏移后更新下游任务 |
 | `/flow-code:ralph-init` | 搭建仓库本地 Ralph 脚手架（`scripts/ralph/`） |
+| `/flow-code:django` | Django 模式：架构、DRF、安全、测试、部署验证 |
 | `/flow-code:setup` | 可选：本地安装 flowctl + 添加文档 |
 | `/flow-code:uninstall` | 从项目中移除 flow-code（可选保留任务） |
 

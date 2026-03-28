@@ -64,6 +64,8 @@ Parse the spec carefully. Identify:
 <FLOWCTL> config get stack --json
 ```
 
+If stack is empty, auto-detect: `<FLOWCTL> stack detect --json`
+
 If stack config exists, use its commands for baseline verification. Determine which guards to run based on files in the task spec:
 - Backend files (e.g., `*.py`, `models/`, `views/`, `api/`) → run `stack.backend.test`, `stack.backend.lint`, `stack.backend.typecheck`
 - Frontend files (e.g., `*.tsx`, `*.ts`, `components/`, `pages/`) → run `stack.frontend.test`, `stack.frontend.lint`, `stack.frontend.typecheck`

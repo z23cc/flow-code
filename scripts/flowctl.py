@@ -2128,18 +2128,30 @@ def cmd_init(args: argparse.Namespace) -> None:
             atomic_write_json(config_path, merged)
             actions.append("upgraded config.json (added missing keys)")
 
+    # Auto-detect stack if not already configured
+    existing_stack = get_config("stack", {})
+    if not existing_stack:
+        detected = detect_stack()
+        if detected:
+            set_config("stack", detected)
+            actions.append("auto-detected stack")
+
     # Output
     if actions:
         message = f".flow/ updated: {', '.join(actions)}"
     else:
         message = ".flow/ already up to date"
 
+    stack_info = get_config("stack", {})
     if args.json:
-        json_output(
-            {"success": True, "message": message, "path": str(flow_dir), "actions": actions}
-        )
+        result = {"success": True, "message": message, "path": str(flow_dir), "actions": actions}
+        if stack_info:
+            result["stack"] = stack_info
+        json_output(result)
     else:
         print(message)
+        if stack_info and "auto-detected stack" in actions:
+            print("Stack: " + json.dumps(stack_info, indent=2, ensure_ascii=False))
 
 
 def cmd_detect(args: argparse.Namespace) -> None:
@@ -2401,6 +2413,214 @@ def cmd_config_set(args: argparse.Namespace) -> None:
         json_output({"key": args.key, "value": new_value, "message": f"{args.key} set"})
     else:
         print(f"{args.key} set to {new_value}")
+
+
+def detect_stack() -> dict:
+    """Auto-detect project tech stack from files in the repo."""
+    repo = get_repo_root()
+    stack: dict = {}
+
+    # --- Backend detection ---
+    backend: dict = {}
+
+    # Python detection
+    has_python = False
+    pyproject = repo / "pyproject.toml"
+    requirements = repo / "requirements.txt"
+    setup_py = repo / "setup.py"
+    manage_py = repo / "manage.py"
+
+    py_content = ""
+    if pyproject.exists():
+        has_python = True
+        py_content = pyproject.read_text(encoding="utf-8", errors="ignore")
+    if requirements.exists():
+        has_python = True
+        py_content += "\n" + requirements.read_text(encoding="utf-8", errors="ignore")
+    if setup_py.exists():
+        has_python = True
+
+    if has_python:
+        backend["language"] = "python"
+
+        # Framework detection
+        if manage_py.exists() or "django" in py_content.lower():
+            backend["framework"] = "django"
+            conventions = []
+            if "rest_framework" in py_content or "djangorestframework" in py_content:
+                conventions.append("DRF")
+            if "celery" in py_content.lower():
+                conventions.append("Celery")
+            if conventions:
+                backend["conventions"] = ", ".join(conventions)
+        elif "flask" in py_content.lower():
+            backend["framework"] = "flask"
+        elif "fastapi" in py_content.lower():
+            backend["framework"] = "fastapi"
+
+        # Test command
+        if "pytest" in py_content:
+            backend["test"] = "pytest"
+        elif manage_py.exists():
+            backend["test"] = "python manage.py test"
+
+        # Lint
+        if "ruff" in py_content:
+            backend["lint"] = "ruff check"
+        elif "flake8" in py_content:
+            backend["lint"] = "flake8"
+
+        # Type check
+        if "mypy" in py_content:
+            backend["typecheck"] = "mypy"
+        elif "pyright" in py_content:
+            backend["typecheck"] = "pyright"
+
+    # Go detection
+    go_mod = repo / "go.mod"
+    if go_mod.exists() and not has_python:
+        backend["language"] = "go"
+        backend["test"] = "go test ./..."
+        backend["lint"] = "golangci-lint run"
+        go_content = go_mod.read_text(encoding="utf-8", errors="ignore")
+        if "gin-gonic" in go_content:
+            backend["framework"] = "gin"
+        elif "labstack/echo" in go_content:
+            backend["framework"] = "echo"
+        elif "gofiber" in go_content:
+            backend["framework"] = "fiber"
+
+    if backend:
+        stack["backend"] = backend
+
+    # --- Frontend detection ---
+    frontend: dict = {}
+
+    # Find package.json (root or common frontend dirs)
+    pkg_paths = [repo / "package.json"]
+    for d in ["frontend", "client", "web", "app"]:
+        pkg_paths.append(repo / d / "package.json")
+
+    pkg_json: dict = {}
+    pkg_path = None
+    for p in pkg_paths:
+        if p.exists():
+            try:
+                pkg_json = json.loads(p.read_text(encoding="utf-8"))
+                pkg_path = p
+                break
+            except (json.JSONDecodeError, Exception):
+                pass
+
+    if pkg_json:
+        all_deps = {}
+        all_deps.update(pkg_json.get("dependencies", {}))
+        all_deps.update(pkg_json.get("devDependencies", {}))
+        scripts = pkg_json.get("scripts", {})
+
+        # Language
+        if (repo / "tsconfig.json").exists() or any(
+            (pkg_path.parent / f).exists() for f in ["tsconfig.json", "tsconfig.app.json"]
+        ):
+            frontend["language"] = "typescript"
+        else:
+            frontend["language"] = "javascript"
+
+        # Framework
+        if "react" in all_deps:
+            frontend["framework"] = "react"
+        elif "vue" in all_deps:
+            frontend["framework"] = "vue"
+        elif "svelte" in all_deps:
+            frontend["framework"] = "svelte"
+        elif "@angular/core" in all_deps:
+            frontend["framework"] = "angular"
+
+        # Meta-framework
+        if "next" in all_deps:
+            frontend["meta_framework"] = "nextjs"
+        elif "nuxt" in all_deps:
+            frontend["meta_framework"] = "nuxt"
+        elif "@remix-run/react" in all_deps:
+            frontend["meta_framework"] = "remix"
+
+        # Package manager detection
+        pkg_mgr = "npm"
+        if (pkg_path.parent / "pnpm-lock.yaml").exists():
+            pkg_mgr = "pnpm"
+        elif (pkg_path.parent / "yarn.lock").exists():
+            pkg_mgr = "yarn"
+        elif (pkg_path.parent / "bun.lockb").exists() or (pkg_path.parent / "bun.lock").exists():
+            pkg_mgr = "bun"
+
+        # Prefix for subdirectory projects
+        prefix = ""
+        if pkg_path.parent != repo:
+            rel = pkg_path.parent.relative_to(repo)
+            prefix = f"cd {rel} && "
+
+        # Commands from scripts
+        if "test" in scripts:
+            frontend["test"] = f"{prefix}{pkg_mgr} test"
+        if "lint" in scripts:
+            frontend["lint"] = f"{prefix}{pkg_mgr} run lint"
+        if "typecheck" in scripts or "type-check" in scripts:
+            tc_key = "typecheck" if "typecheck" in scripts else "type-check"
+            frontend["typecheck"] = f"{prefix}{pkg_mgr} run {tc_key}"
+        elif frontend.get("language") == "typescript":
+            frontend["typecheck"] = f"{prefix}{pkg_mgr} run tsc --noEmit" if pkg_mgr != "npx" else f"{prefix}npx tsc --noEmit"
+
+        # CSS framework
+        if "tailwindcss" in all_deps:
+            frontend.setdefault("conventions", "")
+            frontend["conventions"] = ("Tailwind" + (", " + frontend["conventions"] if frontend["conventions"] else ""))
+
+    if frontend:
+        stack["frontend"] = frontend
+
+    # --- Infra detection ---
+    infra: dict = {}
+
+    if (repo / "Dockerfile").exists() or any(repo.glob("**/Dockerfile")):
+        infra["runtime"] = "docker"
+    if (repo / "docker-compose.yml").exists() or (repo / "docker-compose.yaml").exists() or (repo / "compose.yml").exists() or (repo / "compose.yaml").exists():
+        infra["compose"] = True
+    if (repo / "terraform").is_dir() or any(repo.glob("*.tf")):
+        infra["iac"] = "terraform"
+    elif (repo / "pulumi").is_dir():
+        infra["iac"] = "pulumi"
+
+    if infra:
+        stack["infra"] = infra
+
+    return stack
+
+
+def cmd_stack_detect(args: argparse.Namespace) -> None:
+    """Auto-detect project stack and write to config."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    stack = detect_stack()
+
+    if not stack:
+        if args.json:
+            json_output({"stack": {}, "message": "no stack detected"})
+        else:
+            print("No stack detected.")
+        return
+
+    if not args.dry_run:
+        set_config("stack", stack)
+
+    if args.json:
+        json_output({"stack": stack, "message": "stack auto-detected" + (" (dry-run)" if args.dry_run else "")})
+    else:
+        if args.dry_run:
+            print("Detected stack (dry-run, not saved):")
+        else:
+            print("Stack detected and saved:")
+        print(json.dumps(stack, indent=2, ensure_ascii=False))
 
 
 def cmd_stack_set(args: argparse.Namespace) -> None:
@@ -7405,6 +7625,11 @@ def main() -> None:
     # stack
     p_stack = subparsers.add_parser("stack", help="Stack profile commands")
     stack_sub = p_stack.add_subparsers(dest="stack_cmd", required=True)
+
+    p_stack_detect = stack_sub.add_parser("detect", help="Auto-detect project stack")
+    p_stack_detect.add_argument("--dry-run", action="store_true", help="Show detection without saving")
+    p_stack_detect.add_argument("--json", action="store_true", help="JSON output")
+    p_stack_detect.set_defaults(func=cmd_stack_detect)
 
     p_stack_set = stack_sub.add_parser("set", help="Set stack config from JSON file")
     p_stack_set.add_argument("--file", required=True, help="JSON file path (or - for stdin)")

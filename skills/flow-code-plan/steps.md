@@ -81,6 +81,11 @@ $FLOWCTL config get scouts.github --json
 $FLOWCTL stack show --json
 ```
 
+If stack is empty, auto-detect it:
+```bash
+$FLOWCTL stack detect --json
+```
+
 **If stack config exists**, use it throughout planning:
 - Include framework/language in scout prompts (e.g., "Django DRF patterns", "Next.js App Router")
 - Use `stack.*.conventions` to guide task spec writing

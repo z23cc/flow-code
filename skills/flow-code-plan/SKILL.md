@@ -95,6 +95,10 @@ Parse the arguments for these patterns. If found, use them and skip questions:
 - `--review=export` or "export review" or "external llm" → export for external LLM
 - `--review=none` or `--no-review` or "no review" or "skip review" → no review
 
+**Execution mode** (default: execute):
+- `--plan-only` or "just plan" or "don't execute" or "only plan" → create plan but do NOT auto-execute work
+- Default (no flag): after plan is created, automatically invoke `/flow-code:work` to execute
+
 ### If options NOT found in arguments
 
 **Plan depth** (parse from args or ask):
@@ -167,3 +171,35 @@ All plans go into `.flow/`:
 - Only create/update epics and tasks via flowctl
 - No code changes
 - No plan files outside `.flow/`
+
+## Auto-Execute (default behavior)
+
+**After plan is created, automatically execute it — unless `--plan-only` was specified.**
+
+```bash
+# Check task count
+TASK_COUNT=$($FLOWCTL tasks --epic <epic-id> --json | python3 -c "import json,sys; print(json.load(sys.stdin)['count'])")
+```
+
+**Scale-adaptive execution:**
+
+- **≤ 10 tasks**: Invoke `/flow-code:work <epic-id>` directly in this session. Workers run as subagents with fresh context per task (no context overflow — main session only orchestrates).
+
+- **> 10 tasks**: Print recommendation instead of auto-executing:
+  ```
+  Epic has N tasks — recommend using Ralph for fresh context per task:
+    /flow-code:ralph-init
+
+  Or execute in this session (may be slower for large epics):
+    /flow-code:work <epic-id>
+  ```
+
+**If `--plan-only`**: Skip auto-execute, print:
+```
+Plan created: <epic-id> (N tasks)
+Next: /flow-code:work <epic-id>
+```
+
+**After work completes** (if auto-executed):
+- If all tasks done → suggest: `/flow-code:epic-review <epic-id>` or auto-invoke if review backend configured
+- Print epic close command: `flowctl epic close <epic-id>`

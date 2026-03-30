@@ -79,6 +79,8 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Epic archival**: `flowctl epic archive <id>` moves closed epic + tasks + specs + reviews to `.flow/.archive/`; `flowctl epic clean` archives all closed epics at once
 - **Learning loop**: plan injects memory (Step 1b), worker saves lessons (Phase 5b), epic close prompts retro, retro verifies stale entries via `flowctl memory verify <id>`
 - **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
+- **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files --epic <id>` shows ownership map + conflict detection
+- **Agent Teams mode**: `/flow-code:work --teams` spawns workers as Agent Team teammates with SendMessage communication and file ownership enforcement (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
 
 ## Files to Never Commit
 

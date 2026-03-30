@@ -57,6 +57,7 @@ Parse the spec carefully. Identify:
 - Technical approach hints
 - Test requirements
 - Quick commands from epic spec (run these for verification)
+- **Domain** (from task JSON `domain` field): if set (frontend/backend/architecture/testing/docs/ops), focus your approach accordingly — e.g., backend tasks prioritize API/DB, frontend tasks prioritize UI/UX
 
 **Baseline check:**
 ```bash
@@ -235,6 +236,20 @@ Write evidence file (use actual values from above):
 cat > /tmp/evidence.json << EOF
 {"commits": ["$COMMIT_HASH"], "tests": ["<actual test commands>"], "prs": [], "workspace_changes": {"baseline_rev": "$GIT_BASELINE_REV", "final_rev": "$COMMIT_HASH", "files_changed": $FILES_CHANGED, "insertions": $INSERTIONS, "deletions": $DELETIONS}}
 EOF
+```
+
+**If a review was done (REVIEW_MODE != none)**, append the review receipt to evidence so it gets auto-archived:
+```bash
+# Only if RECEIPT_PATH exists from Phase 4
+if [ -f "${RECEIPT_PATH:-/tmp/impl-review-receipt.json}" ]; then
+  # Merge review_receipt into evidence JSON
+  python3 -c "
+import json
+ev = json.load(open('/tmp/evidence.json'))
+ev['review_receipt'] = json.load(open('${RECEIPT_PATH:-/tmp/impl-review-receipt.json}'))
+json.dump(ev, open('/tmp/evidence.json','w'))
+"
+fi
 ```
 
 Write summary file:

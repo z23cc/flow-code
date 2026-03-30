@@ -96,6 +96,32 @@ $FLOWCTL memory add decision "<choice and rationale>"
   $FLOWCTL memory list --json
   ```
 
+### 4b. Verify Existing Memory (Staleness Check)
+
+Review existing entries and verify they're still valid:
+
+```bash
+$FLOWCTL memory list --json
+```
+
+For each entry, ask: "Is this still true given what we learned in this epic?"
+
+- **Still valid** → verify it:
+  ```bash
+  $FLOWCTL memory verify <id>
+  ```
+- **No longer valid** (code changed, approach superseded) → remove or update:
+  ```bash
+  # Remove outdated entry
+  $FLOWCTL memory gc --days 0 --dry-run  # preview
+  ```
+- **Entries marked [stale]** (not verified in 90+ days) deserve extra scrutiny
+
+**Rules:**
+- Don't blindly verify everything — actually consider each entry
+- 0-3 verifications per retro is normal
+- If an entry is wrong, removing it is better than leaving stale knowledge
+
 ### 5. Suggest Process Improvements
 
 If analysis reveals systemic issues, suggest:

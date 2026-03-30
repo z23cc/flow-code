@@ -12,7 +12,7 @@ Flow-Code is a Claude Code plugin for structured, plan-first development. It pro
 commands/flow-code/*.md  → Slash command definitions (user-invocable entry points)
 skills/*/SKILL.md        → Skill implementations (loaded by Skill tool, never Read directly)
 agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
-scripts/flowctl.py       → Core engine (~9200 lines) — all .flow/ state management
+scripts/flowctl.py       → Core engine (~9300 lines) — all .flow/ state management
 scripts/flowctl          → Shell wrapper for flowctl.py
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
@@ -81,6 +81,9 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
 - **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files --epic <id>` shows ownership map + conflict detection
 - **Agent Teams mode**: `/flow-code:work --teams` spawns workers as Agent Team teammates with SendMessage communication and file ownership enforcement (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
+- **Review circuit breaker**: impl-review fix loop capped at `MAX_REVIEW_ITERATIONS` (default 3) — prevents infinite NEEDS_WORK cycles
+- **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
+- **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`
 
 ## Files to Never Commit
 

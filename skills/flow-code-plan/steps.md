@@ -139,6 +139,34 @@ Must capture:
 - Epic dependencies (from epic-scout)
 - Doc updates needed (from docs-gap-scout) - add to task acceptance criteria
 
+## Step 1b: Apply memory lessons (if memory.enabled)
+
+**Skip if memory.enabled is false.**
+
+After scouts complete, check if memory-scout found relevant entries. If so, directly inject them:
+
+```bash
+# Quick scan — L1 index (~50 tokens/entry)
+$FLOWCTL memory inject --json
+```
+
+Scan the L1 index for entries relevant to this plan's domain. If relevant entries exist, fetch full content:
+
+```bash
+# Fetch details for relevant entries
+$FLOWCTL memory search "<keyword matching this plan's domain>"
+```
+
+**Apply lessons to plan design:**
+- **Pitfalls** → add as explicit warnings in task specs or acceptance criteria ("Verify X does not regress Y")
+- **Conventions** → ensure tasks follow discovered patterns, reference them in spec
+- **Decisions** → respect past architectural choices unless the plan explicitly supersedes them
+
+**Rules:**
+- Don't bloat tasks with every memory entry — only apply entries clearly relevant to this plan
+- If a past decision conflicts with the current plan, note it as an explicit "supersedes decision #N" in the epic spec
+- 0-3 applied entries per plan is normal
+
 ## Step 2: Stakeholder & scope check
 
 Before diving into gaps, identify who's affected:

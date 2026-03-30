@@ -12,7 +12,7 @@ Flow-Code is a Claude Code plugin for structured, plan-first development. It pro
 commands/flow-code/*.md  → Slash command definitions (user-invocable entry points)
 skills/*/SKILL.md        → Skill implementations (loaded by Skill tool, never Read directly)
 agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
-scripts/flowctl.py       → Core engine (~7400 lines) — all .flow/ state management
+scripts/flowctl.py       → Core engine (~8900 lines) — all .flow/ state management
 scripts/flowctl          → Shell wrapper for flowctl.py
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
@@ -72,6 +72,10 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Plan review gating**: `flowctl next --require-plan-review` blocks work until plan is reviewed
 - **Architecture invariants**: immutable rules registered via `flowctl invariant add` with verify commands
 - **Gap registry**: epics carry a `gaps` field managed via `flowctl gap`, enforced at epic close
+- **Task restart**: `flowctl restart <task-id>` resets a task and cascades to all downstream dependents (`--dry-run`, `--force`)
+- **Git diff snapshots**: worker agent captures baseline rev before implementation and `workspace_changes` in evidence
+- **Review comparison**: `flowctl review-backend --compare <files>` detects consensus/conflict across multiple review receipts
+- **Domain tagging**: `flowctl task create --domain <domain>` tags tasks (frontend/backend/architecture/testing/docs/ops/general), filterable via `tasks --domain`
 
 ## Files to Never Commit
 

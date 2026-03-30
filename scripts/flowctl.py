@@ -3816,6 +3816,11 @@ def cmd_task_create(args: argparse.Namespace) -> None:
             use_json=args.json,
         )
 
+    # Parse files if provided
+    files = []
+    if getattr(args, "files", None):
+        files = [f.strip() for f in args.files.split(",") if f.strip()]
+
     # Create task JSON (MU-2: includes soft-claim fields)
     task_data = {
         "id": task_id,
@@ -3825,6 +3830,7 @@ def cmd_task_create(args: argparse.Namespace) -> None:
         "priority": args.priority,
         "depends_on": deps,
         "domain": domain,
+        "files": files,
         "assignee": None,
         "claimed_at": None,
         "claim_note": "",
@@ -4284,6 +4290,74 @@ def cmd_epics(args: argparse.Namespace) -> None:
                 print(
                     f"  [{e['status']}] {e['id']}: {e['title']} ({progress} tasks done)"
                 )
+
+
+def cmd_files(args: argparse.Namespace) -> None:
+    """Show file ownership map for an epic — which task owns which files."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    epic_id = args.epic
+    if not is_epic_id(epic_id):
+        error_exit(f"Invalid epic ID: {epic_id}", use_json=args.json)
+
+    flow_dir = get_flow_dir()
+    tasks_dir = flow_dir / TASKS_DIR
+
+    # Collect files from task JSON + fallback to spec markdown
+    ownership: dict[str, list[str]] = {}
+
+    if tasks_dir.exists():
+        for task_file in sorted(tasks_dir.glob(f"{epic_id}.*.json")):
+            task_id = task_file.stem
+            if not is_task_id(task_id):
+                continue
+            task_data = load_task_with_state(task_id, use_json=args.json)
+
+            # Source 1: structured files field
+            task_files = task_data.get("files", [])
+
+            # Source 2: fallback — parse **Files:** from spec markdown
+            if not task_files:
+                spec_path = flow_dir / TASKS_DIR / f"{task_id}.md"
+                if spec_path.exists():
+                    spec_text = spec_path.read_text(encoding="utf-8")
+                    import re as _re
+                    for line in spec_text.splitlines():
+                        m = _re.match(r"\*\*Files:\*\*\s*(.*)", line)
+                        if m:
+                            task_files = [f.strip().strip("`") for f in m.group(1).split(",") if f.strip()]
+                            break
+
+            for fp in task_files:
+                ownership.setdefault(fp, []).append(task_id)
+
+    # Split into clean ownership vs conflicts
+    clean = {f: tasks[0] for f, tasks in ownership.items() if len(tasks) == 1}
+    conflicts = {f: tasks for f, tasks in ownership.items() if len(tasks) > 1}
+
+    if args.json:
+        json_output({
+            "epic": epic_id,
+            "ownership": {f: tasks for f, tasks in ownership.items()},
+            "conflicts": conflicts,
+            "file_count": len(ownership),
+            "conflict_count": len(conflicts),
+        })
+    else:
+        print(f"File ownership for {epic_id}:\n")
+        if not ownership:
+            print("  No files declared.")
+        else:
+            for f, tasks in sorted(ownership.items()):
+                if len(tasks) == 1:
+                    print(f"  {f} → {tasks[0]}")
+                else:
+                    print(f"  {f} → CONFLICT: {', '.join(tasks)}")
+            if conflicts:
+                print(f"\n  ⚠ {len(conflicts)} file conflict(s) — tasks sharing files cannot run in parallel")
 
 
 def cmd_tasks(args: argparse.Namespace) -> None:
@@ -8730,6 +8804,10 @@ def main() -> None:
         choices=["frontend", "backend", "architecture", "testing", "docs", "ops", "general"],
         help="Task domain (e.g., frontend, backend)",
     )
+    p_task_create.add_argument(
+        "--files",
+        help="Comma-separated owned file paths (e.g., src/auth.ts,src/routes.ts)",
+    )
     p_task_create.add_argument("--json", action="store_true", help="JSON output")
     p_task_create.set_defaults(func=cmd_task_create)
 
@@ -8855,6 +8933,12 @@ def main() -> None:
     p_epics.set_defaults(func=cmd_epics)
 
     # tasks
+    # files (ownership map)
+    p_files = subparsers.add_parser("files", help="Show file ownership map for epic")
+    p_files.add_argument("--epic", required=True, help="Epic ID (e.g., fn-1, fn-1-add-auth)")
+    p_files.add_argument("--json", action="store_true", help="JSON output")
+    p_files.set_defaults(func=cmd_files)
+
     p_tasks = subparsers.add_parser("tasks", help="List tasks")
     p_tasks.add_argument("--epic", help="Filter by epic ID (e.g., fn-1, fn-1-add-auth)")
     p_tasks.add_argument(

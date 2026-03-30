@@ -35,11 +35,12 @@ Full request: $ARGUMENTS
 
 ## Execution (all automatic)
 
-### Step 1: Setup (auto, first-time creates files, subsequent runs reuse)
+### Step 1: Setup + Analysis-Driven Program Generation
 
 ```bash
 PLUGIN_ROOT="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
 TEMPLATES="$PLUGIN_ROOT/skills/flow-code-auto-improve/templates"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
 
 mkdir -p scripts/auto-improve/runs
 
@@ -52,17 +53,120 @@ cp "$TEMPLATES/auto-improve.sh" scripts/auto-improve/
 chmod +x scripts/auto-improve/auto-improve.sh
 cp "$TEMPLATES/prompt_experiment.md" scripts/auto-improve/
 
-# Program.md: copy if missing, preserve if user edited
-if [[ ! -f scripts/auto-improve/program.md ]]; then
-  cp "$TEMPLATES/programs/${PROJECT_TYPE}.md" scripts/auto-improve/program.md
-fi
-
 # .gitignore
 cat > scripts/auto-improve/.gitignore <<'GITIGNORE'
 config.env
 runs/
 *.log
 GITIGNORE
+```
+
+**Program.md: if already exists, preserve it (user edits respected). Otherwise, GENERATE from analysis — not copy template.**
+
+If `scripts/auto-improve/program.md` already exists, skip to Step 2.
+
+If it does NOT exist, generate a custom program.md by analyzing the codebase:
+
+#### Step 1a: Collect codebase signals
+
+Run these commands and capture output (all safe, read-only):
+
+```bash
+# 1. High-churn files (most modified recently — best improvement targets)
+HOTSPOTS=$(git log --since="3 months ago" --diff-filter=M --name-only --pretty=format: \
+  | grep -E '\.(py|ts|tsx|js|jsx)$' | sort | uniq -c | sort -rn | head -15)
+
+# 2. Lint errors by file (Python)
+LINT_ERRORS=""
+if command -v ruff >/dev/null 2>&1; then
+  LINT_ERRORS=$(ruff check . --output-format grouped 2>/dev/null | head -50)
+fi
+
+# 3. Type errors (JS/TS)
+TYPE_ERRORS=""
+if [[ -f "frontend/tsconfig.json" ]] || [[ -f "tsconfig.json" ]]; then
+  TYPE_ERRORS=$(npx tsc --noEmit 2>&1 | grep "error TS" | head -20)
+fi
+
+# 4. Test coverage gaps (which modules have tests, which don't)
+TEST_MAP=""
+if command -v pytest >/dev/null 2>&1; then
+  TEST_MAP=$(python -m pytest --co -q 2>/dev/null | head -30)
+fi
+
+# 5. Memory pitfalls (if flow-code memory enabled)
+MEMORY_PITFALLS=""
+if [[ -x "$FLOWCTL" ]]; then
+  MEMORY_PITFALLS=$($FLOWCTL memory inject --json 2>/dev/null || echo "")
+fi
+```
+
+#### Step 1b: Generate Action Catalog
+
+Using the collected signals + user's GOAL, generate `scripts/auto-improve/program.md` with this structure:
+
+```markdown
+# Auto-Improve Program
+
+## Goal
+${GOAL}
+
+## Scope
+You may ONLY modify files in: `${SCOPE}`
+
+## Fitness Function
+Guard: ${GUARD_CMD}
+Direction: lint errors ↓, test count ↑, type errors ↓
+
+## Action Catalog (ranked by estimated impact)
+
+| # | Action | Impact | File | How |
+|---|--------|--------|------|-----|
+```
+
+**Populate the Action Catalog by combining:**
+
+1. **From user's GOAL**: Parse the goal and generate 3-5 specific actions targeting it
+   - Goal "修复 N+1 查询" → scan for missing `select_related`/`prefetch_related` in scope
+   - Goal "提升测试覆盖率" → identify modules with 0 test files
+   - Goal "优化性能" → check for obvious bottlenecks (no pagination, no caching)
+
+2. **From hotspot analysis**: For each of the top 5 high-churn files in scope, suggest one specific improvement
+
+3. **From lint errors**: Group ruff errors by type, suggest top 3 fixable categories
+
+4. **From memory pitfalls**: Include any relevant pitfalls as "Gotchas" section:
+   ```markdown
+   ## Gotchas (from project memory)
+   - [pitfall content from memory #N]
+   ```
+
+5. **Impact estimation**:
+   - High: Fixes a bug, adds tests for untested code, removes N+1 queries
+   - Medium: Reduces lint errors, improves types, simplifies complex code
+   - Low: Style fixes, dead code removal, documentation
+
+**Rank actions**: High impact first, Low impact last. Agent works top-to-bottom.
+
+#### Step 1c: Add standard sections
+
+After the Action Catalog, append these sections from the template (keep/discard criteria, experiment process, output format):
+
+```bash
+# Read the keep/discard and process sections from template (reuse, don't duplicate)
+tail -n +$( grep -n "## Experiment Process" "$TEMPLATES/programs/${PROJECT_TYPE}.md" | head -1 | cut -d: -f1 ) \
+  "$TEMPLATES/programs/${PROJECT_TYPE}.md" >> scripts/auto-improve/program.md
+```
+
+#### Step 1d: Fallback
+
+If analysis fails (no git, no ruff, no pytest — e.g., fresh clone), fall back to template:
+
+```bash
+if [[ ! -f scripts/auto-improve/program.md ]]; then
+  # Analysis failed — use static template as fallback
+  cp "$TEMPLATES/programs/${PROJECT_TYPE}.md" scripts/auto-improve/program.md
+fi
 ```
 
 ### Step 2: Auto-detect guard command

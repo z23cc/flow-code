@@ -275,11 +275,15 @@ Default to standard unless complexity demands more or less.
    # Task with no dependencies:
    $FLOWCTL task create --epic <epic-id> --title "<Task title>" --json
 
-   # Task with dependencies (use --deps for inline dependency declaration):
+   # Task with dependencies:
    $FLOWCTL task create --epic <epic-id> --title "<Task title>" --deps <dep1>,<dep2> --json
+
+   # Task with domain tag (optional — helps worker adjust strategy):
+   $FLOWCTL task create --epic <epic-id> --title "<Task title>" --domain <domain> --json
+   # Valid domains: frontend, backend, architecture, testing, docs, ops, general
    ```
 
-   **TIP**: Use `--deps` to declare dependencies inline when creating tasks. Tasks must exist before being referenced, so create in dependency order.
+   **TIP**: Use `--deps` to declare dependencies inline when creating tasks. Tasks must exist before being referenced, so create in dependency order. Use `--domain` when the task clearly belongs to a specific area.
 
 6. Write task specs (use combined set-spec):
    ```bash

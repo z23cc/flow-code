@@ -12,7 +12,7 @@ Flow-Code is a Claude Code plugin for structured, plan-first development. It pro
 commands/flow-code/*.md  → Slash command definitions (user-invocable entry points)
 skills/*/SKILL.md        → Skill implementations (loaded by Skill tool, never Read directly)
 agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
-scripts/flowctl.py       → Core engine (~9100 lines) — all .flow/ state management
+scripts/flowctl.py       → Core engine (~9200 lines) — all .flow/ state management
 scripts/flowctl          → Shell wrapper for flowctl.py
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
@@ -77,6 +77,8 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Review comparison**: `flowctl review-backend --compare <files>` or `--epic <id>` detects consensus/conflict across review receipts (auto-archived to `.flow/reviews/`)
 - **Domain tagging**: `flowctl task create --domain <domain>` tags tasks (frontend/backend/architecture/testing/docs/ops/general), filterable via `tasks --domain`
 - **Epic archival**: `flowctl epic archive <id>` moves closed epic + tasks + specs + reviews to `.flow/.archive/`; `flowctl epic clean` archives all closed epics at once
+- **Learning loop**: plan injects memory (Step 1b), worker saves lessons (Phase 5b), epic close prompts retro, retro verifies stale entries via `flowctl memory verify <id>`
+- **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
 
 ## Files to Never Commit
 

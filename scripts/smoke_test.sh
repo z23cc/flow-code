@@ -1061,6 +1061,246 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+echo -e "\n${YELLOW}--- restart command ---${NC}"
+
+# Setup: create epic + 3 tasks with deps: .1 -> .2 -> .3
+RST_EPIC_JSON="$(scripts/flowctl epic create --title "Restart test" --json)"
+RST_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$RST_EPIC_JSON")"
+scripts/flowctl task create --epic "$RST_EPIC" --title "Task 1" --json > /dev/null
+scripts/flowctl task create --epic "$RST_EPIC" --title "Task 2" --deps "${RST_EPIC}.1" --json > /dev/null
+scripts/flowctl task create --epic "$RST_EPIC" --title "Task 3" --deps "${RST_EPIC}.2" --json > /dev/null
+
+# Complete tasks 1, 2, 3
+scripts/flowctl start "${RST_EPIC}.1" --json > /dev/null
+scripts/flowctl done "${RST_EPIC}.1" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+scripts/flowctl start "${RST_EPIC}.2" --json > /dev/null
+scripts/flowctl done "${RST_EPIC}.2" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+scripts/flowctl start "${RST_EPIC}.3" --json > /dev/null
+scripts/flowctl done "${RST_EPIC}.3" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+
+# Test 1: restart --dry-run shows what would be reset
+result="$(scripts/flowctl restart "${RST_EPIC}.1" --dry-run --json)"
+"$PYTHON_BIN" - "$result" "$RST_EPIC" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+ep = sys.argv[2]
+assert data.get("dry_run") == True, f"expected dry_run=True, got {data}"
+assert f"{ep}.1" in data.get("would_reset", []), f"{ep}.1 not in would_reset: {data}"
+assert f"{ep}.2" in data.get("would_reset", []), f"{ep}.2 not in would_reset: {data}"
+assert f"{ep}.3" in data.get("would_reset", []), f"{ep}.3 not in would_reset: {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} restart --dry-run shows target + downstream"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} restart --dry-run failed"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 2: restart actually resets target + downstream
+result="$(scripts/flowctl restart "${RST_EPIC}.1" --json)"
+"$PYTHON_BIN" - "$result" "$RST_EPIC" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+ep = sys.argv[2]
+assert data.get("success") == True, f"expected success, got {data}"
+assert f"{ep}.1" in data.get("reset", []), f"{ep}.1 not in reset: {data}"
+assert f"{ep}.2" in data.get("reset", []), f"{ep}.2 not in reset: {data}"
+assert f"{ep}.3" in data.get("reset", []), f"{ep}.3 not in reset: {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} restart cascades to downstream dependents"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} restart cascade failed"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 3: verify tasks are back to todo
+result="$(scripts/flowctl show "${RST_EPIC}.1" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("status") == "todo", f"expected todo, got {data.get('status')}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} restarted task status is todo"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} restarted task not todo"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 4: restart already-todo is no-op
+result="$(scripts/flowctl restart "${RST_EPIC}.1" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("success") == True
+assert len(data.get("reset", [])) == 0, f"expected empty reset, got {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} restart already-todo is idempotent no-op"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} restart idempotent check failed"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 5: restart rejects in_progress without --force
+scripts/flowctl start "${RST_EPIC}.1" --json > /dev/null
+set +e
+result="$(scripts/flowctl restart "${RST_EPIC}.1" --json 2>&1)"
+rc=$?
+set -e
+"$PYTHON_BIN" - "$result" "$rc" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+rc = int(sys.argv[2])
+assert rc != 0, f"expected non-zero exit, got {rc}"
+assert "in progress" in data.get("error", "").lower() or "in_progress" in str(data).lower(), f"expected in_progress error: {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} restart blocks on in_progress without --force"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} restart should block in_progress"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 6: restart --force overrides in_progress
+result="$(scripts/flowctl restart "${RST_EPIC}.1" --force --json)"
+"$PYTHON_BIN" - "$result" "$RST_EPIC" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+ep = sys.argv[2]
+assert data.get("success") == True
+assert f"{ep}.1" in data.get("reset", [])
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} restart --force overrides in_progress"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} restart --force failed"
+  FAIL=$((FAIL + 1))
+fi
+
+echo -e "\n${YELLOW}--- review-backend --compare ---${NC}"
+
+# Create mock receipt files
+cat > "$TEST_DIR/receipt-codex.json" << 'EOF'
+{"type":"impl_review","id":"fn-1.1","mode":"codex","verdict":"SHIP","timestamp":"2026-03-30T00:00:00Z","review":"Looks good"}
+EOF
+cat > "$TEST_DIR/receipt-rp.json" << 'EOF'
+{"type":"impl_review","id":"fn-1.1","mode":"rp","verdict":"SHIP","timestamp":"2026-03-30T00:00:00Z","review":"LGTM"}
+EOF
+cat > "$TEST_DIR/receipt-conflict.json" << 'EOF'
+{"type":"impl_review","id":"fn-1.1","mode":"rp","verdict":"NEEDS_WORK","timestamp":"2026-03-30T00:00:00Z","review":"Needs fixes"}
+EOF
+
+# Test 1: compare with consensus (both SHIP)
+result="$(scripts/flowctl review-backend --compare "$TEST_DIR/receipt-codex.json,$TEST_DIR/receipt-rp.json" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("consensus") == "SHIP", f"expected SHIP consensus, got {data}"
+assert data.get("has_conflict") == False, f"expected no conflict: {data}"
+assert data.get("reviews") == 2, f"expected 2 reviews: {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} review-backend --compare consensus detected"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} review-backend --compare consensus failed"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 2: compare with conflict (SHIP vs NEEDS_WORK)
+result="$(scripts/flowctl review-backend --compare "$TEST_DIR/receipt-codex.json,$TEST_DIR/receipt-conflict.json" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("has_conflict") == True, f"expected conflict: {data}"
+assert data.get("consensus") is None, f"expected no consensus: {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} review-backend --compare conflict detected"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} review-backend --compare conflict failed"
+  FAIL=$((FAIL + 1))
+fi
+
+echo -e "\n${YELLOW}--- task domain tagging ---${NC}"
+
+# Setup: create epic + tasks with domains
+DOM_EPIC_JSON="$(scripts/flowctl epic create --title "Domain test" --json)"
+DOM_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$DOM_EPIC_JSON")"
+scripts/flowctl task create --epic "$DOM_EPIC" --title "Build API" --domain backend --json > /dev/null
+scripts/flowctl task create --epic "$DOM_EPIC" --title "Build UI" --domain frontend --json > /dev/null
+scripts/flowctl task create --epic "$DOM_EPIC" --title "No domain" --json > /dev/null
+
+# Test 1: domain stored in task JSON
+result="$(scripts/flowctl show "${DOM_EPIC}.1" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("domain") == "backend", f"expected backend, got {data.get('domain')}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} task create stores domain"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} task create domain not stored"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 2: task without domain has null domain
+result="$(scripts/flowctl show "${DOM_EPIC}.3" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("domain") is None, f"expected None, got {data.get('domain')}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} task without domain is null"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} task without domain should be null"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 3: tasks --domain filters correctly
+result="$(scripts/flowctl tasks --epic "$DOM_EPIC" --domain backend --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("count") == 1, f"expected 1, got {data.get('count')}"
+assert data["tasks"][0]["domain"] == "backend"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} tasks --domain filters correctly"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} tasks --domain filter failed"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 4: tasks without --domain shows all
+result="$(scripts/flowctl tasks --epic "$DOM_EPIC" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("count") == 3, f"expected 3, got {data.get('count')}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} tasks without --domain shows all"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} tasks without --domain should show all"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo -e "${YELLOW}=== Results ===${NC}"
 echo -e "Passed: ${GREEN}$PASS${NC}"

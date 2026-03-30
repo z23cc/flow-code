@@ -68,6 +68,15 @@ Parse the spec carefully. Identify:
 ```
 If baseline or invariants fail, investigate before proceeding. Never violate an invariant — if your task conflicts with one, return `SPEC_CONFLICT`.
 
+**Workspace snapshot (baseline):**
+```bash
+# 6. Capture pre-implementation state for diff evidence
+GIT_BASELINE_REV=$(git rev-parse HEAD)
+echo "GIT_BASELINE_REV=$GIT_BASELINE_REV"
+git diff --stat HEAD 2>/dev/null || true
+```
+Save `GIT_BASELINE_REV` — you'll use it in Phase 5 to generate workspace change evidence.
+
 ## Phase 2a: TDD Red-Green (if TDD_MODE=true)
 
 **Skip this phase if TDD_MODE is not `true`.**
@@ -212,10 +221,19 @@ Capture the commit hash:
 COMMIT_HASH=$(git rev-parse HEAD)
 ```
 
-Write evidence file (use actual commit hash and test commands you ran):
+Capture workspace changes (compare against Phase 1 baseline):
+```bash
+# Generate workspace change summary
+DIFF_STAT=$(git diff --stat "$GIT_BASELINE_REV"..HEAD 2>/dev/null || echo "no diff")
+FILES_CHANGED=$(git diff --name-only "$GIT_BASELINE_REV"..HEAD 2>/dev/null | wc -l | tr -d ' ')
+INSERTIONS=$(git diff --numstat "$GIT_BASELINE_REV"..HEAD 2>/dev/null | awk '{s+=$1} END {print s+0}')
+DELETIONS=$(git diff --numstat "$GIT_BASELINE_REV"..HEAD 2>/dev/null | awk '{s+=$2} END {print s+0}')
+```
+
+Write evidence file (use actual values from above):
 ```bash
 cat > /tmp/evidence.json << EOF
-{"commits": ["$COMMIT_HASH"], "tests": ["<actual test commands>"], "prs": []}
+{"commits": ["$COMMIT_HASH"], "tests": ["<actual test commands>"], "prs": [], "workspace_changes": {"baseline_rev": "$GIT_BASELINE_REV", "final_rev": "$COMMIT_HASH", "files_changed": $FILES_CHANGED, "insertions": $INSERTIONS, "deletions": $DELETIONS}}
 EOF
 ```
 

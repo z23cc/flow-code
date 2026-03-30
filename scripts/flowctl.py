@@ -2891,6 +2891,55 @@ def cmd_review_backend(args: argparse.Namespace) -> None:
         backend = "ASK"
         source = "none"
 
+    # --compare mode: compare multiple review receipt files
+    if hasattr(args, "compare") and args.compare:
+        receipt_files = [f.strip() for f in args.compare.split(",")]
+        reviews = []
+        for rf in receipt_files:
+            rpath = Path(rf)
+            if not rpath.exists():
+                error_exit(f"Receipt file not found: {rf}", use_json=args.json)
+            try:
+                rdata = json.loads(rpath.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, Exception) as e:
+                error_exit(f"Invalid receipt JSON: {rf}: {e}", use_json=args.json)
+            reviews.append({
+                "file": rf,
+                "mode": rdata.get("mode", "unknown"),
+                "verdict": rdata.get("verdict", "unknown"),
+                "id": rdata.get("id", "unknown"),
+                "timestamp": rdata.get("timestamp", ""),
+                "review": rdata.get("review", ""),
+            })
+
+        # Analyze: agreements, conflicts, verdicts
+        verdicts = {r["mode"]: r["verdict"] for r in reviews}
+        all_same = len(set(verdicts.values())) <= 1
+        consensus_verdict = list(verdicts.values())[0] if all_same and verdicts else None
+
+        result = {
+            "reviews": len(reviews),
+            "verdicts": verdicts,
+            "consensus": consensus_verdict,
+            "has_conflict": not all_same,
+            "details": reviews,
+        }
+
+        if args.json:
+            json_output(result)
+        else:
+            print(f"Review Comparison ({len(reviews)} reviews):\n")
+            for r in reviews:
+                print(f"  [{r['mode']}] verdict: {r['verdict']}  ({r['file']})")
+            print()
+            if all_same:
+                print(f"Consensus: {consensus_verdict}")
+            else:
+                print("CONFLICT — reviewers disagree:")
+                for mode, verdict in verdicts.items():
+                    print(f"  {mode}: {verdict}")
+        return
+
     if args.json:
         json_output({"backend": backend, "source": source})
     else:
@@ -3695,6 +3744,15 @@ def cmd_task_create(args: argparse.Namespace) -> None:
             Path(args.acceptance_file), "Acceptance file", use_json=args.json
         )
 
+    # Validate domain if provided
+    valid_domains = ["frontend", "backend", "architecture", "testing", "docs", "ops", "general"]
+    domain = getattr(args, "domain", None)
+    if domain and domain not in valid_domains:
+        error_exit(
+            f"Invalid domain: {domain}. Valid: {', '.join(valid_domains)}",
+            use_json=args.json,
+        )
+
     # Create task JSON (MU-2: includes soft-claim fields)
     task_data = {
         "id": task_id,
@@ -3703,6 +3761,7 @@ def cmd_task_create(args: argparse.Namespace) -> None:
         "status": "todo",
         "priority": args.priority,
         "depends_on": deps,
+        "domain": domain,
         "assignee": None,
         "claimed_at": None,
         "claim_note": "",
@@ -4089,6 +4148,8 @@ def cmd_show(args: argparse.Namespace) -> None:
             print(f"Epic: {task_data['epic']}")
             print(f"Title: {task_data['title']}")
             print(f"Status: {task_data['status']}")
+            if task_data.get("domain"):
+                print(f"Domain: {task_data['domain']}")
             print(f"Depends on: {', '.join(task_data['depends_on']) or 'none'}")
             print(f"Spec: {task_data['spec_path']}")
 
@@ -4186,6 +4247,9 @@ def cmd_tasks(args: argparse.Namespace) -> None:
             # Filter by status if requested
             if args.status and task_data["status"] != args.status:
                 continue
+            # Filter by domain if requested
+            if hasattr(args, "domain") and args.domain and task_data.get("domain") != args.domain:
+                continue
             tasks.append(
                 {
                     "id": task_data["id"],
@@ -4193,6 +4257,7 @@ def cmd_tasks(args: argparse.Namespace) -> None:
                     "title": task_data["title"],
                     "status": task_data["status"],
                     "priority": task_data.get("priority"),
+                    "domain": task_data.get("domain"),
                     "depends_on": task_data.get("depends_on", task_data.get("deps", [])),
                 }
             )
@@ -4221,7 +4286,8 @@ def cmd_tasks(args: argparse.Namespace) -> None:
                 deps = (
                     f" (deps: {', '.join(t['depends_on'])})" if t["depends_on"] else ""
                 )
-                print(f"  [{t['status']}] {t['id']}: {t['title']}{deps}")
+                domain_tag = f" [{t['domain']}]" if t.get("domain") else ""
+                print(f"  [{t['status']}] {t['id']}: {t['title']}{domain_tag}{deps}")
 
 
 def cmd_list(args: argparse.Namespace) -> None:
@@ -5209,6 +5275,134 @@ def cmd_task_reset(args: argparse.Namespace) -> None:
         json_output({"success": True, "reset": reset_ids})
     else:
         print(f"Reset: {', '.join(reset_ids)}")
+
+
+def cmd_restart(args: argparse.Namespace) -> None:
+    """Restart a task and cascade-reset all downstream dependents.
+
+    Unlike `task reset`, this is a top-level convenience command that always
+    cascades. It also supports --dry-run and --force for in_progress dependents.
+    """
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    task_id = args.id
+    if not is_task_id(task_id):
+        error_exit(
+            f"Invalid task ID: {task_id}. Expected format: fn-N.M or fn-N-slug.M",
+            use_json=args.json,
+        )
+
+    flow_dir = get_flow_dir()
+    task_json_path = flow_dir / TASKS_DIR / f"{task_id}.json"
+
+    if not task_json_path.exists():
+        error_exit(f"Task {task_id} not found", use_json=args.json)
+
+    # Load task with merged runtime state
+    task_data = load_task_with_state(task_id, use_json=args.json)
+
+    # Check epic not closed
+    epic_id = epic_id_from_task(task_id)
+    epic_path = flow_dir / EPICS_DIR / f"{epic_id}.json"
+    if epic_path.exists():
+        epic_data = load_json_or_exit(epic_path, f"Epic {epic_id}", use_json=args.json)
+        if epic_data.get("status") == "done":
+            error_exit(
+                f"Cannot restart task in closed epic {epic_id}", use_json=args.json
+            )
+
+    current_status = task_data.get("status", "todo")
+
+    # Find all downstream dependents (always cascade)
+    dependents = find_dependents(task_id, same_epic=True)
+
+    # Check for in_progress tasks (target + dependents)
+    in_progress_ids = []
+    if current_status == "in_progress":
+        in_progress_ids.append(task_id)
+    for dep_id in dependents:
+        dep_data = load_task_with_state(dep_id, use_json=args.json)
+        if dep_data.get("status") == "in_progress":
+            in_progress_ids.append(dep_id)
+
+    if in_progress_ids and not args.force:
+        error_exit(
+            f"Cannot restart: tasks in progress: {', '.join(in_progress_ids)}. "
+            f"Use --force to override.",
+            use_json=args.json,
+        )
+
+    # Build the full reset list
+    all_ids = [task_id] + dependents
+    to_reset = []
+    skipped = []
+    for tid in all_ids:
+        td = load_task_with_state(tid, use_json=args.json)
+        st = td.get("status", "todo")
+        if st == "todo":
+            skipped.append(tid)
+            continue
+        to_reset.append(tid)
+
+    # Dry-run mode
+    if args.dry_run:
+        if args.json:
+            json_output({
+                "dry_run": True,
+                "would_reset": to_reset,
+                "already_todo": skipped,
+                "in_progress_overridden": in_progress_ids if args.force else [],
+            })
+        else:
+            print(f"Dry run — would restart {len(to_reset)} task(s):")
+            for tid in to_reset:
+                td = load_task_with_state(tid, use_json=args.json)
+                st = td.get("status", "todo")
+                marker = " (force)" if tid in in_progress_ids else ""
+                print(f"  {tid}  {st} -> todo{marker}")
+            if skipped:
+                print(f"Already todo: {', '.join(skipped)}")
+        return
+
+    # Execute reset
+    reset_ids = []
+    for tid in to_reset:
+        # Reset runtime state
+        reset_task_runtime(tid)
+
+        # Clear legacy fields from definition file
+        tid_path = flow_dir / TASKS_DIR / f"{tid}.json"
+        if tid_path.exists():
+            def_data = load_json(tid_path)
+            for field in ("blocked_reason", "completed_at", "assignee",
+                          "claimed_at", "claim_note", "evidence"):
+                def_data.pop(field, None)
+            def_data["status"] = "todo"
+            def_data["updated_at"] = now_iso()
+            atomic_write_json(tid_path, def_data)
+
+        # Clear evidence from spec
+        clear_task_evidence(tid)
+        reset_ids.append(tid)
+
+    if args.json:
+        json_output({
+            "success": True,
+            "reset": reset_ids,
+            "skipped": skipped,
+            "cascade_from": task_id,
+        })
+    else:
+        if not reset_ids:
+            print(f"Nothing to restart — {task_id} and dependents already todo.")
+        else:
+            print(f"Restarted from {task_id} (cascade: {len(reset_ids) - (1 if task_id in reset_ids else 0)} downstream):\n")
+            for tid in reset_ids:
+                marker = " (target)" if tid == task_id else ""
+                print(f"  {tid}  -> todo{marker}")
 
 
 def _task_set_section(
@@ -8080,6 +8274,10 @@ def main() -> None:
     p_review_backend = subparsers.add_parser(
         "review-backend", help="Get review backend (ASK if not configured)"
     )
+    p_review_backend.add_argument(
+        "--compare",
+        help="Compare review receipts (comma-separated file paths)",
+    )
     p_review_backend.add_argument("--json", action="store_true", help="JSON output")
     p_review_backend.set_defaults(func=cmd_review_backend)
 
@@ -8240,6 +8438,11 @@ def main() -> None:
     p_task_create.add_argument(
         "--priority", type=int, help="Priority (lower = earlier)"
     )
+    p_task_create.add_argument(
+        "--domain",
+        choices=["frontend", "backend", "architecture", "testing", "docs", "ops", "general"],
+        help="Task domain (e.g., frontend, backend)",
+    )
     p_task_create.add_argument("--json", action="store_true", help="JSON output")
     p_task_create.set_defaults(func=cmd_task_create)
 
@@ -8372,6 +8575,11 @@ def main() -> None:
         choices=["todo", "in_progress", "blocked", "done"],
         help="Filter by status",
     )
+    p_tasks.add_argument(
+        "--domain",
+        choices=["frontend", "backend", "architecture", "testing", "docs", "ops", "general"],
+        help="Filter by domain",
+    )
     p_tasks.add_argument("--json", action="store_true", help="JSON output")
     p_tasks.set_defaults(func=cmd_tasks)
 
@@ -8432,6 +8640,20 @@ def main() -> None:
     p_done.add_argument("--force", action="store_true", help="Skip status checks")
     p_done.add_argument("--json", action="store_true", help="JSON output")
     p_done.set_defaults(func=cmd_done)
+
+    # restart
+    p_restart = subparsers.add_parser(
+        "restart", help="Restart task and cascade-reset downstream dependents"
+    )
+    p_restart.add_argument("id", help="Task ID (e.g., fn-1.2, fn-1-add-auth.2)")
+    p_restart.add_argument(
+        "--dry-run", action="store_true", help="Show what would be reset without doing it"
+    )
+    p_restart.add_argument(
+        "--force", action="store_true", help="Allow restart even if tasks are in_progress"
+    )
+    p_restart.add_argument("--json", action="store_true", help="JSON output")
+    p_restart.set_defaults(func=cmd_restart)
 
     # block
     p_block = subparsers.add_parser("block", help="Block task with reason")

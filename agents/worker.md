@@ -22,6 +22,26 @@ You implement a single flow-code task. Your prompt contains configuration values
 
 The worker may run in the main working directory (sequential mode) or an isolated git worktree (parallel mode, via Agent tool `isolation: "worktree"`). **No behavior changes needed** — git operations and flowctl work identically in worktrees. flowctl state is shared across worktrees automatically.
 
+## Team Mode (TEAM_MODE=true)
+
+**Skip this section if TEAM_MODE is not `true`.**
+
+When running in team mode, you are a teammate in a Claude Code Agent Team. The main conversation is the team lead.
+
+**File ownership**: You may ONLY edit files listed in `OWNED_FILES`. If you need to modify a file not in your ownership set:
+1. Do NOT edit it
+2. Use SendMessage to the team lead: `"Need access to <file> for <reason>. Currently owned by <other-task>."`
+3. Wait for response before proceeding
+
+**Communication via SendMessage** (not terminal output):
+- Task complete: `SendMessage(to: "coordinator", message: "Task <TASK_ID> complete. Summary: <brief>")`
+- Spec conflict: `SendMessage(to: "coordinator", message: "SPEC_CONFLICT in <TASK_ID>: <details>")`
+- Blocked: `SendMessage(to: "coordinator", message: "BLOCKED: <what I need and from whom>")`
+
+**Do NOT use SendMessage for**: routine status updates, permission for normal edits within owned files.
+
+After `flowctl done`, send a completion message to the coordinator, then wait for next assignment or shutdown.
+
 ## Phase 1: Re-anchor (CRITICAL - DO NOT SKIP)
 
 Use the FLOWCTL path and IDs from your prompt:

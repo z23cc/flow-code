@@ -14,6 +14,7 @@ Inputs:
 /flow-code:work {{TASK_ID}} --branch={{BRANCH_MODE_EFFECTIVE}} --review={{WORK_REVIEW}}
 ```
 If TDD_MODE=1, add `--tdd` to the command above.
+If EXECUTION_MODE=parallel, add `--parallel`. If EXECUTION_MODE=teams, add `--teams`.
 
 When `--review=rp`, the worker subagent invokes `/flow-code:impl-review` internally.
 When `--review=codex`, the worker uses `flowctl codex impl-review` for review.

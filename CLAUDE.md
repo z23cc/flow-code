@@ -84,6 +84,8 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Review circuit breaker**: impl-review fix loop capped at `MAX_REVIEW_ITERATIONS` (default 3) — prevents infinite NEEDS_WORK cycles
 - **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
 - **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`
+- **Worker self-review**: Phase 2.5 runs guard + structured diff review (correctness, quality, performance, testing) before commit
+- **Plan auto-execute**: `/flow-code:plan` defaults to auto-execute work after planning (≤10 tasks direct, >10 suggests Ralph); `--plan-only` to opt out
 
 ## Files to Never Commit
 

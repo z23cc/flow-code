@@ -3331,6 +3331,7 @@ def cmd_memory_add(args: argparse.Namespace) -> None:
         "tags": tags,
         "hash": chash,
         "created": created,
+        "last_verified": created,
         "file": entry_filename,
     }
     existing.append(idx_entry)
@@ -3410,6 +3411,10 @@ def cmd_memory_list(args: argparse.Namespace) -> None:
     total = len(index)
     total_refs = sum(s.get("refs", 0) for s in stats.values())
 
+    # Compute staleness threshold (90 days)
+    from datetime import datetime, timezone, timedelta
+    stale_cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+
     if args.json:
         json_output({
             "counts": counts,
@@ -3422,22 +3427,31 @@ def cmd_memory_list(args: argparse.Namespace) -> None:
                     "summary": idx["summary"],
                     "tags": idx.get("tags", []),
                     "created": idx.get("created", ""),
+                    "last_verified": idx.get("last_verified", idx.get("created", "")),
+                    "stale": idx.get("last_verified", idx.get("created", "")) < stale_cutoff,
                     "refs": stats.get(str(idx["id"]), {}).get("refs", 0),
                 }
                 for idx in index
             ],
         })
     else:
+        stale_count = 0
         print(f"Memory: {total} entries, {total_refs} total references\n")
         for idx in index:
             eid = str(idx["id"])
             refs = stats.get(eid, {}).get("refs", 0)
-            last = stats.get(eid, {}).get("last_ref", "never")
-            print(f"  #{idx['id']:3d} [{idx['type']:10s}] refs={refs:2d}  {idx['summary'][:80]}")
+            verified = idx.get("last_verified", idx.get("created", ""))
+            is_stale = verified < stale_cutoff if verified else True
+            stale_tag = " [stale]" if is_stale else ""
+            if is_stale:
+                stale_count += 1
+            print(f"  #{idx['id']:3d} [{idx['type']:10s}] refs={refs:2d}  {idx['summary'][:70]}{stale_tag}")
         print()
         for t, c in sorted(counts.items()):
             print(f"  {t}: {c}")
         print(f"  Total: {total}")
+        if stale_count:
+            print(f"  Stale: {stale_count} (not verified in 90+ days — run /flow-code:retro to verify)")
 
 
 def cmd_memory_search(args: argparse.Namespace) -> None:
@@ -3576,6 +3590,35 @@ def cmd_memory_inject(args: argparse.Namespace) -> None:
                 print(f"--- #{r['id']} [{r['type']}] ---")
                 print(r["content"])
                 print()
+
+
+def cmd_memory_verify(args: argparse.Namespace) -> None:
+    """Mark a memory entry as verified (still valid)."""
+    memory_dir = require_memory_enabled(args)
+
+    entry_id = args.id
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    index_path = _memory_index_path()
+    index = _load_index(index_path)
+
+    found = False
+    for idx in index:
+        if idx["id"] == entry_id:
+            idx["last_verified"] = today
+            found = True
+            break
+
+    if not found:
+        error_exit(f"Entry #{entry_id} not found", use_json=args.json)
+
+    _save_index(index_path, index)
+
+    if args.json:
+        json_output({"id": entry_id, "last_verified": today, "message": f"Entry #{entry_id} verified"})
+    else:
+        print(f"Entry #{entry_id} verified as still valid ({today})")
 
 
 def cmd_memory_gc(args: argparse.Namespace) -> None:
@@ -6443,13 +6486,24 @@ def cmd_epic_close(args: argparse.Namespace) -> None:
     epic_data["updated_at"] = now_iso()
     atomic_write_json(epic_path, epic_data)
 
+    # Check if memory is enabled — suggest retro for learning loop
+    memory_enabled = False
+    if ensure_flow_exists():
+        mem_cfg = get_config("memory.enabled")
+        memory_enabled = mem_cfg in (True, "true", "True")
+
     if args.json:
-        json_output(
-            {"id": args.id, "status": "done", "message": f"Epic {args.id} closed",
-             "gaps_skipped": len(open_blocking) if skip_gap else 0}
-        )
+        result = {
+            "id": args.id, "status": "done", "message": f"Epic {args.id} closed",
+            "gaps_skipped": len(open_blocking) if skip_gap else 0,
+            "retro_suggested": True,
+        }
+        if memory_enabled:
+            result["retro_hint"] = "Run /flow-code:retro to capture lessons learned"
+        json_output(result)
     else:
         print(f"Epic {args.id} closed")
+        print(f"\n  Tip: Run /flow-code:retro to capture lessons learned before archiving.")
 
 
 def cmd_epic_archive(args: argparse.Namespace) -> None:
@@ -8531,6 +8585,13 @@ def main() -> None:
     )
     p_memory_inject.add_argument("--json", action="store_true", help="JSON output")
     p_memory_inject.set_defaults(func=cmd_memory_inject)
+
+    p_memory_verify = memory_sub.add_parser(
+        "verify", help="Mark entry as verified (still valid)"
+    )
+    p_memory_verify.add_argument("id", type=int, help="Entry ID to verify")
+    p_memory_verify.add_argument("--json", action="store_true", help="JSON output")
+    p_memory_verify.set_defaults(func=cmd_memory_verify)
 
     p_memory_gc = memory_sub.add_parser(
         "gc", help="Garbage collect stale entries"

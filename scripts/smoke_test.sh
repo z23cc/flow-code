@@ -1151,6 +1151,67 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+echo -e "\n${YELLOW}--- memory verify + staleness ---${NC}"
+
+# Setup: enable memory + add entry
+scripts/flowctl config set memory.enabled true --json > /dev/null
+scripts/flowctl memory init --json > /dev/null
+scripts/flowctl memory add pitfall "Test pitfall for verify" --json > /dev/null
+
+# Test 1: memory verify updates last_verified
+result="$(scripts/flowctl memory verify 1 --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("id") == 1
+assert "last_verified" in data
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} memory verify updates last_verified"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} memory verify failed"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 2: memory list includes last_verified and stale flag in JSON
+result="$(scripts/flowctl memory list --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+entry = data["index"][0]
+assert "last_verified" in entry, f"missing last_verified: {entry}"
+assert "stale" in entry, f"missing stale flag: {entry}"
+assert entry["stale"] == False, f"newly verified should not be stale: {entry}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} memory list shows last_verified + stale flag"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} memory list missing staleness fields"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 3: epic close includes retro_suggested
+EPC_EPIC_JSON="$(scripts/flowctl epic create --title "Retro prompt test" --json)"
+EPC_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$EPC_EPIC_JSON")"
+scripts/flowctl task create --epic "$EPC_EPIC" --title "Done task" --json > /dev/null
+scripts/flowctl start "${EPC_EPIC}.1" --json > /dev/null
+scripts/flowctl done "${EPC_EPIC}.1" --summary "ok" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+result="$(scripts/flowctl epic close "$EPC_EPIC" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("retro_suggested") == True, f"missing retro_suggested: {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} epic close suggests retro"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} epic close missing retro suggestion"
+  FAIL=$((FAIL + 1))
+fi
+
 echo -e "\n${YELLOW}--- restart command ---${NC}"
 
 # Setup: create epic + 3 tasks with deps: .1 -> .2 -> .3

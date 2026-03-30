@@ -1061,6 +1061,61 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+echo -e "\n${YELLOW}--- workspace_changes evidence ---${NC}"
+
+# Setup: create epic + task, start it
+WS_EPIC_JSON="$(scripts/flowctl epic create --title "Workspace test" --json)"
+WS_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$WS_EPIC_JSON")"
+scripts/flowctl task create --epic "$WS_EPIC" --title "WS task" --json > /dev/null
+scripts/flowctl start "${WS_EPIC}.1" --json > /dev/null
+
+# Test 1: valid workspace_changes renders in spec
+WS_EVIDENCE='{"commits":["abc"],"tests":["pytest"],"prs":[],"workspace_changes":{"baseline_rev":"aaa111bbb","final_rev":"ccc222ddd","files_changed":5,"insertions":120,"deletions":30}}'
+result="$(scripts/flowctl done "${WS_EPIC}.1" --summary "done" --evidence "$WS_EVIDENCE" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("status") == "done"
+assert "warning" not in data, f"unexpected warning: {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} valid workspace_changes accepted without warning"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} valid workspace_changes should not warn"
+  FAIL=$((FAIL + 1))
+fi
+
+# Check spec has workspace line
+WS_SPEC="$(scripts/flowctl cat "${WS_EPIC}.1")"
+if echo "$WS_SPEC" | grep -q "5 files changed"; then
+  echo -e "${GREEN}✓${NC} workspace_changes rendered in spec markdown"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} workspace_changes not in spec"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 2: malformed workspace_changes triggers warning
+scripts/flowctl task reset "${WS_EPIC}.1" --json > /dev/null
+scripts/flowctl start "${WS_EPIC}.1" --force --json > /dev/null
+BAD_EVIDENCE='{"commits":[],"tests":[],"prs":[],"workspace_changes":{"baseline_rev":"aaa"}}'
+result="$(scripts/flowctl done "${WS_EPIC}.1" --summary "done" --evidence "$BAD_EVIDENCE" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("status") == "done"
+assert "warning" in data, f"expected warning for missing keys: {data}"
+assert "missing keys" in data["warning"]
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} malformed workspace_changes warns but completes"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} malformed workspace_changes handling failed"
+  FAIL=$((FAIL + 1))
+fi
+
 echo -e "\n${YELLOW}--- restart command ---${NC}"
 
 # Setup: create epic + 3 tasks with deps: .1 -> .2 -> .3

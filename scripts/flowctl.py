@@ -6104,6 +6104,19 @@ def cmd_done(args: argparse.Namespace) -> None:
             use_json=args.json,
         )
 
+    # Validate workspace_changes if present (warn on bad format, don't block)
+    ws_changes = evidence.get("workspace_changes")
+    ws_warning = None
+    if ws_changes is not None:
+        if not isinstance(ws_changes, dict):
+            ws_warning = "workspace_changes must be an object"
+            ws_changes = None
+        else:
+            required_ws_keys = {"baseline_rev", "final_rev", "files_changed", "insertions", "deletions"}
+            missing_ws = required_ws_keys - set(ws_changes.keys())
+            if missing_ws:
+                ws_warning = f"workspace_changes missing keys: {', '.join(sorted(missing_ws))}"
+
     # Format evidence as markdown (coerce to strings, handle string-vs-array)
     def to_list(val: Any) -> list:
         if val is None:
@@ -6119,6 +6132,12 @@ def cmd_done(args: argparse.Namespace) -> None:
     evidence_md.append(f"- Commits: {', '.join(commits)}" if commits else "- Commits:")
     evidence_md.append(f"- Tests: {', '.join(tests)}" if tests else "- Tests:")
     evidence_md.append(f"- PRs: {', '.join(prs)}" if prs else "- PRs:")
+    if ws_changes and not ws_warning:
+        evidence_md.append(
+            f"- Workspace: {ws_changes.get('files_changed', 0)} files changed, "
+            f"+{ws_changes.get('insertions', 0)} -{ws_changes.get('deletions', 0)} "
+            f"({ws_changes.get('baseline_rev', '?')[:7]}..{ws_changes.get('final_rev', '?')[:7]})"
+        )
     evidence_content = "\n".join(evidence_md)
 
     # Read current spec
@@ -6143,11 +6162,14 @@ def cmd_done(args: argparse.Namespace) -> None:
     # This reduces merge conflicts in multi-user scenarios.
 
     if args.json:
-        json_output(
-            {"id": args.id, "status": "done", "message": f"Task {args.id} completed"}
-        )
+        result = {"id": args.id, "status": "done", "message": f"Task {args.id} completed"}
+        if ws_warning:
+            result["warning"] = ws_warning
+        json_output(result)
     else:
         print(f"Task {args.id} completed")
+        if ws_warning:
+            print(f"  warning: {ws_warning}")
 
 
 def cmd_block(args: argparse.Namespace) -> None:

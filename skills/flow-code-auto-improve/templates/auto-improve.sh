@@ -133,6 +133,41 @@ case "$(basename "$CLAUDE_BIN")" in
 esac
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Metrics capture
+# ─────────────────────────────────────────────────────────────────────────────
+capture_metrics() {
+  "$PYTHON_BIN" - "$ROOT_DIR" <<'METRICS_PY'
+import json, subprocess, sys, os
+root = sys.argv[1]
+metrics = {}
+
+# Python: pytest test count
+try:
+    r = subprocess.run(["python3", "-m", "pytest", "--co", "-q"], capture_output=True, text=True, cwd=root, timeout=30)
+    for line in r.stdout.strip().split("\n"):
+        if "test" in line.lower() and ("selected" in line.lower() or "item" in line.lower()):
+            import re; m = re.search(r"(\d+)", line); metrics["test_count"] = int(m.group(1)) if m else 0; break
+except: pass
+
+# Python: ruff lint errors
+try:
+    r = subprocess.run(["ruff", "check", "."], capture_output=True, text=True, cwd=root, timeout=30)
+    import re; m = re.search(r"Found (\d+)", r.stdout + r.stderr); metrics["lint_errors"] = int(m.group(1)) if m else 0
+except: pass
+
+# JS/TS: tsc type errors
+tsc = os.path.join(root, "frontend", "node_modules", ".bin", "tsc") if os.path.isdir(os.path.join(root, "frontend")) else "tsc"
+try:
+    r = subprocess.run([tsc, "--noEmit"], capture_output=True, text=True, cwd=os.path.join(root, "frontend") if os.path.isdir(os.path.join(root, "frontend")) else root, timeout=60)
+    errors = sum(1 for line in (r.stdout + r.stderr).split("\n") if "error TS" in line)
+    metrics["type_errors"] = errors
+except: pass
+
+print(json.dumps(metrics))
+METRICS_PY
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Run directory
 # ─────────────────────────────────────────────────────────────────────────────
 rand4() { LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | head -c4 || echo "0000"; }
@@ -245,6 +280,42 @@ PY
 # ─────────────────────────────────────────────────────────────────────────────
 generate_summary() {
   local summary_file="$RUN_DIR/summary.md"
+
+  # Baseline vs final metrics comparison
+  local final_metrics
+  final_metrics="$(capture_metrics)"
+  echo "$final_metrics" > "$RUN_DIR/final.json"
+  ui ""
+  ui "   ${C_BOLD}Metrics Comparison${C_RESET}"
+  "$PYTHON_BIN" - "$RUN_DIR/baseline.json" "$final_metrics" <<'METRICS_CMP'
+import json, sys
+from pathlib import Path
+
+baseline = {}
+try: baseline = json.loads(Path(sys.argv[1]).read_text().strip())
+except: pass
+final = {}
+try: final = json.loads(sys.argv[2])
+except: pass
+
+all_keys = sorted(set(list(baseline.keys()) + list(final.keys())))
+if all_keys:
+    print(f"   {'Metric':<15} {'Baseline':>10} {'Final':>10} {'Delta':>10}")
+    print(f"   {chr(9472)*15} {chr(9472)*10} {chr(9472)*10} {chr(9472)*10}")
+    for k in all_keys:
+        b = baseline.get(k, "-")
+        f = final.get(k, "-")
+        if isinstance(b, (int, float)) and isinstance(f, (int, float)):
+            d = f - b
+            sign = "+" if d > 0 else ""
+            print(f"   {k:<15} {b:>10} {f:>10} {sign + str(d):>10}")
+        else:
+            print(f"   {k:<15} {str(b):>10} {str(f):>10} {'':>10}")
+else:
+    print("   (no metrics detected)")
+METRICS_CMP
+  ui ""
+
   "$PYTHON_BIN" - "$RUN_DIR/experiments.jsonl" "$GOAL" "$SCOPE" "$RUN_ID" <<'PY' > "$summary_file"
 import json, sys
 from pathlib import Path
@@ -378,6 +449,13 @@ jlog "info" "run_start" "run_id=$RUN_ID" "goal=$GOAL" "scope=$SCOPE" \
 # Write initial status
 write_status_json "starting" "0"
 
+# Capture baseline metrics
+ui "   ${C_DIM}Capturing baseline metrics...${C_RESET}"
+BASELINE_METRICS="$(capture_metrics)"
+echo "$BASELINE_METRICS" > "$RUN_DIR/baseline.json"
+jlog "info" "baseline_captured" "metrics=$BASELINE_METRICS"
+ui "   ${C_GREEN}Baseline:${C_RESET} $BASELINE_METRICS"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Experiment loop
 # ─────────────────────────────────────────────────────────────────────────────
@@ -416,7 +494,9 @@ while true; do
     | sed "s|{{GUARD_CMD}}|$GUARD_CMD|g" \
     | sed "s|{{EXPERIMENT_NUMBER}}|$exp_count|g" \
     | sed "s|{{EXPERIMENTS_LOG}}|$RUN_DIR/experiments.jsonl|g" \
-    | sed "s|{{PROGRAM_MD}}|$SCRIPT_DIR/program.md|g"
+    | sed "s|{{PROGRAM_MD}}|$SCRIPT_DIR/program.md|g" \
+    | sed "s|{{BASELINE_METRICS}}|$BASELINE_METRICS|g" \
+    | sed "s|{{PROGRESS_PCT}}|$((exp_count * 100 / MAX_EXPERIMENTS))|g"
   )"
 
   # Build CLI args (platform-aware)
@@ -502,16 +582,19 @@ PY
         git -C "$ROOT_DIR" add -A
         git -C "$ROOT_DIR" commit -m "auto-improve: $hypothesis" --no-verify >/dev/null 2>&1 || true
         commit_hash="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+        CURRENT_METRICS="$(capture_metrics)"
         kept_count=$((kept_count + 1))
         ui "   ${C_GREEN}KEEP${C_RESET} — $hypothesis (${commit_hash})"
       fi
       ;;
     discard)
+      CURRENT_METRICS="{}"
       rollback
       discarded_count=$((discarded_count + 1))
       ui "   ${C_YELLOW}DISCARD${C_RESET} — $hypothesis"
       ;;
     crash|*)
+      CURRENT_METRICS="{}"
       rollback
       crash_count=$((crash_count + 1))
       ui "   ${C_RED}CRASH${C_RESET} — $hypothesis"
@@ -529,9 +612,10 @@ entry = {
     'commit': sys.argv[2],
     'result': sys.argv[3],
     'hypothesis': sys.argv[4],
+    'metrics': json.loads(sys.argv[5]) if sys.argv[5] != '{}' else {},
 }
 print(json.dumps(entry, separators=(',', ':')))
-" "$exp_count" "$commit_hash" "$result" "$hypothesis" >> "$EXPERIMENTS_LOG"
+" "$exp_count" "$commit_hash" "$result" "$hypothesis" "$CURRENT_METRICS" >> "$EXPERIMENTS_LOG"
 
   jlog "info" "experiment_done" "num=$exp_count" "result=$result" "hypothesis=$hypothesis" "commit=$commit_hash"
 

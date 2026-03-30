@@ -155,9 +155,101 @@ All three run concurrently in isolated worktrees. The Agent tool automatically c
 - flowctl state (task status, locks, evidence) is shared across worktrees automatically
 - After parallel batch completes, merge branches back (3c½) before finding next batch
 
+### 3-teams. Agent Teams Execution (teams mode only)
+
+**Skip if not `--teams` mode.**
+
+Teams mode replaces worktree isolation with Agent Teams coordination. Workers share the working directory but have exclusive file ownership. They communicate via SendMessage.
+
+#### 3-teams-a. Team Setup
+
+```bash
+# 1. Get file ownership map
+$FLOWCTL files --epic <epic-id> --json
+```
+
+Check the `conflicts` field. If files overlap between ready tasks, those tasks **cannot run in the same wave** — demote one to the next batch.
+
+```
+# 2. Create the team
+TeamCreate({team_name: "flow-<epic-id>", description: "Working on <epic-title>"})
+```
+
+#### 3-teams-b. Spawn Workers as Teammates
+
+For each ready task with no file conflicts:
+
+```
+Agent({
+  subagent_type: "flow-code:worker",
+  name: "worker-<task-id>",
+  team_name: "flow-<epic-id>",
+  run_in_background: true,
+  prompt: """
+    Implement flow-code task.
+
+    TASK_ID: <task-id>
+    EPIC_ID: <epic-id>
+    FLOWCTL: /path/to/flowctl
+    REVIEW_MODE: none|rp|codex
+    RALPH_MODE: true|false
+    TDD_MODE: true|false
+    TEAM_MODE: true
+    OWNED_FILES: <comma-separated file list from flowctl files>
+
+    Follow your phases in worker.md exactly.
+  """
+})
+```
+
+**Key differences from parallel mode:**
+- No `isolation: "worktree"` — workers share the working directory
+- Workers have `team_name` for SendMessage communication
+- `TEAM_MODE: true` activates file ownership enforcement in worker
+- `OWNED_FILES` lists exactly which files this worker may edit
+
+#### 3-teams-c. Lead Coordination Loop
+
+The main conversation acts as team lead. Monitor and coordinate:
+
+```
+While tasks remain in this wave:
+  1. Workers send messages automatically when they:
+     - Complete a task → verify via $FLOWCTL show <task-id> --json
+     - Hit a spec conflict → pause, report to user
+     - Need a file they don't own → decide: grant access or reassign
+     - Get blocked → check dependency, unblock or reassign
+
+  2. When a worker completes and goes idle:
+     - Run $FLOWCTL ready --epic <epic-id> --json
+     - If new tasks available and no file conflicts with active workers:
+       SendMessage(to: "worker-<task-id>", message: "New assignment: <task-id>. OWNED_FILES: <files>")
+     - If no tasks, let worker idle until wave completes
+
+  3. When all workers in wave are done:
+     - Proceed to 3-teams-d
+```
+
+**Do NOT micromanage** — only intervene on messages from workers. Workers handle their own phases autonomously.
+
+#### 3-teams-d. Cleanup
+
+```
+# 1. Shutdown all workers
+For each active worker:
+  SendMessage(to: "worker-<task-id>", message: {"type": "shutdown_request"})
+
+# 2. Delete team
+TeamDelete({team_name: "flow-<epic-id>"})
+
+# 3. Proceed to batch checkpoint (Phase 3d)
+```
+
+No merge-back needed — all work was on the same branch with file ownership preventing conflicts.
+
 ### 3c½. Merge Parallel Branches (parallel mode only)
 
-**Skip if sequential mode or if no workers made changes.**
+**Skip if sequential mode, teams mode, or if no workers made changes.**
 
 After all parallel workers return, each worker's changes are on a separate branch in a Claude Code-managed worktree. Merge them back to the working branch sequentially:
 

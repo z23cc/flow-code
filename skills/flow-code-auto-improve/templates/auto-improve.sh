@@ -483,6 +483,9 @@ while true; do
   # Update status for /flow-code:loop-status
   write_status_json "running" "$exp_count"
 
+  # Capture before-metrics for delta comparison
+  BEFORE_METRICS="$(capture_metrics)"
+
   # Save pre-experiment state
   save_checkpoint
   iter_log="$RUN_DIR/exp-$(printf '%03d' "$exp_count").log"
@@ -580,7 +583,22 @@ PY
       else
         # Commit the improvement
         git -C "$ROOT_DIR" add -A
-        git -C "$ROOT_DIR" commit -m "auto-improve: $hypothesis" --no-verify >/dev/null 2>&1 || true
+        # Generate metrics delta for commit message
+        DELTA_STR="$("$PYTHON_BIN" -c "
+import json, sys
+b = json.loads(sys.argv[1]) if sys.argv[1] != '{}' else {}
+a = json.loads(sys.argv[2]) if sys.argv[2] != '{}' else {}
+parts = []
+for k in sorted(set(list(b.keys()) + list(a.keys()))):
+    bv, av = b.get(k, 0), a.get(k, 0)
+    if av != bv: parts.append(f'{k}:{bv}→{av}')
+print(' '.join(parts) if parts else '')
+" "$BEFORE_METRICS" "$CURRENT_METRICS" 2>/dev/null || echo "")"
+        if [[ -n "$DELTA_STR" ]]; then
+          git -C "$ROOT_DIR" commit -m "auto-improve [$DELTA_STR]: $hypothesis" --no-verify >/dev/null 2>&1 || true
+        else
+          git -C "$ROOT_DIR" commit -m "auto-improve: $hypothesis" --no-verify >/dev/null 2>&1 || true
+        fi
         commit_hash="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
         CURRENT_METRICS="$(capture_metrics)"
         kept_count=$((kept_count + 1))
@@ -613,9 +631,10 @@ entry = {
     'result': sys.argv[3],
     'hypothesis': sys.argv[4],
     'metrics': json.loads(sys.argv[5]) if sys.argv[5] != '{}' else {},
+    'before': json.loads(sys.argv[6]) if sys.argv[6] != '{}' else {},
 }
 print(json.dumps(entry, separators=(',', ':')))
-" "$exp_count" "$commit_hash" "$result" "$hypothesis" "$CURRENT_METRICS" >> "$EXPERIMENTS_LOG"
+" "$exp_count" "$commit_hash" "$result" "$hypothesis" "$CURRENT_METRICS" "$BEFORE_METRICS" >> "$EXPERIMENTS_LOG"
 
   jlog "info" "experiment_done" "num=$exp_count" "result=$result" "hypothesis=$hypothesis" "commit=$commit_hash"
 

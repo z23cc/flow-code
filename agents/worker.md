@@ -295,6 +295,22 @@ Continue until SHIP verdict. Save final `REVIEW_ITERATIONS` count for Phase 5 ev
 ```
 If guards or invariants fail, fix and re-commit before proceeding.
 
+**Goal-backward verification** — re-read the acceptance criteria and verify each one:
+```bash
+<FLOWCTL> cat <TASK_ID>
+```
+Go through each `- [ ]` acceptance criterion in the spec:
+1. For each criterion, verify your implementation actually satisfies it (not just that tests pass)
+2. If a criterion says "support batch import" — did you test with multiple items, not just one?
+3. If a criterion says "return proper error" — did you handle all error cases, not just 400?
+4. If any criterion is NOT met — fix it now, before completing
+
+**Rules:**
+- This is a 1-minute sanity check, not a full re-review
+- Only check acceptance criteria, not general quality (Phase 2.5 already did that)
+- If you discover a gap, fix + commit + re-run guard
+- If you discover the criterion is impossible, note it in the summary (not SPEC_CONFLICT at this stage)
+
 Capture the commit hash:
 ```bash
 COMMIT_HASH=$(git rev-parse HEAD)

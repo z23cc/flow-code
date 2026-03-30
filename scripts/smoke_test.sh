@@ -1286,6 +1286,46 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+echo -e "\n${YELLOW}--- review receipt archival ---${NC}"
+
+# Setup: create epic + task
+RR_EPIC_JSON="$(scripts/flowctl epic create --title "Receipt test" --json)"
+RR_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$RR_EPIC_JSON")"
+scripts/flowctl task create --epic "$RR_EPIC" --title "Task with review" --json > /dev/null
+scripts/flowctl start "${RR_EPIC}.1" --json > /dev/null
+
+# Test 1: done with review_receipt archives to .flow/reviews/
+RR_EVIDENCE="{\"commits\":[\"x1\"],\"tests\":[],\"prs\":[],\"review_receipt\":{\"type\":\"impl_review\",\"id\":\"${RR_EPIC}.1\",\"mode\":\"codex\",\"verdict\":\"SHIP\",\"timestamp\":\"2026-03-30T00:00:00Z\",\"review\":\"LGTM\"}}"
+scripts/flowctl done "${RR_EPIC}.1" --summary "done" --evidence "$RR_EVIDENCE" --json > /dev/null
+if [ -f ".flow/reviews/impl_review-${RR_EPIC}.1-codex.json" ]; then
+  echo -e "${GREEN}✓${NC} review receipt archived to .flow/reviews/"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} review receipt not archived"
+  FAIL=$((FAIL + 1))
+fi
+
+# Add a second receipt (simulate rp review)
+cat > ".flow/reviews/impl_review-${RR_EPIC}.1-rp.json" << 'EOF'
+{"type":"impl_review","id":"PLACEHOLDER","mode":"rp","verdict":"SHIP","timestamp":"2026-03-30T00:01:00Z","review":"Looks good"}
+EOF
+
+# Test 2: review-backend --epic auto-discovers receipts
+result="$(scripts/flowctl review-backend --epic "$RR_EPIC" --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("reviews") == 2, f"expected 2 reviews, got {data.get('reviews')}"
+assert data.get("consensus") == "SHIP", f"expected SHIP consensus: {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} review-backend --epic auto-discovers receipts"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} review-backend --epic failed"
+  FAIL=$((FAIL + 1))
+fi
+
 echo -e "\n${YELLOW}--- task domain tagging ---${NC}"
 
 # Setup: create epic + tasks with domains

@@ -53,6 +53,7 @@ EPICS_DIR = "epics"
 SPECS_DIR = "specs"
 TASKS_DIR = "tasks"
 MEMORY_DIR = "memory"
+REVIEWS_DIR = "reviews"
 CONFIG_FILE = "config.json"
 
 EPIC_STATUS = ["open", "done"]
@@ -2100,7 +2101,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     actions = []
 
     # Create directories if missing (idempotent, never destroys existing)
-    for subdir in [EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR]:
+    for subdir in [EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR, REVIEWS_DIR]:
         dir_path = flow_dir / subdir
         if not dir_path.exists():
             dir_path.mkdir(parents=True)
@@ -2179,7 +2180,7 @@ def cmd_detect(args: argparse.Namespace) -> None:
                 issues.append(f"meta.json parse error: {e}")
 
         # Check required subdirectories
-        for subdir in [EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR]:
+        for subdir in [EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR, REVIEWS_DIR]:
             if not (flow_dir / subdir).exists():
                 issues.append(f"{subdir}/ missing")
 
@@ -2892,8 +2893,27 @@ def cmd_review_backend(args: argparse.Namespace) -> None:
         source = "none"
 
     # --compare mode: compare multiple review receipt files
-    if hasattr(args, "compare") and args.compare:
-        receipt_files = [f.strip() for f in args.compare.split(",")]
+    # Resolve receipt files: --compare takes paths, --epic scans .flow/reviews/
+    compare_arg = getattr(args, "compare", None)
+    epic_arg = getattr(args, "epic", None)
+    if epic_arg and not compare_arg:
+        # Auto-discover receipts for this epic
+        if not ensure_flow_exists():
+            error_exit(".flow/ does not exist.", use_json=args.json)
+        reviews_dir = get_flow_dir() / REVIEWS_DIR
+        if not reviews_dir.exists():
+            error_exit(f"No reviews directory found. Complete tasks with review_receipt in evidence first.", use_json=args.json)
+        receipt_files = sorted(
+            str(f) for f in reviews_dir.glob(f"*-{epic_arg}.*-*.json")
+        )
+        if not receipt_files:
+            error_exit(f"No review receipts found for epic {epic_arg}", use_json=args.json)
+    elif compare_arg:
+        receipt_files = [f.strip() for f in compare_arg.split(",")]
+    else:
+        receipt_files = None
+
+    if receipt_files:
         reviews = []
         for rf in receipt_files:
             rpath = Path(rf)
@@ -6155,6 +6175,16 @@ def cmd_done(args: argparse.Namespace) -> None:
     # All validation passed - now write (spec to tracked file, runtime to state-dir)
     atomic_write(task_spec_path, updated_spec)
 
+    # Archive review receipt if present in evidence
+    review_receipt = evidence.get("review_receipt")
+    if review_receipt and isinstance(review_receipt, dict):
+        reviews_dir = flow_dir / REVIEWS_DIR
+        reviews_dir.mkdir(parents=True, exist_ok=True)
+        mode = review_receipt.get("mode", "unknown")
+        rtype = review_receipt.get("type", "review")
+        receipt_filename = f"{rtype}-{args.id}-{mode}.json"
+        atomic_write_json(reviews_dir / receipt_filename, review_receipt)
+
     # Write runtime state to state-dir (not definition file)
     save_task_runtime(args.id, {"status": "done", "evidence": evidence})
 
@@ -6416,7 +6446,7 @@ def validate_flow_root(flow_dir: Path) -> list[str]:
             errors.append(f"meta.json unreadable: {e}")
 
     # Check required subdirectories exist
-    for subdir in [EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR]:
+    for subdir in [EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR, REVIEWS_DIR]:
         if not (flow_dir / subdir).exists():
             errors.append(f"Required directory missing: {subdir}/")
 
@@ -8299,6 +8329,10 @@ def main() -> None:
     p_review_backend.add_argument(
         "--compare",
         help="Compare review receipts (comma-separated file paths)",
+    )
+    p_review_backend.add_argument(
+        "--epic",
+        help="Auto-discover review receipts for epic (e.g., fn-1-api)",
     )
     p_review_backend.add_argument("--json", action="store_true", help="JSON output")
     p_review_backend.set_defaults(func=cmd_review_backend)

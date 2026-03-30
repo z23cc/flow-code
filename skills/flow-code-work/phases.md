@@ -183,6 +183,7 @@ For each ready task with no file conflicts:
 Agent({
   subagent_type: "flow-code:worker",
   name: "worker-<task-id>",
+  description: "Implement <task-title>",
   team_name: "flow-<epic-id>",
   run_in_background: true,
   prompt: """

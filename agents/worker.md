@@ -188,6 +188,61 @@ The main conversation will resolve the conflict and re-dispatch you (or update t
 - Acceptance criteria contradict each other
 - Required API endpoint already exists with different signature
 
+## Phase 2.5: Self-Review & Fix Loop
+
+**After implementing, before committing — review your own work and fix issues.**
+
+This loop catches problems at the source. Do NOT skip it.
+
+### Step 1: Run guard
+```bash
+<FLOWCTL> guard
+```
+If guard fails, fix the failures and re-run. Repeat until guard passes (max 3 attempts). If still failing after 3 attempts, proceed to commit and note the failures.
+
+### Step 2: Review your own diff
+```bash
+git diff
+```
+
+Scan your changes against this checklist. Fix any issues you find:
+
+**Correctness:**
+- [ ] New functions handle error cases (not just happy path)
+- [ ] Edge cases considered (empty input, null, boundary values)
+- [ ] No hardcoded values that should be constants/config
+
+**Quality:**
+- [ ] No function exceeds ~30 lines — split if longer
+- [ ] Naming is consistent with existing codebase patterns
+- [ ] No commented-out code or debug prints left behind
+- [ ] No duplicate logic — reuse existing utilities
+
+**Performance (if applicable):**
+- [ ] No database queries inside loops (N+1 pattern)
+- [ ] No unnecessary data loading (select only needed fields)
+- [ ] Pagination for list endpoints
+
+**Testing:**
+- [ ] New code paths have corresponding tests
+- [ ] Tests cover both success and failure cases
+
+**Domain-specific** (read from task domain field if set):
+- `backend`: API error responses follow project convention, serializer validation
+- `frontend`: Accessibility attributes, loading/error states handled
+- `testing`: Tests are independent, no shared mutable state
+
+### Step 3: Fix and verify
+If you found issues in Step 2:
+1. Fix them
+2. Re-run `<FLOWCTL> guard` to verify fixes don't break anything
+3. If guard passes, proceed to Phase 3
+
+**Rules:**
+- Spend at most 2 iterations on self-review (don't perfectionism-loop)
+- Only fix issues in YOUR changes — don't refactor unrelated code
+- If unsure whether something is an issue, leave it for Phase 4 (external review)
+
 ## Phase 3: Commit
 
 ```bash

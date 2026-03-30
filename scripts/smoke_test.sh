@@ -537,16 +537,17 @@ fi
 echo -e "${YELLOW}--- memory commands ---${NC}"
 scripts/flowctl config set memory.enabled true --json >/dev/null
 scripts/flowctl memory init --json >/dev/null
-if [[ -f ".flow/memory/pitfalls.md" ]]; then
-  echo -e "${GREEN}✓${NC} memory init creates files"
+if [[ -d ".flow/memory/entries" ]]; then
+  echo -e "${GREEN}✓${NC} memory init creates entries dir"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} memory init creates files"
+  echo -e "${RED}✗${NC} memory init creates entries dir"
   FAIL=$((FAIL + 1))
 fi
 
-scripts/flowctl memory add --type pitfall "Test pitfall entry" --json >/dev/null
-if grep -q "Test pitfall entry" .flow/memory/pitfalls.md; then
+add_result="$(scripts/flowctl memory add pitfall "Test pitfall entry" --json)"
+add_ok="$(echo "$add_result" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); print(d.get("success",False) and d.get("type")=="pitfall")')"
+if [[ "$add_ok" == "True" ]]; then
   echo -e "${GREEN}✓${NC} memory add pitfall"
   PASS=$((PASS + 1))
 else
@@ -554,17 +555,17 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-scripts/flowctl memory add --type convention "Test convention" --json >/dev/null
-scripts/flowctl memory add --type decision "Test decision" --json >/dev/null
+scripts/flowctl memory add convention "Test convention" --json >/dev/null
+scripts/flowctl memory add decision "Test decision" --json >/dev/null
 list_json="$(scripts/flowctl memory list --json)"
 "$PYTHON_BIN" - <<'PY' "$list_json"
 import json, sys
 data = json.loads(sys.argv[1])
 assert data["success"] == True
 counts = data["counts"]
-assert counts["pitfalls.md"] >= 1
-assert counts["conventions.md"] >= 1
-assert counts["decisions.md"] >= 1
+assert counts.get("pitfall", 0) >= 1
+assert counts.get("convention", 0) >= 1
+assert counts.get("decision", 0) >= 1
 assert data["total"] >= 3
 PY
 echo -e "${GREEN}✓${NC} memory list"

@@ -136,6 +136,20 @@ If user chose review, pass the review mode to the worker. The worker invokes `/f
 
 **Completion review gate**: When all tasks in an epic are done, if `--require-completion-review` is configured (via `flowctl next`), the work skill invokes `/flow-code:epic-review` before allowing the epic to close. This verifies the combined implementation satisfies the spec. The epic-review skill handles the fix loop internally until SHIP.
 
+## Recovery
+
+If a task fails or needs to be re-done after completion:
+```bash
+# Restart a single task + all downstream dependents
+$FLOWCTL restart <task-id>
+
+# Preview what would be reset (no changes)
+$FLOWCTL restart <task-id> --dry-run
+
+# Force restart even if task is in_progress
+$FLOWCTL restart <task-id> --force
+```
+
 ## Guardrails
 
 - Don't start without asking branch question

@@ -1061,6 +1061,41 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+echo -e "\n${YELLOW}--- task duration tracking ---${NC}"
+
+# Setup: create epic + task, start and complete with a small delay
+DUR_EPIC_JSON="$(scripts/flowctl epic create --title "Duration test" --json)"
+DUR_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$DUR_EPIC_JSON")"
+scripts/flowctl task create --epic "$DUR_EPIC" --title "Timed task" --json > /dev/null
+scripts/flowctl start "${DUR_EPIC}.1" --json > /dev/null
+sleep 1
+result="$(scripts/flowctl done "${DUR_EPIC}.1" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json)"
+
+# Test 1: duration_seconds present in JSON output
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert "duration_seconds" in data, f"missing duration_seconds: {data}"
+assert data["duration_seconds"] >= 1, f"expected >= 1s, got {data['duration_seconds']}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} duration_seconds in done output (>= 1s)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} duration_seconds missing or too small"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 2: duration rendered in spec markdown
+SPEC="$(scripts/flowctl cat "${DUR_EPIC}.1")"
+if echo "$SPEC" | grep -q "Duration:"; then
+  echo -e "${GREEN}✓${NC} duration rendered in spec evidence"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} duration not in spec"
+  FAIL=$((FAIL + 1))
+fi
+
 echo -e "\n${YELLOW}--- workspace_changes evidence ---${NC}"
 
 # Setup: create epic + task, start it

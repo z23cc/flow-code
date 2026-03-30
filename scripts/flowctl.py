@@ -6124,6 +6124,17 @@ def cmd_done(args: argparse.Namespace) -> None:
             use_json=args.json,
         )
 
+    # Calculate duration from claimed_at (start time) to now
+    duration_seconds = None
+    claimed_at = task_data.get("claimed_at")
+    if claimed_at:
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            _start = _dt.fromisoformat(claimed_at.replace("Z", "+00:00"))
+            duration_seconds = round((_dt.now(_tz.utc) - _start).total_seconds())
+        except (ValueError, TypeError):
+            pass
+
     # Validate workspace_changes if present (warn on bad format, don't block)
     ws_changes = evidence.get("workspace_changes")
     ws_warning = None
@@ -6158,6 +6169,10 @@ def cmd_done(args: argparse.Namespace) -> None:
             f"+{ws_changes.get('insertions', 0)} -{ws_changes.get('deletions', 0)} "
             f"({ws_changes.get('baseline_rev', '?')[:7]}..{ws_changes.get('final_rev', '?')[:7]})"
         )
+    if duration_seconds is not None:
+        mins, secs = divmod(duration_seconds, 60)
+        dur_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+        evidence_md.append(f"- Duration: {dur_str}")
     evidence_content = "\n".join(evidence_md)
 
     # Read current spec
@@ -6185,19 +6200,32 @@ def cmd_done(args: argparse.Namespace) -> None:
         receipt_filename = f"{rtype}-{args.id}-{mode}.json"
         atomic_write_json(reviews_dir / receipt_filename, review_receipt)
 
+    # Add duration to evidence
+    if duration_seconds is not None:
+        evidence["duration_seconds"] = duration_seconds
+
     # Write runtime state to state-dir (not definition file)
-    save_task_runtime(args.id, {"status": "done", "evidence": evidence})
+    runtime_done = {"status": "done", "evidence": evidence, "completed_at": now_iso()}
+    if duration_seconds is not None:
+        runtime_done["duration_seconds"] = duration_seconds
+    save_task_runtime(args.id, runtime_done)
 
     # NOTE: We no longer update epic timestamp on task done.
     # This reduces merge conflicts in multi-user scenarios.
 
     if args.json:
         result = {"id": args.id, "status": "done", "message": f"Task {args.id} completed"}
+        if duration_seconds is not None:
+            result["duration_seconds"] = duration_seconds
         if ws_warning:
             result["warning"] = ws_warning
         json_output(result)
     else:
-        print(f"Task {args.id} completed")
+        duration_str = ""
+        if duration_seconds is not None:
+            mins, secs = divmod(duration_seconds, 60)
+            duration_str = f" ({mins}m {secs}s)" if mins else f" ({secs}s)"
+        print(f"Task {args.id} completed{duration_str}")
         if ws_warning:
             print(f"  warning: {ws_warning}")
 

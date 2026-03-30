@@ -22,6 +22,15 @@ Focus on these areas (in priority order):
 5. **Code Quality** — Remove dead code, fix type hints, improve error handling
 6. **Best Practices** — Follow Django conventions (fat models, thin views, proper signals)
 
+## Quantitative Standards
+
+Measure improvement with these commands:
+- **Test count**: `python -m pytest --co -q 2>/dev/null | tail -1`
+- **Lint errors**: `ruff check . 2>&1 | grep "Found" | grep -oP '\d+' || echo 0`
+- **Type errors**: `mypy . --no-error-summary 2>&1 | grep -c "error:" || echo 0`
+
+**Rule**: A good experiment improves at least one metric without degrading others.
+
 ## Experiment Process
 
 For each experiment:
@@ -41,6 +50,8 @@ For each experiment:
 - Adds meaningful test coverage for untested paths
 - Measurably improves query count or response time
 - Small, focused, easy to understand
+- Increases test count or coverage
+- Reduces lint or type errors
 
 **DISCARD if:**
 - Adds complexity without clear benefit
@@ -48,6 +59,8 @@ For each experiment:
 - Changes style/formatting only (not a real improvement)
 - Large refactor with marginal benefit
 - Speculative optimization without evidence
+- Introduces new lint or type errors
+- Reduces test count without justification
 
 **When in doubt, DISCARD.** A bad keep pollutes the codebase. A missed opportunity can be tried again.
 

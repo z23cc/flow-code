@@ -22,6 +22,15 @@ Focus on these areas (in priority order):
 5. **Security** — Fix XSS vectors, validate inputs, sanitize user content
 6. **Code Quality** — Remove dead code, fix TypeScript types, extract reusable hooks
 
+## Quantitative Standards
+
+Measure improvement with these commands:
+- **Type errors**: `npx tsc --noEmit 2>&1 | grep -c "error TS" || echo 0`
+- **Lint errors**: `npx eslint . --format compact 2>&1 | grep -c "Error" || echo 0`
+- **Test count**: `npx vitest --run 2>&1 | grep -oP '\d+ passed' | head -1 | grep -oP '\d+' || echo 0`
+
+**Rule**: A good experiment improves at least one metric without degrading others.
+
 ## Experiment Process
 
 For each experiment:
@@ -41,12 +50,16 @@ For each experiment:
 - Measurably reduces bundle size or render count
 - Adds meaningful test coverage
 - Small, focused, easy to understand
+- Increases test count or coverage
+- Reduces lint or type errors
 
 **DISCARD if:**
 - Adds complexity without clear benefit
 - Over-optimizes (premature memo, micro-optimizations)
 - Changes style/formatting only
 - Large refactor with marginal benefit
+- Introduces new lint or type errors
+- Reduces test count without justification
 
 **When in doubt, DISCARD.**
 

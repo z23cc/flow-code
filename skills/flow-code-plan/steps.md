@@ -309,9 +309,13 @@ Default to standard unless complexity demands more or less.
    # Task with domain tag (optional — helps worker adjust strategy):
    $FLOWCTL task create --epic <epic-id> --title "<Task title>" --domain <domain> --json
    # Valid domains: frontend, backend, architecture, testing, docs, ops, general
+
+   # Task with file ownership (recommended for --teams mode):
+   $FLOWCTL task create --epic <epic-id> --title "<Task title>" --files "src/auth.ts,src/routes.ts" --json
+   # Enables flowctl files --epic <id> to detect conflicts before parallel execution
    ```
 
-   **TIP**: Use `--deps` to declare dependencies inline when creating tasks. Tasks must exist before being referenced, so create in dependency order. Use `--domain` when the task clearly belongs to a specific area.
+   **TIP**: Use `--deps` to declare dependencies inline when creating tasks. Tasks must exist before being referenced, so create in dependency order. Use `--domain` when the task clearly belongs to a specific area. Use `--files` to declare file ownership for teams/parallel conflict prevention.
 
 6. Write task specs (use combined set-spec):
    ```bash

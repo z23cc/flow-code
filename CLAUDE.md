@@ -74,7 +74,7 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Gap registry**: epics carry a `gaps` field managed via `flowctl gap`, enforced at epic close
 - **Task restart**: `flowctl restart <task-id>` resets a task and cascades to all downstream dependents (`--dry-run`, `--force`)
 - **Git diff snapshots**: worker agent captures baseline rev before implementation and `workspace_changes` in evidence
-- **Review comparison**: `flowctl review-backend --compare <files>` detects consensus/conflict across multiple review receipts
+- **Review comparison**: `flowctl review-backend --compare <files>` or `--epic <id>` detects consensus/conflict across review receipts (auto-archived to `.flow/reviews/`)
 - **Domain tagging**: `flowctl task create --domain <domain>` tags tasks (frontend/backend/architecture/testing/docs/ops/general), filterable via `tasks --domain`
 
 ## Files to Never Commit

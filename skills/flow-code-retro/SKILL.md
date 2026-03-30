@@ -31,6 +31,51 @@ $FLOWCTL tasks --epic <epic-id> --json
 git log --oneline <epic-branch>..HEAD
 ```
 
+### 1b. Analyze Review Feedback Patterns
+
+Read review receipts from `.flow/reviews/` to extract issue patterns:
+
+```bash
+ls .flow/reviews/*-<epic-id>.*-*.json 2>/dev/null
+```
+
+For each receipt file, read the `review` field (contains full reviewer feedback):
+
+```bash
+cat .flow/reviews/<receipt-file>
+```
+
+**Extract from each review:**
+- Issue categories (security, test coverage, error handling, types, performance, architecture)
+- Severity distribution (Critical / Major / Minor)
+- Which files were flagged most often
+- Whether the same issue type appears across multiple tasks
+
+**Pattern detection — ask:**
+- Did 2+ tasks get NEEDS_WORK for the same reason? → That's a **systemic gap**
+- Are certain file paths flagged repeatedly? → Needs refactoring or better specs
+- Is one issue category dominant (e.g., 80% test coverage)? → Planning should require it upfront
+
+Save systemic patterns as memory in Step 4.
+
+### 1c. Analyze Task Duration
+
+Check task execution times for anomalies:
+
+```bash
+# Show all tasks with runtime state (includes duration_seconds)
+$FLOWCTL tasks --epic <epic-id> --json
+# For each task, get full state:
+$FLOWCTL show <task-id> --json
+```
+
+**Flag anomalies:**
+- Tasks taking >3x the median duration → What went wrong? Spec too vague? Dependencies missing?
+- Tasks with 0 duration → Likely skipped or force-completed
+- Overall epic duration vs task count → Is per-task time increasing (sign of growing complexity)?
+
+Note duration anomalies in the summary (Step 3) and save insights as memory if the cause is non-obvious.
+
 ### 2. Analyze Three Dimensions
 
 **What went well:**
@@ -61,6 +106,8 @@ Output format:
 - Tasks: N total, M first-pass SHIP, K required rework
 - Review cycles: total across all tasks
 - Spec conflicts: count and which tasks
+- Duration: total Xm, median Ym/task, slowest: fn-N.M (Zm)
+- Review patterns: top issue categories (e.g., "test coverage: 3 tasks, security: 1 task")
 
 ### What Went Well
 - [bullet points]

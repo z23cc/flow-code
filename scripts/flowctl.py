@@ -6424,6 +6424,132 @@ def cmd_epic_close(args: argparse.Namespace) -> None:
         print(f"Epic {args.id} closed")
 
 
+def cmd_epic_archive(args: argparse.Namespace) -> None:
+    """Archive a closed epic — move its files to .flow/.archive/<epic-id>/."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    epic_id = args.id
+    if not is_epic_id(epic_id):
+        error_exit(
+            f"Invalid epic ID: {epic_id}. Expected format: fn-N or fn-N-slug",
+            use_json=args.json,
+        )
+
+    flow_dir = get_flow_dir()
+    epic_path = flow_dir / EPICS_DIR / f"{epic_id}.json"
+
+    if not epic_path.exists():
+        error_exit(f"Epic {epic_id} not found", use_json=args.json)
+
+    epic_data = load_json_or_exit(epic_path, f"Epic {epic_id}", use_json=args.json)
+    if epic_data.get("status") != "done" and not args.force:
+        error_exit(
+            f"Cannot archive epic {epic_id}: status is '{epic_data.get('status')}', not 'done'. "
+            f"Close it first or use --force.",
+            use_json=args.json,
+        )
+
+    # Build archive directory
+    archive_dir = flow_dir / ".archive" / epic_id
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    moved: list[str] = []
+
+    import shutil
+
+    # Move epic JSON
+    shutil.move(str(epic_path), str(archive_dir / epic_path.name))
+    moved.append(f"epics/{epic_path.name}")
+
+    # Move epic spec
+    spec_path = flow_dir / SPECS_DIR / f"{epic_id}.md"
+    if spec_path.exists():
+        shutil.move(str(spec_path), str(archive_dir / spec_path.name))
+        moved.append(f"specs/{spec_path.name}")
+
+    # Move all task files (JSON + spec)
+    tasks_dir = flow_dir / TASKS_DIR
+    if tasks_dir.exists():
+        for task_file in sorted(tasks_dir.glob(f"{epic_id}.*")):
+            shutil.move(str(task_file), str(archive_dir / task_file.name))
+            moved.append(f"tasks/{task_file.name}")
+
+    # Move review receipts
+    reviews_dir = flow_dir / REVIEWS_DIR
+    if reviews_dir.exists():
+        for review_file in sorted(reviews_dir.glob(f"*-{epic_id}.*")):
+            shutil.move(str(review_file), str(archive_dir / review_file.name))
+            moved.append(f"reviews/{review_file.name}")
+
+    # Clean up runtime state for archived tasks
+    for f in archive_dir.glob(f"{epic_id}.*.json"):
+        tid = f.stem
+        if is_task_id(tid):
+            try:
+                delete_task_runtime(tid)
+            except Exception:
+                pass
+
+    if args.json:
+        json_output({
+            "success": True,
+            "epic": epic_id,
+            "archive_dir": str(archive_dir),
+            "moved": moved,
+            "count": len(moved),
+        })
+    else:
+        print(f"Archived epic {epic_id} ({len(moved)} files) → .flow/.archive/{epic_id}/")
+        for f in moved:
+            print(f"  {f}")
+
+
+def cmd_epic_clean(args: argparse.Namespace) -> None:
+    """Archive all closed epics at once."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    flow_dir = get_flow_dir()
+    epics_dir = flow_dir / EPICS_DIR
+
+    archived = []
+    if epics_dir.exists():
+        for epic_file in sorted(epics_dir.glob("fn-*.json")):
+            try:
+                epic_data = load_json(epic_file)
+            except Exception:
+                continue
+            if epic_data.get("status") != "done":
+                continue
+
+            epic_id = epic_data.get("id", epic_file.stem)
+            # Archive silently (suppress inner output)
+            fake_args = argparse.Namespace(
+                id=epic_id, force=False, json=True
+            )
+            import io, contextlib
+            with contextlib.redirect_stdout(io.StringIO()):
+                cmd_epic_archive(fake_args)
+            archived.append(epic_id)
+
+    if args.json:
+        json_output({
+            "success": True,
+            "archived": archived,
+            "count": len(archived),
+        })
+    else:
+        if archived:
+            print(f"Archived {len(archived)} closed epic(s): {', '.join(archived)}")
+        else:
+            print("No closed epics to archive.")
+
+
 def validate_flow_root(flow_dir: Path) -> list[str]:
     """Validate .flow/ root invariants. Returns list of errors."""
     errors = []
@@ -8451,6 +8577,22 @@ def main() -> None:
     p_epic_close.add_argument("--skip-gap-check", action="store_true", help="Bypass gap registry gate (use with caution)")
     p_epic_close.add_argument("--json", action="store_true", help="JSON output")
     p_epic_close.set_defaults(func=cmd_epic_close)
+
+    p_epic_archive = epic_sub.add_parser(
+        "archive", help="Archive closed epic to .flow/.archive/"
+    )
+    p_epic_archive.add_argument("id", help="Epic ID (e.g., fn-1, fn-1-add-auth)")
+    p_epic_archive.add_argument(
+        "--force", action="store_true", help="Archive even if not closed"
+    )
+    p_epic_archive.add_argument("--json", action="store_true", help="JSON output")
+    p_epic_archive.set_defaults(func=cmd_epic_archive)
+
+    p_epic_clean = epic_sub.add_parser(
+        "clean", help="Archive all closed epics at once"
+    )
+    p_epic_clean.add_argument("--json", action="store_true", help="JSON output")
+    p_epic_clean.set_defaults(func=cmd_epic_clean)
 
     p_epic_add_dep = epic_sub.add_parser("add-dep", help="Add epic-level dependency")
     p_epic_add_dep.add_argument("epic", help="Epic ID")

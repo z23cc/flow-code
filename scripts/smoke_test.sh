@@ -1396,6 +1396,81 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+echo -e "\n${YELLOW}--- epic archive/clean ---${NC}"
+
+# Setup: create + close an epic
+ARC_EPIC_JSON="$(scripts/flowctl epic create --title "Archive me" --json)"
+ARC_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$ARC_EPIC_JSON")"
+scripts/flowctl task create --epic "$ARC_EPIC" --title "Done task" --json > /dev/null
+scripts/flowctl start "${ARC_EPIC}.1" --json > /dev/null
+scripts/flowctl done "${ARC_EPIC}.1" --summary "ok" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+scripts/flowctl epic close "$ARC_EPIC" --json > /dev/null
+
+# Test 1: archive moves files
+result="$(scripts/flowctl epic archive "$ARC_EPIC" --json)"
+"$PYTHON_BIN" - "$result" "$ARC_EPIC" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+ep = sys.argv[2]
+assert data.get("success") == True, f"expected success: {data}"
+assert data.get("count", 0) >= 3, f"expected >= 3 files moved, got {data.get('count')}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} epic archive moves files to .archive/"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} epic archive failed"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 2: archived epic no longer shows in list
+result="$(scripts/flowctl epics --json)"
+"$PYTHON_BIN" - "$result" "$ARC_EPIC" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+ep = sys.argv[2]
+ids = [e["id"] for e in data.get("epics", [])]
+assert ep not in ids, f"{ep} should not be in epics list: {ids}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} archived epic removed from epics list"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} archived epic still in list"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 3: archive dir has the files
+if [ -d ".flow/.archive/$ARC_EPIC" ]; then
+  echo -e "${GREEN}✓${NC} .flow/.archive/$ARC_EPIC/ directory exists"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} archive directory missing"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 4: epic clean archives all closed epics
+CLEAN_EP1_JSON="$(scripts/flowctl epic create --title "Clean1" --json)"
+CLEAN_EP1="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$CLEAN_EP1_JSON")"
+scripts/flowctl task create --epic "$CLEAN_EP1" --title "T1" --json > /dev/null
+scripts/flowctl start "${CLEAN_EP1}.1" --json > /dev/null
+scripts/flowctl done "${CLEAN_EP1}.1" --summary "ok" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+scripts/flowctl epic close "$CLEAN_EP1" --json > /dev/null
+
+result="$(scripts/flowctl epic clean --json)"
+"$PYTHON_BIN" - "$result" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+assert data.get("count", 0) >= 1, f"expected >= 1 archived, got {data}"
+PY
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓${NC} epic clean archives all closed epics"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} epic clean failed"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo -e "${YELLOW}=== Results ===${NC}"
 echo -e "Passed: ${GREEN}$PASS${NC}"

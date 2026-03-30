@@ -201,12 +201,15 @@ The skill handles everything:
 - Parsing verdict (SHIP/NEEDS_WORK/MAJOR_RETHINK)
 - Fix loops until SHIP
 
-If NEEDS_WORK:
-1. Fix the issues identified
-2. Commit fixes
-3. Re-invoke the skill: `/flow-code:impl-review <TASK_ID> --base $BASE_COMMIT`
+**Track review iterations:** Initialize `REVIEW_ITERATIONS=0` before the first review. Increment on each invocation.
 
-Continue until SHIP verdict.
+If NEEDS_WORK:
+1. Increment `REVIEW_ITERATIONS`
+2. Fix the issues identified
+3. Commit fixes
+4. Re-invoke the skill: `/flow-code:impl-review <TASK_ID> --base $BASE_COMMIT`
+
+Continue until SHIP verdict. Save final `REVIEW_ITERATIONS` count for Phase 5 evidence.
 
 ## Phase 5: Complete
 
@@ -231,10 +234,10 @@ INSERTIONS=$(git diff --numstat "$GIT_BASELINE_REV"..HEAD 2>/dev/null | awk '{s+
 DELETIONS=$(git diff --numstat "$GIT_BASELINE_REV"..HEAD 2>/dev/null | awk '{s+=$2} END {print s+0}')
 ```
 
-Write evidence file (use actual values from above):
+Write evidence file (use actual values from above, include review_iterations if review was done):
 ```bash
 cat > /tmp/evidence.json << EOF
-{"commits": ["$COMMIT_HASH"], "tests": ["<actual test commands>"], "prs": [], "workspace_changes": {"baseline_rev": "$GIT_BASELINE_REV", "final_rev": "$COMMIT_HASH", "files_changed": $FILES_CHANGED, "insertions": $INSERTIONS, "deletions": $DELETIONS}}
+{"commits": ["$COMMIT_HASH"], "tests": ["<actual test commands>"], "prs": [], "workspace_changes": {"baseline_rev": "$GIT_BASELINE_REV", "final_rev": "$COMMIT_HASH", "files_changed": $FILES_CHANGED, "insertions": $INSERTIONS, "deletions": $DELETIONS}, "review_iterations": ${REVIEW_ITERATIONS:-0}}
 EOF
 ```
 

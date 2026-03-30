@@ -7,6 +7,7 @@ Agents must use flowctl for all writes - never edit .flow/* directly.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -659,6 +660,8 @@ def normalize_epic(epic_data: dict) -> dict:
         epic_data["default_review"] = None
     if "default_sync" not in epic_data:
         epic_data["default_sync"] = None
+    if "gaps" not in epic_data:
+        epic_data["gaps"] = []
     return epic_data
 
 
@@ -3855,6 +3858,167 @@ def cmd_task_set_deps(args: argparse.Namespace) -> None:
             print(f"No new dependencies added (already set)")
 
 
+# ── Gap registry commands ────────────────────────────────────────────
+
+GAP_PRIORITIES = ("required", "important", "nice-to-have")
+GAP_BLOCKING_PRIORITIES = ("required", "important")
+
+
+def _gap_id(epic_id: str, capability: str) -> str:
+    """Compute deterministic gap ID from epic + capability (content-hash)."""
+    key = f"{epic_id}:{capability.strip().lower()}"
+    return "gap-" + hashlib.sha256(key.encode()).hexdigest()[:8]
+
+
+def _load_epic_for_gap(epic_id: str, use_json: bool) -> tuple:
+    """Load and normalize epic, return (flow_dir, epic_path, epic_data)."""
+    flow_dir = get_flow_dir()
+    epic_path = flow_dir / EPICS_DIR / f"{epic_id}.json"
+    epic_data = normalize_epic(
+        load_json_or_exit(epic_path, f"Epic {epic_id}", use_json=use_json)
+    )
+    return flow_dir, epic_path, epic_data
+
+
+def cmd_gap_add(args: argparse.Namespace) -> None:
+    """Register a requirement gap on an epic (idempotent)."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+    if not is_epic_id(args.epic):
+        error_exit(f"Invalid epic ID: {args.epic}", use_json=args.json)
+
+    _, epic_path, epic_data = _load_epic_for_gap(args.epic, args.json)
+
+    gap_id = _gap_id(args.epic, args.capability)
+    existing = next((g for g in epic_data["gaps"] if g["id"] == gap_id), None)
+
+    if existing:
+        if args.json:
+            json_output({"id": gap_id, "created": False, "gap": existing,
+                         "message": f"Gap already exists: {gap_id}"})
+        else:
+            print(f"Gap already exists: {gap_id} — {existing['capability']}")
+        return
+
+    gap = {
+        "id": gap_id,
+        "capability": args.capability.strip(),
+        "priority": args.priority,
+        "status": "open",
+        "source": args.source,
+        "task": getattr(args, "task", None),
+        "added_at": now_iso(),
+        "resolved_at": None,
+        "evidence": None,
+    }
+    epic_data["gaps"].append(gap)
+    epic_data["updated_at"] = now_iso()
+    atomic_write_json(epic_path, epic_data)
+
+    if args.json:
+        json_output({"id": gap_id, "created": True, "gap": gap,
+                     "message": f"Gap {gap_id} added to {args.epic}"})
+    else:
+        print(f"Gap {gap_id} added: [{args.priority}] {args.capability}")
+
+
+def cmd_gap_list(args: argparse.Namespace) -> None:
+    """List gaps for an epic, with optional status filter."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+    if not is_epic_id(args.epic):
+        error_exit(f"Invalid epic ID: {args.epic}", use_json=args.json)
+
+    _, _, epic_data = _load_epic_for_gap(args.epic, args.json)
+
+    gaps = epic_data["gaps"]
+    if args.status:
+        gaps = [g for g in gaps if g["status"] == args.status]
+
+    if args.json:
+        json_output({"epic": args.epic, "count": len(gaps), "gaps": gaps})
+    else:
+        if not gaps:
+            print(f"No gaps for {args.epic}" + (f" (status={args.status})" if args.status else ""))
+            return
+        for g in gaps:
+            marker = "✓" if g["status"] == "resolved" else "✗"
+            print(f"  {marker} {g['id']} [{g['priority']}] {g['capability']}")
+
+
+def cmd_gap_resolve(args: argparse.Namespace) -> None:
+    """Mark a gap as resolved with evidence (idempotent)."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+    if not is_epic_id(args.epic):
+        error_exit(f"Invalid epic ID: {args.epic}", use_json=args.json)
+
+    _, epic_path, epic_data = _load_epic_for_gap(args.epic, args.json)
+
+    gap_id = _gap_id(args.epic, args.capability)
+    gap = next((g for g in epic_data["gaps"] if g["id"] == gap_id), None)
+
+    if not gap:
+        error_exit(f"Gap not found: capability '{args.capability}' (computed id: {gap_id})", use_json=args.json)
+
+    if gap["status"] == "resolved":
+        if args.json:
+            json_output({"id": gap_id, "changed": False, "gap": gap,
+                         "message": f"Gap {gap_id} already resolved"})
+        else:
+            print(f"Gap {gap_id} already resolved")
+        return
+
+    gap["status"] = "resolved"
+    gap["resolved_at"] = now_iso()
+    gap["evidence"] = args.evidence
+    epic_data["updated_at"] = now_iso()
+    atomic_write_json(epic_path, epic_data)
+
+    if args.json:
+        json_output({"id": gap_id, "changed": True, "gap": gap,
+                     "message": f"Gap {gap_id} resolved"})
+    else:
+        print(f"Gap {gap_id} resolved: {args.evidence}")
+
+
+def cmd_gap_check(args: argparse.Namespace) -> None:
+    """Gate check: fail if unresolved required/important gaps exist."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+    if not is_epic_id(args.epic):
+        error_exit(f"Invalid epic ID: {args.epic}", use_json=args.json)
+
+    _, _, epic_data = _load_epic_for_gap(args.epic, args.json)
+
+    gaps = epic_data["gaps"]
+    open_blocking = [g for g in gaps if g["status"] == "open" and g.get("priority") in GAP_BLOCKING_PRIORITIES]
+    open_non_blocking = [g for g in gaps if g["status"] == "open" and g.get("priority") not in GAP_BLOCKING_PRIORITIES]
+    resolved = [g for g in gaps if g["status"] == "resolved"]
+
+    gate = "fail" if open_blocking else "pass"
+
+    if args.json:
+        json_output({
+            "epic": args.epic,
+            "gate": gate,
+            "total": len(gaps),
+            "open_blocking": open_blocking,
+            "open_non_blocking": open_non_blocking,
+            "resolved": resolved,
+        })
+    else:
+        if gate == "pass":
+            print(f"Gap check PASS for {args.epic} ({len(resolved)} resolved, {len(open_non_blocking)} non-blocking)")
+        else:
+            print(f"Gap check FAIL for {args.epic} — {len(open_blocking)} blocking gap(s):")
+            for g in open_blocking:
+                print(f"  ✗ [{g['priority']}] {g['capability']}")
+
+    if gate == "fail":
+        sys.exit(1)
+
+
 def cmd_show(args: argparse.Namespace) -> None:
     """Show epic or task details."""
     if not ensure_flow_exists():
@@ -5979,14 +6143,36 @@ def cmd_epic_close(args: argparse.Namespace) -> None:
             use_json=args.json,
         )
 
-    epic_data = load_json_or_exit(epic_path, f"Epic {args.id}", use_json=args.json)
+    epic_data = normalize_epic(
+        load_json_or_exit(epic_path, f"Epic {args.id}", use_json=args.json)
+    )
+
+    # Gap registry gate
+    skip_gap = getattr(args, "skip_gap_check", False)
+    open_blocking = [
+        g for g in epic_data.get("gaps", [])
+        if g["status"] == "open" and g.get("priority") in GAP_BLOCKING_PRIORITIES
+    ]
+    if open_blocking and not skip_gap:
+        gap_list = ", ".join(f"[{g['priority']}] {g['capability']}" for g in open_blocking)
+        error_exit(
+            f"Cannot close epic: {len(open_blocking)} unresolved blocking gap(s): {gap_list}. "
+            f"Use --skip-gap-check to bypass.",
+            use_json=args.json,
+        )
+    if open_blocking and skip_gap:
+        msg = f"WARNING: Bypassing {len(open_blocking)} unresolved blocking gap(s)"
+        if not args.json:
+            print(msg, file=sys.stderr)
+
     epic_data["status"] = "done"
     epic_data["updated_at"] = now_iso()
     atomic_write_json(epic_path, epic_data)
 
     if args.json:
         json_output(
-            {"id": args.id, "status": "done", "message": f"Epic {args.id} closed"}
+            {"id": args.id, "status": "done", "message": f"Epic {args.id} closed",
+             "gaps_skipped": len(open_blocking) if skip_gap else 0}
         )
     else:
         print(f"Epic {args.id} closed")
@@ -6105,6 +6291,29 @@ def validate_epic(
                 errors.append(
                     f"Task {task_id}: dependency {dep} is outside epic {epic_id}"
                 )
+
+    # Validate gaps array
+    gaps = epic_data.get("gaps", [])
+    if not isinstance(gaps, list):
+        errors.append(f"Epic {epic_id}: gaps must be a list")
+    else:
+        gap_ids = set()
+        for i, gap in enumerate(gaps):
+            if not isinstance(gap, dict):
+                errors.append(f"Epic {epic_id}: gaps[{i}] must be an object")
+                continue
+            if "id" not in gap or not isinstance(gap.get("id"), str):
+                errors.append(f"Epic {epic_id}: gaps[{i}] missing or invalid 'id'")
+            elif gap["id"] in gap_ids:
+                errors.append(f"Epic {epic_id}: duplicate gap id '{gap['id']}'")
+            else:
+                gap_ids.add(gap["id"])
+            if "capability" not in gap or not isinstance(gap.get("capability"), str):
+                errors.append(f"Epic {epic_id}: gaps[{i}] missing or invalid 'capability'")
+            if gap.get("status") not in ("open", "resolved"):
+                errors.append(f"Epic {epic_id}: gaps[{i}] invalid status '{gap.get('status')}'")
+            if gap.get("priority") not in ("required", "important", "nice-to-have"):
+                errors.append(f"Epic {epic_id}: gaps[{i}] invalid priority '{gap.get('priority')}'")
 
     # Cycle detection using DFS
     def has_cycle(task_id: str, visited: set, rec_stack: set) -> list[str]:
@@ -7985,6 +8194,7 @@ def main() -> None:
 
     p_epic_close = epic_sub.add_parser("close", help="Close epic")
     p_epic_close.add_argument("id", help="Epic ID (e.g., fn-1, fn-1-add-auth)")
+    p_epic_close.add_argument("--skip-gap-check", action="store_true", help="Bypass gap registry gate (use with caution)")
     p_epic_close.add_argument("--json", action="store_true", help="JSON output")
     p_epic_close.set_defaults(func=cmd_epic_close)
 
@@ -8111,6 +8321,37 @@ def main() -> None:
     p_dep_add.add_argument("depends_on", help="Dependency task ID (e.g., fn-1.1, fn-1-add-auth.1)")
     p_dep_add.add_argument("--json", action="store_true", help="JSON output")
     p_dep_add.set_defaults(func=cmd_dep_add)
+
+    # gap
+    p_gap = subparsers.add_parser("gap", help="Requirement gap registry")
+    gap_sub = p_gap.add_subparsers(dest="gap_cmd", required=True)
+
+    p_gap_add = gap_sub.add_parser("add", help="Register a requirement gap")
+    p_gap_add.add_argument("--epic", required=True, help="Epic ID (e.g., fn-1-add-auth)")
+    p_gap_add.add_argument("--capability", required=True, help="What is missing")
+    p_gap_add.add_argument("--priority", default="required", choices=["required", "important", "nice-to-have"], help="Gap priority (default: required)")
+    p_gap_add.add_argument("--source", default="manual", help="Where gap was found (default: manual)")
+    p_gap_add.add_argument("--task", default=None, help="Task ID that addresses this gap")
+    p_gap_add.add_argument("--json", action="store_true", help="JSON output")
+    p_gap_add.set_defaults(func=cmd_gap_add)
+
+    p_gap_list = gap_sub.add_parser("list", help="List gaps for an epic")
+    p_gap_list.add_argument("--epic", required=True, help="Epic ID")
+    p_gap_list.add_argument("--status", choices=["open", "resolved"], help="Filter by status")
+    p_gap_list.add_argument("--json", action="store_true", help="JSON output")
+    p_gap_list.set_defaults(func=cmd_gap_list)
+
+    p_gap_resolve = gap_sub.add_parser("resolve", help="Mark a gap as resolved")
+    p_gap_resolve.add_argument("--epic", required=True, help="Epic ID")
+    p_gap_resolve.add_argument("--capability", required=True, help="Capability to resolve (used to find the gap)")
+    p_gap_resolve.add_argument("--evidence", required=True, help="How the gap was resolved")
+    p_gap_resolve.add_argument("--json", action="store_true", help="JSON output")
+    p_gap_resolve.set_defaults(func=cmd_gap_resolve)
+
+    p_gap_check = gap_sub.add_parser("check", help="Gate check: pass/fail based on unresolved gaps")
+    p_gap_check.add_argument("--epic", required=True, help="Epic ID")
+    p_gap_check.add_argument("--json", action="store_true", help="JSON output")
+    p_gap_check.set_defaults(func=cmd_gap_check)
 
     # show
     p_show = subparsers.add_parser("show", help="Show epic or task")

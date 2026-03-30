@@ -155,6 +155,22 @@ Run the gap analyst subagent:
 
 Fold gaps + questions into the plan.
 
+**After epic is created (Step 5):** Register each gap found by the analyst into the gap registry:
+
+```bash
+# For each gap identified by flow-gap-analyst:
+$FLOWCTL gap add --epic <epic-id> --capability "<gap description>" \
+  --priority required|important|nice-to-have \
+  --source flow-gap-analyst --json
+```
+
+Map analyst output to priority:
+- "Priority Questions (MUST answer before coding)" → `required`
+- "Edge Cases" with high impact → `important`
+- "Nice-to-Clarify (can defer)" → `nice-to-have`
+
+This makes gaps machine-trackable. `epic-review` and `epic close` will verify all required/important gaps are resolved.
+
 ## Step 4: Pick depth
 
 Default to standard unless complexity demands more or less.

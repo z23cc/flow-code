@@ -45,6 +45,38 @@ If no checklist file exists, fall back to narrative review (existing behavior).
 
 ---
 
+## Pre-check: Gap Registry Gate
+
+**Run before backend detection. Failing gaps block the review.**
+
+```bash
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
+
+# Check for unresolved blocking gaps
+GAP_RESULT="$($FLOWCTL gap check --epic "$EPIC_ID" --json 2>/dev/null || true)"
+GAP_GATE="$(echo "$GAP_RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("gate","pass"))' 2>/dev/null || echo "pass")"
+
+if [[ "$GAP_GATE" == "fail" ]]; then
+  echo "Gap check FAILED — unresolved blocking gaps:"
+  echo "$GAP_RESULT" | python3 -c '
+import json,sys
+data = json.load(sys.stdin)
+for g in data.get("open_blocking", []):
+    print(f"  ✗ [{g[\"priority\"]}] {g[\"capability\"]}")
+'
+  echo ""
+  echo "Resolve gaps with: flowctl gap resolve --epic $EPIC_ID --capability \"...\" --evidence \"...\""
+  echo "Or bypass with: /flow-code:epic-review $EPIC_ID --skip-gap-check"
+  exit 1
+fi
+```
+
+If `--skip-gap-check` is passed as argument, skip this pre-check (with a warning).
+
+If no gaps exist (empty array), this passes silently.
+
+---
+
 ## Phase 0: Backend Detection
 
 **Run this first. Do not skip.**
@@ -251,6 +283,7 @@ For each requirement from Phase 1:
 - Requirements partially implemented across tasks (cross-task gaps)
 - Scope drift (task marked done without fully addressing spec intent)
 - Missing doc updates specified in acceptance criteria
+- Unresolved entries in the gap registry (`flowctl gap check`)
 
 ### What NOT to Check
 - Code style, patterns, architecture (impl-review covers this)

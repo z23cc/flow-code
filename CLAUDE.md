@@ -71,6 +71,7 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Wave-Checkpoint-Wave**: workers execute task batches in parallel with checkpoint gates
 - **Plan review gating**: `flowctl next --require-plan-review` blocks work until plan is reviewed
 - **Architecture invariants**: immutable rules registered via `flowctl invariant add` with verify commands
+- **Gap registry**: epics carry a `gaps` field managed via `flowctl gap`, enforced at epic close
 
 ## Files to Never Commit
 

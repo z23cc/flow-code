@@ -7,7 +7,7 @@ CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 ## Available Commands
 
 ```
-init, detect, epic, task, dep, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, invariants, guard, stack, memory, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
+init, detect, epic, task, dep, gap, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, invariants, guard, stack, memory, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
 ```
 
 ## Multi-User Safety
@@ -40,7 +40,7 @@ Works out of the box for parallel branches. No setup required.
 Flowctl accepts schema v1 and v2; new fields are optional and defaulted.
 
 New fields:
-- Epic JSON: `plan_review_status`, `plan_reviewed_at`, `completion_review_status`, `completion_reviewed_at`, `depends_on_epics`, `branch_name`, `default_impl`, `default_review`, `default_sync`
+- Epic JSON: `plan_review_status`, `plan_reviewed_at`, `completion_review_status`, `completion_reviewed_at`, `depends_on_epics`, `branch_name`, `default_impl`, `default_review`, `default_sync`, `gaps`
 - Task JSON: `priority`, `impl`, `review`, `sync`
 
 ## ID Format
@@ -255,6 +255,43 @@ flowctl task set-deps fn-1.3 --deps fn-1.1,fn-1.2 [--json]
 ```
 
 Equivalent to multiple `dep add` calls. Dependencies must be within same epic.
+
+### gap add
+
+Register a requirement gap on an epic. Idempotent — adding the same capability twice returns the existing gap.
+
+```bash
+flowctl gap add --epic fn-1-add-auth --capability "Missing CSRF protection" --priority required --source flow-gap-analyst [--task fn-1-add-auth.2] [--json]
+```
+
+Priority: `required` (default), `important`, `nice-to-have`. Gap ID is a content-hash of epic + capability.
+
+### gap list
+
+List gaps for an epic, with optional status filter.
+
+```bash
+flowctl gap list --epic fn-1-add-auth [--status open|resolved] [--json]
+```
+
+### gap resolve
+
+Mark a gap as resolved with evidence. Idempotent — resolving an already-resolved gap is a no-op.
+
+```bash
+flowctl gap resolve --epic fn-1-add-auth --capability "Missing CSRF protection" --evidence "Added in middleware.py:42" [--json]
+```
+
+### gap check
+
+Gate check: fails (exit 1) if any `required` or `important` gaps are unresolved. `nice-to-have` gaps do not block.
+
+```bash
+flowctl gap check --epic fn-1-add-auth [--json]
+# JSON output: {"gate": "pass"|"fail", "open_blocking": [...], ...}
+```
+
+Also enforced by `epic close` — closing an epic with unresolved blocking gaps fails unless `--skip-gap-check` is passed.
 
 ### show
 

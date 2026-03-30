@@ -142,6 +142,8 @@ The workflow covers:
 
 **CRITICAL: Do NOT ask user for confirmation. Automatically fix ALL valid issues and re-review — our goal is production-grade world-class software and architecture. Never use AskUserQuestion in this loop.**
 
+**MAX ITERATIONS**: Limit fix+re-review cycles to **${MAX_REVIEW_ITERATIONS:-3}** iterations (default 3). If still NEEDS_WORK after max rounds, stop the fix loop and return to the worker with status NEEDS_WORK — the worker will report SPEC_CONFLICT.
+
 If verdict is NEEDS_WORK, loop internally until SHIP:
 
 1. **Parse issues** from reviewer feedback (Critical → Major → Minor)

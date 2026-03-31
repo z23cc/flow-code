@@ -25,57 +25,51 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ContextManager, Optional
 
-# Platform-specific file locking (fcntl on Unix, no-op on Windows)
-try:
-    import fcntl
+# Add scripts/ to sys.path so _flowctl package is importable
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-    def _flock(f, lock_type):
-        fcntl.flock(f, lock_type)
-
-    LOCK_EX = fcntl.LOCK_EX
-    LOCK_UN = fcntl.LOCK_UN
-except ImportError:
-    # Windows: fcntl not available, use no-op (acceptable for single-machine use)
-    def _flock(f, lock_type):
-        pass
-
-    LOCK_EX = 0
-    LOCK_UN = 0
-
-
-# --- Constants ---
-
-SCHEMA_VERSION = 2
-SUPPORTED_SCHEMA_VERSIONS = [1, 2]
-FLOW_DIR = ".flow"
-META_FILE = "meta.json"
-EPICS_DIR = "epics"
-SPECS_DIR = "specs"
-TASKS_DIR = "tasks"
-MEMORY_DIR = "memory"
-REVIEWS_DIR = "reviews"
-CONFIG_FILE = "config.json"
-
-EPIC_STATUS = ["open", "done"]
-TASK_STATUS = ["todo", "in_progress", "blocked", "done"]
-
-TASK_SPEC_HEADINGS = [
-    "## Description",
-    "## Acceptance",
-    "## Done summary",
-    "## Evidence",
-]
-
-# Runtime fields stored in state-dir (not tracked in git)
-RUNTIME_FIELDS = {
-    "status",
-    "updated_at",
-    "claimed_at",
-    "assignee",
-    "claim_note",
-    "evidence",
-    "blocked_reason",
-}
+# --- Modular imports (extracted to _flowctl package) ---
+from _flowctl.compat import _flock, LOCK_EX, LOCK_UN  # noqa: E402
+from _flowctl.core.constants import (  # noqa: E402
+    SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
+    FLOW_DIR,
+    META_FILE,
+    EPICS_DIR,
+    SPECS_DIR,
+    TASKS_DIR,
+    MEMORY_DIR,
+    REVIEWS_DIR,
+    CONFIG_FILE,
+    EPIC_STATUS,
+    TASK_STATUS,
+    TASK_SPEC_HEADINGS,
+    RUNTIME_FIELDS,
+)
+from _flowctl.core.io import (  # noqa: E402
+    json_output,
+    error_exit,
+    now_iso,
+    is_supported_schema,
+    atomic_write,
+    atomic_write_json,
+    load_json,
+    load_json_or_exit,
+    read_text_or_exit,
+    read_file_or_stdin,
+    require_keys,
+)
+from _flowctl.core.ids import (  # noqa: E402
+    generate_epic_suffix,
+    slugify,
+    parse_id,
+    normalize_epic,
+    normalize_task,
+    task_priority,
+    is_epic_id,
+    is_task_id,
+    epic_id_from_task,
+)
 
 
 # --- Helpers ---
@@ -368,24 +362,7 @@ def set_config(key: str, value) -> dict:
     return config
 
 
-def json_output(data: dict, success: bool = True) -> None:
-    """Output JSON response."""
-    result = {"success": success, **data}
-    print(json.dumps(result, indent=2, default=str))
-
-
-def error_exit(message: str, code: int = 1, use_json: bool = True) -> None:
-    """Output error and exit."""
-    if use_json:
-        json_output({"error": message}, success=False)
-    else:
-        print(f"Error: {message}", file=sys.stderr)
-    sys.exit(code)
-
-
-def now_iso() -> str:
-    """Current timestamp in ISO format."""
-    return datetime.utcnow().isoformat() + "Z"
+# json_output, error_exit, now_iso -> imported from _flowctl.core.io
 
 
 def require_rp_cli() -> str:
@@ -511,210 +488,12 @@ def build_chat_payload(
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-def is_supported_schema(version: Any) -> bool:
-    """Check schema version compatibility."""
-    try:
-        return int(version) in SUPPORTED_SCHEMA_VERSIONS
-    except Exception:
-        return False
+# is_supported_schema, atomic_write, atomic_write_json, load_json,
+# load_json_or_exit, read_text_or_exit, read_file_or_stdin -> imported from _flowctl.core.io
 
 
-def atomic_write(path: Path, content: str) -> None:
-    """Write file atomically via temp + rename."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(content)
-        os.replace(tmp_path, path)
-    except Exception:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        raise
-
-
-def atomic_write_json(path: Path, data: dict) -> None:
-    """Write JSON file atomically with sorted keys."""
-    content = json.dumps(data, indent=2, sort_keys=True) + "\n"
-    atomic_write(path, content)
-
-
-def load_json(path: Path) -> dict:
-    """Load JSON file."""
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def load_json_or_exit(path: Path, what: str, use_json: bool = True) -> dict:
-    """Load JSON file with safe error handling."""
-    if not path.exists():
-        error_exit(f"{what} missing: {path}", use_json=use_json)
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        error_exit(f"{what} invalid JSON: {path} ({e})", use_json=use_json)
-    except Exception as e:
-        error_exit(f"{what} unreadable: {path} ({e})", use_json=use_json)
-
-
-def read_text_or_exit(path: Path, what: str, use_json: bool = True) -> str:
-    """Read text file with safe error handling."""
-    if not path.exists():
-        error_exit(f"{what} missing: {path}", use_json=use_json)
-    try:
-        return path.read_text(encoding="utf-8")
-    except Exception as e:
-        error_exit(f"{what} unreadable: {path} ({e})", use_json=use_json)
-
-
-def read_file_or_stdin(file_arg: str, what: str, use_json: bool = True) -> str:
-    """Read from file path or stdin if file_arg is '-'.
-
-    Supports heredoc usage: flowctl ... --file - <<'EOF'
-    """
-    if file_arg == "-":
-        try:
-            return sys.stdin.read()
-        except Exception as e:
-            error_exit(f"Failed to read {what} from stdin: {e}", use_json=use_json)
-    return read_text_or_exit(Path(file_arg), what, use_json=use_json)
-
-
-def generate_epic_suffix(length: int = 3) -> str:
-    """Generate random alphanumeric suffix for epic IDs (a-z0-9)."""
-    alphabet = string.ascii_lowercase + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
-
-
-def slugify(text: str, max_length: int = 40) -> Optional[str]:
-    """Convert text to URL-safe slug for epic IDs.
-
-    Uses Django pattern (stdlib only): normalize unicode, strip non-alphanumeric,
-    collapse whitespace/hyphens. Returns None if result is empty (for fallback).
-
-    Output contains only [a-z0-9-] to match parse_id() regex.
-
-    Args:
-        text: Input text to slugify
-        max_length: Maximum length (40 default, leaves room for fn-XXX- prefix)
-
-    Returns:
-        Slugified string or None if empty
-    """
-    text = str(text)
-    # Normalize unicode and convert to ASCII
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
-    # Remove non-word chars (except spaces and hyphens), lowercase
-    text = re.sub(r"[^\w\s-]", "", text.lower())
-    # Convert underscores to spaces (will be collapsed to hyphens)
-    text = text.replace("_", " ")
-    # Collapse whitespace and hyphens to single hyphen, strip leading/trailing
-    text = re.sub(r"[-\s]+", "-", text).strip("-")
-    # Truncate at word boundary if too long
-    if max_length and len(text) > max_length:
-        truncated = text[:max_length]
-        if "-" in truncated:
-            truncated = truncated.rsplit("-", 1)[0]
-        text = truncated.strip("-")
-    return text if text else None
-
-
-def parse_id(id_str: str) -> tuple[Optional[int], Optional[int]]:
-    """Parse ID into (epic_num, task_num). Returns (epic, None) for epic IDs.
-
-    Supports formats:
-    - Legacy: fn-N, fn-N.M
-    - Short suffix: fn-N-xxx, fn-N-xxx.M (3-char random)
-    - Slug suffix: fn-N-longer-slug, fn-N-longer-slug.M (slugified title)
-    """
-    # Pattern supports: fn-N, fn-N-x (1-3 char), fn-N-xx-yy (multi-segment slug)
-    match = re.match(
-        r"^fn-(\d+)(?:-[a-z0-9][a-z0-9-]*[a-z0-9]|-[a-z0-9]{1,3})?(?:\.(\d+))?$",
-        id_str,
-    )
-    if not match:
-        return None, None
-    epic = int(match.group(1))
-    task = int(match.group(2)) if match.group(2) else None
-    return epic, task
-
-
-def normalize_epic(epic_data: dict) -> dict:
-    """Apply defaults for optional epic fields."""
-    if "plan_review_status" not in epic_data:
-        epic_data["plan_review_status"] = "unknown"
-    if "plan_reviewed_at" not in epic_data:
-        epic_data["plan_reviewed_at"] = None
-    if "completion_review_status" not in epic_data:
-        epic_data["completion_review_status"] = "unknown"
-    if "completion_reviewed_at" not in epic_data:
-        epic_data["completion_reviewed_at"] = None
-    if "branch_name" not in epic_data:
-        epic_data["branch_name"] = None
-    if "depends_on_epics" not in epic_data:
-        epic_data["depends_on_epics"] = []
-    # Backend spec defaults (for orchestration products like flow-swarm)
-    if "default_impl" not in epic_data:
-        epic_data["default_impl"] = None
-    if "default_review" not in epic_data:
-        epic_data["default_review"] = None
-    if "default_sync" not in epic_data:
-        epic_data["default_sync"] = None
-    if "gaps" not in epic_data:
-        epic_data["gaps"] = []
-    return epic_data
-
-
-def normalize_task(task_data: dict) -> dict:
-    """Apply defaults for optional task fields and migrate legacy keys."""
-    if "priority" not in task_data:
-        task_data["priority"] = None
-    # Migrate legacy 'deps' key to 'depends_on'
-    if "depends_on" not in task_data:
-        task_data["depends_on"] = task_data.get("deps", [])
-    # Backend spec defaults (for orchestration products like flow-swarm)
-    if "impl" not in task_data:
-        task_data["impl"] = None
-    if "review" not in task_data:
-        task_data["review"] = None
-    if "sync" not in task_data:
-        task_data["sync"] = None
-    return task_data
-
-
-def task_priority(task_data: dict) -> int:
-    """Priority for sorting (None -> 999)."""
-    try:
-        if task_data.get("priority") is None:
-            return 999
-        return int(task_data.get("priority"))
-    except Exception:
-        return 999
-
-
-def is_epic_id(id_str: str) -> bool:
-    """Check if ID is an epic ID (fn-N)."""
-    epic, task = parse_id(id_str)
-    return epic is not None and task is None
-
-
-def is_task_id(id_str: str) -> bool:
-    """Check if ID is a task ID (fn-N.M)."""
-    epic, task = parse_id(id_str)
-    return epic is not None and task is not None
-
-
-def epic_id_from_task(task_id: str) -> str:
-    """Extract epic ID from task ID. Raises ValueError if invalid.
-
-    Preserves suffix: fn-5-x7k.3 -> fn-5-x7k
-    """
-    epic, task = parse_id(task_id)
-    if epic is None or task is None:
-        raise ValueError(f"Invalid task ID: {task_id}")
-    # Split on '.' and take epic part (preserves suffix if present)
-    return task_id.rsplit(".", 1)[0]
+# generate_epic_suffix, slugify, parse_id, normalize_epic, normalize_task,
+# task_priority, is_epic_id, is_task_id, epic_id_from_task -> imported from _flowctl.core.ids
 
 
 # --- Context Hints (for codex reviews) ---
@@ -1817,14 +1596,7 @@ def scan_max_task_id(flow_dir: Path, epic_id: str) -> int:
     return max_m
 
 
-def require_keys(obj: dict, keys: list[str], what: str, use_json: bool = True) -> None:
-    """Validate dict has required keys. Exits on missing keys."""
-    missing = [k for k in keys if k not in obj]
-    if missing:
-        error_exit(
-            f"{what} missing required keys: {', '.join(missing)}", use_json=use_json
-        )
-
+# require_keys -> imported from _flowctl.core.io
 
 # --- Spec File Operations ---
 

@@ -45,6 +45,7 @@ git init -q
 
 cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/flowctl.py
 cp "$PLUGIN_ROOT/scripts/flowctl" scripts/flowctl
+cp -r "$PLUGIN_ROOT/scripts/_flowctl" scripts/_flowctl
 chmod +x scripts/flowctl
 
 scripts/flowctl init --json >/dev/null

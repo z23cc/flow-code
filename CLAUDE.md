@@ -27,7 +27,7 @@ docs/                    → Architecture docs, CI examples
 
 **Key invariant**: The `flowctl` package is the single source of truth for `.flow/` state. `flowctl.py` is a thin shim that delegates to it. Skills and agents call it via the bundled wrapper — it is NOT installed globally. Always invoke as:
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py"
 $FLOWCTL <command>
 ```
 

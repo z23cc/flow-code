@@ -60,7 +60,7 @@ git commit -m "chore: init" >/dev/null
 mkdir -p scripts/ralph
 cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl.py
 cp -r "$PLUGIN_ROOT/scripts/flowctl" scripts/ralph/flowctl
-cp "$PLUGIN_ROOT/scripts/flowctl.sh" scripts/ralph/flowctl
+cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl
 chmod +x scripts/ralph/flowctl
 
 FLOWCTL="scripts/ralph/flowctl"

@@ -50,7 +50,7 @@ If no checklist file exists, fall back to narrative review (existing behavior).
 **Run before backend detection. Failing gaps block the review.**
 
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py"
 
 # Check for unresolved blocking gaps
 GAP_RESULT="$($FLOWCTL gap check --epic "$EPIC_ID" --json 2>/dev/null || true)"
@@ -85,7 +85,7 @@ If no gaps exist (empty array), this passes silently.
 
 ```bash
 set -e
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 # Priority: --review flag > env > config (flag parsed in SKILL.md)

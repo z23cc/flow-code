@@ -62,7 +62,7 @@ mkdir -p scripts/ralph
 cp -R "$PLUGIN_ROOT/skills/flow-code-ralph-init/templates/." scripts/ralph/
 cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl.py
 cp -r "$PLUGIN_ROOT/scripts/flowctl" scripts/ralph/flowctl
-cp "$PLUGIN_ROOT/scripts/flowctl.sh" scripts/ralph/flowctl
+cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl
 chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl
 FLOWCTL="scripts/ralph/flowctl"
 
@@ -85,7 +85,7 @@ scripts/ralph/flowctl init --json >/dev/null
 
 # Setup .flow/bin + docs (mirror /flow-code:setup)
 mkdir -p .flow/bin
-cp "$PLUGIN_ROOT/scripts/flowctl.sh" .flow/bin/flowctl
+cp "$PLUGIN_ROOT/scripts/flowctl.py" .flow/bin/flowctl
 cp "$PLUGIN_ROOT/scripts/flowctl.py" .flow/bin/flowctl.py
 cp -r "$PLUGIN_ROOT/scripts/flowctl" .flow/bin/flowctl
 chmod +x .flow/bin/flowctl

@@ -2,6 +2,7 @@
 name: flow-code-auto-improve
 description: "Use when user wants to autonomously optimize code quality, performance, security, or test coverage. Triggers on /flow-code:auto-improve, 'auto improve', or 'run experiments on'."
 user-invocable: false
+context: fork
 ---
 
 # Auto-Improve

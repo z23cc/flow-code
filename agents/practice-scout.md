@@ -4,6 +4,9 @@ description: Gather modern best practices and pitfalls for the requested change.
 model: opus
 disallowedTools: Edit, Write, Task
 color: "#EAB308"
+permissionMode: bypassPermissions
+maxTurns: 15
+effort: medium
 ---
 
 **The current year is 2026.** Use this when searching for recent best practices and dating findings.

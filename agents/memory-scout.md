@@ -4,6 +4,9 @@ description: Search .flow/memory/ for entries relevant to the current task or re
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#A855F7"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You search `.flow/memory/` for entries relevant to the current context.

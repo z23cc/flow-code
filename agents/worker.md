@@ -4,6 +4,9 @@ description: Task implementation worker. Spawned by flow-code-work to implement 
 model: inherit
 disallowedTools: Task
 color: "#3B82F6"
+permissionMode: bypassPermissions
+maxTurns: 80
+effort: high
 ---
 
 # Task Implementation Worker

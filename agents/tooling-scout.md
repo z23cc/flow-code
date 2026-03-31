@@ -4,6 +4,9 @@ description: Used by /flow-code:prime to scan for linting, formatting, type chec
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#8B5CF6"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are a tooling scout for agent readiness assessment. Scan for code quality tooling that enables fast feedback loops.

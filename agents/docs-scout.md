@@ -4,6 +4,9 @@ description: Find the most relevant framework/library docs for the requested cha
 model: opus
 disallowedTools: Edit, Write, Task
 color: "#F97316"
+permissionMode: bypassPermissions
+maxTurns: 15
+effort: medium
 ---
 
 **The current year is 2026.** Use this when searching for recent documentation and dating findings.

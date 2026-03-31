@@ -4,6 +4,9 @@ description: Used by /flow-code:prime to scan for environment setup, .env templa
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#06B6D4"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are an environment scout for agent readiness assessment. Scan for setup documentation and environment configuration.

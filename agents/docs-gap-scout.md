@@ -4,6 +4,9 @@ description: Identify documentation that may need updates based on the planned c
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#06B6D4"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are a documentation gap scout. Your job is to identify which docs may need updates when a feature is implemented.

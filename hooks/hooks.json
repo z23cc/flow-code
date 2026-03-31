@@ -66,6 +66,42 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/subagent-context.sh\" ] || bash \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/subagent-context.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/pre-compact.sh\" ] || bash \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/pre-compact.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/task-completed.sh\" ] || bash \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/task-completed.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

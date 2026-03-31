@@ -19,11 +19,10 @@ import shutil
 import sys
 import tempfile
 import unicodedata
-from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ContextManager, Optional
+from typing import Any, Optional
 
 # Add scripts/ to sys.path so _flowctl package is importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -70,299 +69,33 @@ from _flowctl.core.ids import (  # noqa: E402
     is_task_id,
     epic_id_from_task,
 )
+from _flowctl.core.paths import (  # noqa: E402
+    get_repo_root,
+    get_flow_dir,
+    ensure_flow_exists,
+    get_state_dir,
+)
+from _flowctl.core.state import (  # noqa: E402
+    StateStore,
+    LocalFileStateStore,
+    get_state_store,
+    load_task_definition,
+    load_task_with_state,
+    save_task_runtime,
+    reset_task_runtime,
+    delete_task_runtime,
+    save_task_definition,
+)
+from _flowctl.core.config import (  # noqa: E402
+    get_default_config,
+    deep_merge,
+    load_flow_config,
+    get_config,
+    set_config,
+)
 
 
 # --- Helpers ---
-
-
-def get_repo_root() -> Path:
-    """Find git repo root."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return Path(result.stdout.strip())
-    except subprocess.CalledProcessError:
-        # Fallback to current directory
-        return Path.cwd()
-
-
-def get_flow_dir() -> Path:
-    """Get .flow/ directory path."""
-    return get_repo_root() / FLOW_DIR
-
-
-def ensure_flow_exists() -> bool:
-    """Check if .flow/ exists."""
-    return get_flow_dir().exists()
-
-
-def get_state_dir() -> Path:
-    """Get state directory for runtime task state.
-
-    Resolution order:
-    1. FLOW_STATE_DIR env var (explicit override for orchestrators)
-    2. git common-dir (shared across all worktrees automatically)
-    3. Fallback to .flow/state for non-git repos
-    """
-    # 1. Explicit override
-    if state_dir := os.environ.get("FLOW_STATE_DIR"):
-        return Path(state_dir).resolve()
-
-    # 2. Git common-dir (shared across worktrees)
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-common-dir", "--path-format=absolute"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        common = result.stdout.strip()
-        return Path(common) / "flow-state"
-    except subprocess.CalledProcessError:
-        pass
-
-    # 3. Fallback for non-git repos
-    return get_flow_dir() / "state"
-
-
-# --- StateStore (runtime task state) ---
-
-
-class StateStore(ABC):
-    """Abstract interface for runtime task state storage."""
-
-    @abstractmethod
-    def load_runtime(self, task_id: str) -> Optional[dict]:
-        """Load runtime state for a task. Returns None if no state file."""
-        ...
-
-    @abstractmethod
-    def save_runtime(self, task_id: str, data: dict) -> None:
-        """Save runtime state for a task."""
-        ...
-
-    @abstractmethod
-    def lock_task(self, task_id: str) -> ContextManager:
-        """Context manager for exclusive task lock."""
-        ...
-
-    @abstractmethod
-    def list_runtime_files(self) -> list[str]:
-        """List all task IDs that have runtime state files."""
-        ...
-
-
-class LocalFileStateStore(StateStore):
-    """File-based state store with fcntl locking."""
-
-    def __init__(self, state_dir: Path):
-        self.state_dir = state_dir
-        self.tasks_dir = state_dir / "tasks"
-        self.locks_dir = state_dir / "locks"
-
-    def _state_path(self, task_id: str) -> Path:
-        return self.tasks_dir / f"{task_id}.state.json"
-
-    def _lock_path(self, task_id: str) -> Path:
-        return self.locks_dir / f"{task_id}.lock"
-
-    def load_runtime(self, task_id: str) -> Optional[dict]:
-        state_path = self._state_path(task_id)
-        if not state_path.exists():
-            return None
-        try:
-            with open(state_path, encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            return None
-
-    def save_runtime(self, task_id: str, data: dict) -> None:
-        self.tasks_dir.mkdir(parents=True, exist_ok=True)
-        state_path = self._state_path(task_id)
-        content = json.dumps(data, indent=2, sort_keys=True) + "\n"
-        atomic_write(state_path, content)
-
-    @contextmanager
-    def lock_task(self, task_id: str):
-        """Acquire exclusive lock for task operations."""
-        self.locks_dir.mkdir(parents=True, exist_ok=True)
-        lock_path = self._lock_path(task_id)
-        with open(lock_path, "w") as f:
-            try:
-                _flock(f, LOCK_EX)
-                yield
-            finally:
-                _flock(f, LOCK_UN)
-
-    def list_runtime_files(self) -> list[str]:
-        if not self.tasks_dir.exists():
-            return []
-        return [
-            f.stem.replace(".state", "")
-            for f in self.tasks_dir.glob("*.state.json")
-        ]
-
-
-def get_state_store() -> LocalFileStateStore:
-    """Get the state store instance."""
-    return LocalFileStateStore(get_state_dir())
-
-
-# --- Task Loading with State Merge ---
-
-
-def load_task_definition(task_id: str, use_json: bool = True) -> dict:
-    """Load task definition from tracked file (no runtime state)."""
-    flow_dir = get_flow_dir()
-    def_path = flow_dir / TASKS_DIR / f"{task_id}.json"
-    return load_json_or_exit(def_path, f"Task {task_id}", use_json=use_json)
-
-
-def load_task_with_state(task_id: str, use_json: bool = True) -> dict:
-    """Load task definition merged with runtime state.
-
-    Backward compatible: if no state file exists, reads legacy runtime
-    fields from definition file.
-    """
-    definition = load_task_definition(task_id, use_json=use_json)
-
-    # Load runtime state
-    store = get_state_store()
-    runtime = store.load_runtime(task_id)
-
-    if runtime is None:
-        # Backward compat: extract runtime fields from definition
-        runtime = {k: definition[k] for k in RUNTIME_FIELDS if k in definition}
-        if not runtime:
-            runtime = {"status": "todo"}
-
-    # Merge: runtime overwrites definition for runtime fields
-    merged = {**definition, **runtime}
-    return normalize_task(merged)
-
-
-def save_task_runtime(task_id: str, updates: dict) -> None:
-    """Write runtime state only (merge with existing). Never touch definition file."""
-    store = get_state_store()
-    with store.lock_task(task_id):
-        current = store.load_runtime(task_id) or {"status": "todo"}
-        merged = {**current, **updates, "updated_at": now_iso()}
-        store.save_runtime(task_id, merged)
-
-
-def reset_task_runtime(task_id: str) -> None:
-    """Reset runtime state to baseline (overwrite, not merge). Used by task reset."""
-    store = get_state_store()
-    with store.lock_task(task_id):
-        # Overwrite with clean baseline state
-        store.save_runtime(task_id, {"status": "todo", "updated_at": now_iso()})
-
-
-def delete_task_runtime(task_id: str) -> None:
-    """Delete runtime state file entirely. Used by checkpoint restore when no runtime."""
-    store = get_state_store()
-    with store.lock_task(task_id):
-        state_path = store._state_path(task_id)
-        if state_path.exists():
-            state_path.unlink()
-
-
-def save_task_definition(task_id: str, definition: dict) -> None:
-    """Write definition to tracked file (filters out runtime fields)."""
-    flow_dir = get_flow_dir()
-    def_path = flow_dir / TASKS_DIR / f"{task_id}.json"
-    # Filter out runtime fields
-    clean_def = {k: v for k, v in definition.items() if k not in RUNTIME_FIELDS}
-    atomic_write_json(def_path, clean_def)
-
-
-def get_default_config() -> dict:
-    """Return default config structure."""
-    return {
-        "memory": {"enabled": True},
-        "planSync": {"enabled": True, "crossEpic": False},
-        "review": {"backend": None},
-        "scouts": {"github": False},
-        "stack": {},
-    }
-
-
-def deep_merge(base: dict, override: dict) -> dict:
-    """Deep merge override into base. Override values win for conflicts."""
-    result = base.copy()
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
-def load_flow_config() -> dict:
-    """Load .flow/config.json, merging with defaults for missing keys."""
-    config_path = get_flow_dir() / CONFIG_FILE
-    defaults = get_default_config()
-    if not config_path.exists():
-        return defaults
-    try:
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return deep_merge(defaults, data)
-        return defaults
-    except (json.JSONDecodeError, Exception):
-        return defaults
-
-
-def get_config(key: str, default=None):
-    """Get nested config value like 'memory.enabled'."""
-    config = load_flow_config()
-    for part in key.split("."):
-        if not isinstance(config, dict):
-            return default
-        config = config.get(part, {})
-        if config == {}:
-            return default
-    return config if config != {} else default
-
-
-def set_config(key: str, value) -> dict:
-    """Set nested config value and return updated config."""
-    config_path = get_flow_dir() / CONFIG_FILE
-    if config_path.exists():
-        try:
-            config = json.loads(config_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, Exception):
-            config = get_default_config()
-    else:
-        config = get_default_config()
-
-    # Navigate/create nested path
-    parts = key.split(".")
-    current = config
-    for part in parts[:-1]:
-        if part not in current or not isinstance(current[part], dict):
-            current[part] = {}
-        current = current[part]
-
-    # Set the value (handle type conversion for common cases)
-    if isinstance(value, str):
-        if value.lower() == "true":
-            value = True
-        elif value.lower() == "false":
-            value = False
-        elif value.isdigit():
-            value = int(value)
-
-    current[parts[-1]] = value
-    atomic_write_json(config_path, config)
-    return config
-
-
-# json_output, error_exit, now_iso -> imported from _flowctl.core.io
 
 
 def require_rp_cli() -> str:

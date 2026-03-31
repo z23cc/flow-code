@@ -47,7 +47,7 @@ graph TB
     end
 
     subgraph Core["Core Engine"]
-        FLOWCTL["flowctl.py (7400 lines)"]
+        FLOWCTL["_flowctl/ package"]
         FLOW_DIR[".flow/ state"]
     end
 
@@ -129,7 +129,19 @@ flow-code/
 │   └── browser/                  # SKILL.md + references/
 ├── scripts/
 │   ├── flowctl                   # Shell wrapper → flowctl.py
-│   ├── flowctl.py                # Core state machine (7400 lines)
+│   ├── flowctl.py                # Thin shim (~20 lines) → _flowctl package
+│   ├── _flowctl/                 # Core engine package
+│   │   ├── __init__.py           # __version__ only
+│   │   ├── __main__.py           # python -m _flowctl support
+│   │   ├── compat.py             # fcntl/Windows platform abstraction
+│   │   ├── cli.py                # argparse setup + command dispatch
+│   │   ├── core/                 # Shared utilities
+│   │   │   ├── constants.py, io.py, ids.py, config.py
+│   │   │   ├── paths.py, state.py, git.py
+│   │   └── commands/             # Command handlers
+│   │       ├── admin.py, epic.py, task.py, workflow.py
+│   │       ├── query.py, memory.py, review.py, rp.py
+│   │       ├── stack.py, gap.py
 │   ├── hooks/
 │   │   ├── auto-memory.py        # Stop hook: Gemini transcript → .flow/memory/
 │   │   └── ralph-guard.py        # Ralph workflow enforcer
@@ -149,11 +161,11 @@ flow-code/
 
 ## Module Guide
 
-### flowctl.py — Central State Machine
+### _flowctl/ — Core Engine Package
 
-**Purpose**: Single authoritative binary for all `.flow/` state mutations.
-**Entry point**: `scripts/flowctl.py` (via `scripts/flowctl` wrapper)
-**Tokens**: ~7,400 lines (not counted — excluded from map scan)
+**Purpose**: Single authoritative package for all `.flow/` state mutations.
+**Entry point**: `scripts/flowctl.py` (thin shim) via `scripts/flowctl` (shell wrapper)
+**Structure**: `_flowctl/cli.py` dispatches to `_flowctl/commands/*` modules using `_flowctl/core/*` utilities
 
 **Key responsibilities**:
 - Epic/task CRUD and state machine (`todo → in_progress → done/blocked`)
@@ -329,4 +341,4 @@ sequenceDiagram
 **To modify Ralph loop**: Edit `skills/flow-code-ralph-init/templates/ralph.sh` (canonical source)
 **To modify auto-improve loop**: Edit `skills/flow-code-auto-improve/templates/auto-improve.sh`
 **To add a review backend**: Add to impl-review, plan-review, and epic-review workflow.md files
-**To change task state machine**: Modify `scripts/flowctl.py` state transition logic
+**To change task state machine**: Modify `scripts/_flowctl/commands/workflow.py` (state transitions) or `scripts/_flowctl/core/state.py` (state storage)

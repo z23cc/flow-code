@@ -172,8 +172,8 @@ echo -e "\n${YELLOW}--- Memory System ---${NC}"
 
 flowctl memory init --json >/dev/null && pass "memory init" || fail "memory init"
 
-flowctl memory add --type pitfall "Never use sync IO in async handlers" --json >/dev/null && pass "memory add pitfall" || fail "memory add pitfall"
-flowctl memory add --type convention "Use snake_case for functions" --json >/dev/null && pass "memory add convention" || fail "memory add convention"
+flowctl memory add pitfall "Never use sync IO in async handlers" --json >/dev/null && pass "memory add pitfall" || fail "memory add pitfall"
+flowctl memory add convention "Use snake_case for functions" --json >/dev/null && pass "memory add convention" || fail "memory add convention"
 
 MEM_LIST="$(flowctl memory list --json)"
 # memory list returns {counts: {pitfalls.md: N, conventions.md: M, ...}, total: X}

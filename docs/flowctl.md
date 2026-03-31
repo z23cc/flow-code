@@ -33,7 +33,8 @@ Works out of the box for parallel branches. No setup required.
 ├── memory/                 # Agent memory (reserved)
 ├── bin/                    # (optional) Local flowctl install via /flow-code:setup
 │   ├── flowctl
-│   └── flowctl.py
+│   ├── flowctl.py
+│   └── _flowctl/           # Core engine package
 └── usage.md                # (optional) CLI reference via /flow-code:setup
 ```
 

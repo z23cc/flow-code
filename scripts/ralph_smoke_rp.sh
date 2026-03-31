@@ -154,6 +154,7 @@ git commit -m "chore: init" >/dev/null
 mkdir -p scripts/ralph
 cp -R "$PLUGIN_ROOT/skills/flow-code-ralph-init/templates/." scripts/ralph/
 cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl.py
+cp -r "$PLUGIN_ROOT/scripts/_flowctl" scripts/ralph/_flowctl
 cp "$PLUGIN_ROOT/scripts/flowctl" scripts/ralph/flowctl
 chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl
 FLOWCTL="scripts/ralph/flowctl"

@@ -1014,7 +1014,7 @@ flowctl migrate-state --clean     # Migrate + remove runtime from tracked files
 ### Zero Dependencies
 
 Everything is bundled:
-- `flowctl.py` ships with the plugin
+- `flowctl.py` and the `_flowctl/` package ship with the plugin
 - No external tracker CLI to install
 - No external services
 - Just Python 3
@@ -1848,6 +1848,7 @@ cd flow-code
 mkdir -p .flow/bin
 cp ~/.codex/bin/flowctl .flow/bin/
 cp ~/.codex/bin/flowctl.py .flow/bin/
+cp -r ~/.codex/bin/_flowctl .flow/bin/_flowctl
 chmod +x .flow/bin/flowctl
 
 # Optional: configure review backend (codex recommended for Codex CLI)

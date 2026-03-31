@@ -45,13 +45,14 @@ mkdir -p .flow/bin
 
 ## Step 4: Copy files
 
-**IMPORTANT: Do NOT read flowctl.py - it's too large. Just copy it.**
+**IMPORTANT: Do NOT read flowctl.py or the _flowctl package - just copy them.**
 
 Copy using Bash `cp` with absolute paths:
 
 ```bash
 cp "${PLUGIN_ROOT}/scripts/flowctl" .flow/bin/flowctl
 cp "${PLUGIN_ROOT}/scripts/flowctl.py" .flow/bin/flowctl.py
+cp -r "${PLUGIN_ROOT}/scripts/_flowctl" .flow/bin/_flowctl
 chmod +x .flow/bin/flowctl
 ```
 
@@ -278,6 +279,7 @@ Flow-Code setup complete!
 Installed:
 - .flow/bin/flowctl (v<VERSION>)
 - .flow/bin/flowctl.py
+- .flow/bin/_flowctl/ (core engine package)
 - .flow/usage.md
 
 To use from command line:

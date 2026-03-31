@@ -128,6 +128,7 @@ PROTECTED_FILE_PATTERNS = [
     "flowctl.py",
     "flowctl",
     "/hooks/hooks.json",
+    "/_flowctl/",
 ]
 
 

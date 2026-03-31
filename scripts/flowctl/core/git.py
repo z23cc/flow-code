@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from _flowctl.core.paths import get_repo_root
+from flowctl.core.paths import get_repo_root
 
 
 def get_changed_files(base_branch: str) -> list[str]:

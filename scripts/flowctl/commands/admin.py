@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from _flowctl.core.constants import (
+from flowctl.core.constants import (
     CONFIG_FILE,
     EPICS_DIR,
     MEMORY_DIR,
@@ -21,14 +21,14 @@ from _flowctl.core.constants import (
     TASK_STATUS,
     TASKS_DIR,
 )
-from _flowctl.core.config import (
+from flowctl.core.config import (
     deep_merge,
     get_config,
     get_default_config,
     set_config,
 )
-from _flowctl.core.ids import is_epic_id, is_task_id, normalize_epic
-from _flowctl.core.io import (
+from flowctl.core.ids import is_epic_id, is_task_id, normalize_epic
+from flowctl.core.io import (
     atomic_write_json,
     error_exit,
     is_supported_schema,
@@ -36,9 +36,9 @@ from _flowctl.core.io import (
     load_json,
     load_json_or_exit,
 )
-from _flowctl.core.paths import ensure_flow_exists, get_flow_dir, get_repo_root
-from _flowctl.core.state import load_task_with_state
-from _flowctl.commands.stack import detect_stack
+from flowctl.core.paths import ensure_flow_exists, get_flow_dir, get_repo_root
+from flowctl.core.state import load_task_with_state
+from flowctl.commands.stack import detect_stack
 
 
 # --- Ralph Run Detection ---

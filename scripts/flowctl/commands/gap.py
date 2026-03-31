@@ -4,16 +4,16 @@ import argparse
 import hashlib
 import sys
 
-from _flowctl.core.constants import EPICS_DIR
-from _flowctl.core.ids import is_epic_id, normalize_epic
-from _flowctl.core.io import (
+from flowctl.core.constants import EPICS_DIR
+from flowctl.core.ids import is_epic_id, normalize_epic
+from flowctl.core.io import (
     atomic_write_json,
     error_exit,
     json_output,
     load_json_or_exit,
     now_iso,
 )
-from _flowctl.core.paths import ensure_flow_exists, get_flow_dir
+from flowctl.core.paths import ensure_flow_exists, get_flow_dir
 
 
 GAP_PRIORITIES = ("required", "important", "nice-to-have")

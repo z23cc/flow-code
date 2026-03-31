@@ -4,7 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from _flowctl.core.constants import FLOW_DIR
+from flowctl.core.constants import FLOW_DIR
 
 
 def get_repo_root() -> Path:

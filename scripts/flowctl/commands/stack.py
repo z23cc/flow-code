@@ -7,9 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _flowctl.core.config import get_config, set_config
-from _flowctl.core.io import error_exit, json_output
-from _flowctl.core.paths import ensure_flow_exists, get_flow_dir, get_repo_root
+from flowctl.core.config import get_config, set_config
+from flowctl.core.io import error_exit, json_output
+from flowctl.core.paths import ensure_flow_exists, get_flow_dir, get_repo_root
 
 
 INVARIANTS_FILE = "invariants.md"

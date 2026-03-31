@@ -8,10 +8,10 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from _flowctl.core.config import get_config
-from _flowctl.core.constants import MEMORY_DIR
-from _flowctl.core.io import atomic_write, atomic_write_json, error_exit, json_output
-from _flowctl.core.paths import ensure_flow_exists, get_flow_dir
+from flowctl.core.config import get_config
+from flowctl.core.constants import MEMORY_DIR
+from flowctl.core.io import atomic_write, atomic_write_json, error_exit, json_output
+from flowctl.core.paths import ensure_flow_exists, get_flow_dir
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Storage layout:

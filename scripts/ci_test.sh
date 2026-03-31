@@ -62,7 +62,7 @@ git config user.email "ci@test.local"
 git config user.name "CI Test"
 
 cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/
-cp -r "$PLUGIN_ROOT/scripts/_flowctl" scripts/
+cp -r "$PLUGIN_ROOT/scripts/flowctl" scripts/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Basic Commands

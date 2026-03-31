@@ -10,7 +10,7 @@ Manually trigger plan-sync to update downstream task specs.
 
 **CRITICAL: flowctl is BUNDLED - NOT installed globally.** Always use:
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh"
 ```
 
 ## Input
@@ -26,7 +26,7 @@ Format: `<id> [--dry-run]`
 ### Step 1: Parse Arguments
 
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
 

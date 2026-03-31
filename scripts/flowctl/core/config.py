@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
-from _flowctl.core.constants import CONFIG_FILE
-from _flowctl.core.io import atomic_write_json
-from _flowctl.core.paths import get_flow_dir
+from flowctl.core.constants import CONFIG_FILE
+from flowctl.core.io import atomic_write_json
+from flowctl.core.paths import get_flow_dir
 
 
 def get_default_config() -> dict:

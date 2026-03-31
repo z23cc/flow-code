@@ -47,7 +47,7 @@ graph TB
     end
 
     subgraph Core["Core Engine"]
-        FLOWCTL["_flowctl/ package"]
+        FLOWCTL["flowctl/ package"]
         FLOW_DIR[".flow/ state"]
     end
 
@@ -129,10 +129,10 @@ flow-code/
 │   └── browser/                  # SKILL.md + references/
 ├── scripts/
 │   ├── flowctl                   # Shell wrapper → flowctl.py
-│   ├── flowctl.py                # Thin shim (~20 lines) → _flowctl package
-│   ├── _flowctl/                 # Core engine package
+│   ├── flowctl.py                # Thin shim (~20 lines) → flowctl package
+│   ├── flowctl/                 # Core engine package
 │   │   ├── __init__.py           # __version__ only
-│   │   ├── __main__.py           # python -m _flowctl support
+│   │   ├── __main__.py           # python -m flowctl support
 │   │   ├── compat.py             # fcntl/Windows platform abstraction
 │   │   ├── cli.py                # argparse setup + command dispatch
 │   │   ├── core/                 # Shared utilities
@@ -161,11 +161,11 @@ flow-code/
 
 ## Module Guide
 
-### _flowctl/ — Core Engine Package
+### flowctl/ — Core Engine Package
 
 **Purpose**: Single authoritative package for all `.flow/` state mutations.
 **Entry point**: `scripts/flowctl.py` (thin shim) via `scripts/flowctl` (shell wrapper)
-**Structure**: `_flowctl/cli.py` dispatches to `_flowctl/commands/*` modules using `_flowctl/core/*` utilities
+**Structure**: `flowctl/cli.py` dispatches to `flowctl/commands/*` modules using `flowctl/core/*` utilities
 
 **Key responsibilities**:
 - Epic/task CRUD and state machine (`todo → in_progress → done/blocked`)
@@ -341,4 +341,4 @@ sequenceDiagram
 **To modify Ralph loop**: Edit `skills/flow-code-ralph-init/templates/ralph.sh` (canonical source)
 **To modify auto-improve loop**: Edit `skills/flow-code-auto-improve/templates/auto-improve.sh`
 **To add a review backend**: Add to impl-review, plan-review, and epic-review workflow.md files
-**To change task state machine**: Modify `scripts/_flowctl/commands/workflow.py` (state transitions) or `scripts/_flowctl/core/state.py` (state storage)
+**To change task state machine**: Modify `scripts/flowctl/commands/workflow.py` (state transitions) or `scripts/flowctl/core/state.py` (state storage)

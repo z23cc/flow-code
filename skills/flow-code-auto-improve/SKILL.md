@@ -40,7 +40,7 @@ Full request: $ARGUMENTS
 ```bash
 PLUGIN_ROOT="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
 TEMPLATES="$PLUGIN_ROOT/skills/flow-code-auto-improve/templates"
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh"
 
 mkdir -p scripts/auto-improve/runs
 

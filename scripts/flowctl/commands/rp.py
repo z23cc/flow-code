@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from _flowctl.core.io import atomic_write, error_exit, read_text_or_exit
+from flowctl.core.io import atomic_write, error_exit, read_text_or_exit
 
 
 # ─────────────────────────────────────────────────────────────────────────────

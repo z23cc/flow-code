@@ -9,15 +9,15 @@ import shutil
 import sys
 from pathlib import Path
 
-from _flowctl.core.constants import (
+from flowctl.core.constants import (
     EPICS_DIR,
     FLOW_DIR,
     REVIEWS_DIR,
     SPECS_DIR,
     TASKS_DIR,
 )
-from _flowctl.core.config import get_config
-from _flowctl.core.ids import (
+from flowctl.core.config import get_config
+from flowctl.core.ids import (
     generate_epic_suffix,
     is_epic_id,
     is_task_id,
@@ -26,7 +26,7 @@ from _flowctl.core.ids import (
     parse_id,
     slugify,
 )
-from _flowctl.core.io import (
+from flowctl.core.io import (
     atomic_write,
     atomic_write_json,
     error_exit,
@@ -36,13 +36,13 @@ from _flowctl.core.io import (
     now_iso,
     read_file_or_stdin,
 )
-from _flowctl.core.paths import ensure_flow_exists, get_flow_dir
-from _flowctl.core.state import (
+from flowctl.core.paths import ensure_flow_exists, get_flow_dir
+from flowctl.core.state import (
     delete_task_runtime,
     get_state_store,
     load_task_with_state,
 )
-from _flowctl.commands.gap import GAP_BLOCKING_PRIORITIES
+from flowctl.commands.gap import GAP_BLOCKING_PRIORITIES
 
 
 # --- Epic helpers ---
@@ -113,7 +113,7 @@ def cmd_epic_create(args: argparse.Namespace) -> None:
             ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
         )
 
-    from _flowctl.core.constants import META_FILE
+    from flowctl.core.constants import META_FILE
 
     flow_dir = get_flow_dir()
     meta_path = flow_dir / META_FILE

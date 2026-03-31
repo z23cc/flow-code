@@ -7,12 +7,12 @@ from datetime import datetime as _dt, timezone as _tz
 from pathlib import Path
 from typing import Any
 
-from _flowctl.core.constants import (
+from flowctl.core.constants import (
     EPICS_DIR,
     RUNTIME_FIELDS,
     TASKS_DIR,
 )
-from _flowctl.core.ids import (
+from flowctl.core.ids import (
     epic_id_from_task,
     is_epic_id,
     is_task_id,
@@ -21,7 +21,7 @@ from _flowctl.core.ids import (
     parse_id,
     task_priority,
 )
-from _flowctl.core.io import (
+from flowctl.core.io import (
     atomic_write,
     atomic_write_json,
     error_exit,
@@ -31,26 +31,26 @@ from _flowctl.core.io import (
     now_iso,
     read_text_or_exit,
 )
-from _flowctl.core.paths import (
+from flowctl.core.paths import (
     ensure_flow_exists,
     get_flow_dir,
     get_state_dir,
 )
-from _flowctl.core.state import (
+from flowctl.core.state import (
     get_state_store,
     load_task_definition,
     load_task_with_state,
     reset_task_runtime,
     save_task_runtime,
 )
-from _flowctl.core.git import get_actor
-from _flowctl.commands.task import (
+from flowctl.core.git import get_actor
+from flowctl.commands.task import (
     clear_task_evidence,
     find_dependents,
     get_task_section,
     patch_task_section,
 )
-from _flowctl.core.constants import REVIEWS_DIR
+from flowctl.core.constants import REVIEWS_DIR
 
 
 # ---------------------------------------------------------------------------

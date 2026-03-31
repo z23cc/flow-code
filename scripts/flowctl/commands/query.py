@@ -4,25 +4,25 @@ import argparse
 import re
 from pathlib import Path
 
-from _flowctl.core.constants import (
+from flowctl.core.constants import (
     EPICS_DIR,
     SPECS_DIR,
     TASKS_DIR,
 )
-from _flowctl.core.ids import (
+from flowctl.core.ids import (
     is_epic_id,
     is_task_id,
     normalize_epic,
     parse_id,
 )
-from _flowctl.core.io import (
+from flowctl.core.io import (
     error_exit,
     json_output,
     load_json_or_exit,
     read_text_or_exit,
 )
-from _flowctl.core.paths import ensure_flow_exists, get_flow_dir
-from _flowctl.core.state import load_task_with_state
+from flowctl.core.paths import ensure_flow_exists, get_flow_dir
+from flowctl.core.state import load_task_with_state
 
 
 def cmd_show(args: argparse.Namespace) -> None:

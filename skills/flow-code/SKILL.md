@@ -12,7 +12,7 @@ Quick task operations in `.flow/`. For planning features use `/flow-code:plan`, 
 **CRITICAL: flowctl is BUNDLED — NOT installed globally.** `which flowctl` will fail (expected). Always use:
 
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh"
 ```
 
 Then run commands with `$FLOWCTL <command>`.

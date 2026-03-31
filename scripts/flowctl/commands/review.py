@@ -10,14 +10,14 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from _flowctl.core.constants import EPICS_DIR, SPECS_DIR, TASKS_DIR
-from _flowctl.core.git import (
+from flowctl.core.constants import EPICS_DIR, SPECS_DIR, TASKS_DIR
+from flowctl.core.git import (
     gather_context_hints,
     get_changed_files,
     get_embedded_file_contents,
 )
-from _flowctl.core.ids import is_epic_id, is_task_id
-from _flowctl.core.io import (
+from flowctl.core.ids import is_epic_id, is_task_id
+from flowctl.core.io import (
     atomic_write,
     atomic_write_json,
     error_exit,
@@ -26,8 +26,8 @@ from _flowctl.core.io import (
     load_json_or_exit,
     now_iso,
 )
-from _flowctl.core.paths import ensure_flow_exists, get_flow_dir, get_repo_root
-from _flowctl.core.state import (
+from flowctl.core.paths import ensure_flow_exists, get_flow_dir, get_repo_root
+from flowctl.core.state import (
     delete_task_runtime,
     get_state_store,
 )

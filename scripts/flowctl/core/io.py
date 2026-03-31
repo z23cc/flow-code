@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from _flowctl.core.constants import SUPPORTED_SCHEMA_VERSIONS
+from flowctl.core.constants import SUPPORTED_SCHEMA_VERSIONS
 
 
 def json_output(data: dict, success: bool = True) -> None:

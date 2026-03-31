@@ -1,12 +1,12 @@
 """
 CLI entry point for flowctl — argparse setup and command dispatch.
 
-All command handlers are imported from _flowctl.commands.* modules.
+All command handlers are imported from flowctl.commands.* modules.
 """
 
 import argparse
 
-from _flowctl.commands.stack import (
+from flowctl.commands.stack import (
     cmd_invariants_show,
     cmd_invariants_init,
     cmd_invariants_check,
@@ -15,7 +15,7 @@ from _flowctl.commands.stack import (
     cmd_stack_set,
     cmd_stack_show,
 )
-from _flowctl.commands.admin import (
+from flowctl.commands.admin import (
     cmd_init,
     cmd_detect,
     cmd_status,
@@ -28,13 +28,13 @@ from _flowctl.commands.admin import (
     cmd_review_backend,
     cmd_validate,
 )
-from _flowctl.commands.gap import (
+from flowctl.commands.gap import (
     cmd_gap_add,
     cmd_gap_list,
     cmd_gap_resolve,
     cmd_gap_check,
 )
-from _flowctl.commands.epic import (
+from flowctl.commands.epic import (
     cmd_epic_create,
     cmd_epic_set_plan,
     cmd_epic_set_plan_review_status,
@@ -48,7 +48,7 @@ from _flowctl.commands.epic import (
     cmd_epic_archive,
     cmd_epic_clean,
 )
-from _flowctl.commands.task import (
+from flowctl.commands.task import (
     cmd_task_create,
     cmd_dep_add,
     cmd_task_set_deps,
@@ -59,7 +59,7 @@ from _flowctl.commands.task import (
     cmd_task_set_spec,
     cmd_task_reset,
 )
-from _flowctl.commands.workflow import (
+from flowctl.commands.workflow import (
     cmd_ready,
     cmd_next,
     cmd_queue,
@@ -70,7 +70,7 @@ from _flowctl.commands.workflow import (
     cmd_state_path,
     cmd_migrate_state,
 )
-from _flowctl.commands.query import (
+from flowctl.commands.query import (
     cmd_show,
     cmd_epics,
     cmd_files,
@@ -78,7 +78,7 @@ from _flowctl.commands.query import (
     cmd_list,
     cmd_cat,
 )
-from _flowctl.commands.memory import (
+from flowctl.commands.memory import (
     cmd_memory_init,
     cmd_memory_add,
     cmd_memory_read,
@@ -88,7 +88,7 @@ from _flowctl.commands.memory import (
     cmd_memory_verify,
     cmd_memory_gc,
 )
-from _flowctl.commands.rp import (
+from flowctl.commands.rp import (
     cmd_prep_chat,
     cmd_rp_windows,
     cmd_rp_pick_window,
@@ -102,7 +102,7 @@ from _flowctl.commands.rp import (
     cmd_rp_prompt_export,
     cmd_rp_setup_review,
 )
-from _flowctl.commands.review import (
+from flowctl.commands.review import (
     cmd_codex_check,
     cmd_codex_impl_review,
     cmd_codex_plan_review,

@@ -38,7 +38,7 @@ try:
 except Exception:
     tokens = cmd.split()
 
-def token_has_flowctl(tok: str) -> bool:
+def token_hasflowctl(tok: str) -> bool:
     return "flowctl" in tok
 
 def flag_value(flag: str):
@@ -50,7 +50,7 @@ def flag_value(flag: str):
     return None
 
 # Check for direct builder call (should use setup-review instead)
-if "rp" in tokens and "builder" in tokens and any(token_has_flowctl(t) for t in tokens):
+if "rp" in tokens and "builder" in tokens and any(token_hasflowctl(t) for t in tokens):
     # In Ralph mode, builder should only be called via setup-review
     # If called directly, block it
     print("Ralph mode: use 'flowctl rp setup-review' instead of 'flowctl rp builder'.", file=sys.stderr)
@@ -58,12 +58,12 @@ if "rp" in tokens and "builder" in tokens and any(token_has_flowctl(t) for t in 
     sys.exit(2)
 
 # Validate pick-window and ensure-workspace also redirect to setup-review
-if "rp" in tokens and ("pick-window" in tokens or "ensure-workspace" in tokens) and any(token_has_flowctl(t) for t in tokens):
+if "rp" in tokens and ("pick-window" in tokens or "ensure-workspace" in tokens) and any(token_hasflowctl(t) for t in tokens):
     print("Ralph mode: use 'flowctl rp setup-review' for atomic window + workspace + builder setup.", file=sys.stderr)
     sys.exit(2)
 
 # Validate chat-send has required args
-if "rp" in tokens and "chat-send" in tokens and any(token_has_flowctl(t) for t in tokens):
+if "rp" in tokens and "chat-send" in tokens and any(token_hasflowctl(t) for t in tokens):
     window = flag_value("--window")
     tab = flag_value("--tab")
     message_file = flag_value("--message-file")
@@ -82,7 +82,7 @@ if "rp" in tokens and "chat-send" in tokens and any(token_has_flowctl(t) for t i
         sys.exit(2)
 
 # Validate select-add/select-get have required args
-if "rp" in tokens and ("select-add" in tokens or "select-get" in tokens) and any(token_has_flowctl(t) for t in tokens):
+if "rp" in tokens and ("select-add" in tokens or "select-get" in tokens) and any(token_hasflowctl(t) for t in tokens):
     window = flag_value("--window")
     tab = flag_value("--tab")
 
@@ -97,7 +97,7 @@ if "rp" in tokens and ("select-add" in tokens or "select-get" in tokens) and any
         sys.exit(2)
 
 # Validate prompt-get/prompt-set have required args
-if "rp" in tokens and ("prompt-get" in tokens or "prompt-set" in tokens) and any(token_has_flowctl(t) for t in tokens):
+if "rp" in tokens and ("prompt-get" in tokens or "prompt-set" in tokens) and any(token_hasflowctl(t) for t in tokens):
     window = flag_value("--window")
     tab = flag_value("--tab")
 

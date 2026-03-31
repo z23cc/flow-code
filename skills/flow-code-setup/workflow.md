@@ -15,7 +15,7 @@ Store this as `PLUGIN_ROOT` for use in later steps.
 Use flowctl init (idempotent - safe to re-run, handles upgrades):
 
 ```bash
-"${PLUGIN_ROOT}/scripts/flowctl" init --json
+"${PLUGIN_ROOT}/scripts/flowctl.sh" init --json
 ```
 
 This creates/upgrades:
@@ -45,14 +45,14 @@ mkdir -p .flow/bin
 
 ## Step 4: Copy files
 
-**IMPORTANT: Do NOT read flowctl.py or the _flowctl package - just copy them.**
+**IMPORTANT: Do NOT read flowctl.py or the flowctl package - just copy them.**
 
 Copy using Bash `cp` with absolute paths:
 
 ```bash
-cp "${PLUGIN_ROOT}/scripts/flowctl" .flow/bin/flowctl
+cp "${PLUGIN_ROOT}/scripts/flowctl.sh" .flow/bin/flowctl
 cp "${PLUGIN_ROOT}/scripts/flowctl.py" .flow/bin/flowctl.py
-cp -r "${PLUGIN_ROOT}/scripts/_flowctl" .flow/bin/_flowctl
+cp -r "${PLUGIN_ROOT}/scripts/flowctl" .flow/bin/flowctl
 chmod +x .flow/bin/flowctl
 ```
 
@@ -81,11 +81,11 @@ HAVE_RP=$(which rp-cli >/dev/null 2>&1 && echo 1 || echo 0)
 HAVE_CODEX=$(which codex >/dev/null 2>&1 && echo 1 || echo 0)
 
 # Read current config values if they exist
-CURRENT_BACKEND=$("${PLUGIN_ROOT}/scripts/flowctl" config get review.backend --json 2>/dev/null | jq -r '.value // empty')
-CURRENT_MEMORY=$("${PLUGIN_ROOT}/scripts/flowctl" config get memory.enabled --json 2>/dev/null | jq -r '.value // empty')
-CURRENT_PLANSYNC=$("${PLUGIN_ROOT}/scripts/flowctl" config get planSync.enabled --json 2>/dev/null | jq -r '.value // empty')
-CURRENT_CROSSEPIC=$("${PLUGIN_ROOT}/scripts/flowctl" config get planSync.crossEpic --json 2>/dev/null | jq -r '.value // empty')
-CURRENT_GITHUB_SCOUT=$("${PLUGIN_ROOT}/scripts/flowctl" config get scouts.github --json 2>/dev/null | jq -r '.value // empty')
+CURRENT_BACKEND=$("${PLUGIN_ROOT}/scripts/flowctl.sh" config get review.backend --json 2>/dev/null | jq -r '.value // empty')
+CURRENT_MEMORY=$("${PLUGIN_ROOT}/scripts/flowctl.sh" config get memory.enabled --json 2>/dev/null | jq -r '.value // empty')
+CURRENT_PLANSYNC=$("${PLUGIN_ROOT}/scripts/flowctl.sh" config get planSync.enabled --json 2>/dev/null | jq -r '.value // empty')
+CURRENT_CROSSEPIC=$("${PLUGIN_ROOT}/scripts/flowctl.sh" config get planSync.crossEpic --json 2>/dev/null | jq -r '.value // empty')
+CURRENT_GITHUB_SCOUT=$("${PLUGIN_ROOT}/scripts/flowctl.sh" config get scouts.github --json 2>/dev/null | jq -r '.value // empty')
 ```
 
 Store detection results for use in questions. When showing options, indicate current value if set (e.g., "(current)" after the matching option label).
@@ -230,20 +230,20 @@ Use `AskUserQuestion` with the built questions array.
 Only process answers for questions that were asked (config values that were unset). Skip processing for config that was already set.
 
 **Memory** (if question was asked):
-- If "Yes": `"${PLUGIN_ROOT}/scripts/flowctl" config set memory.enabled true --json`
-- If "No": `"${PLUGIN_ROOT}/scripts/flowctl" config set memory.enabled false --json`
+- If "Yes": `"${PLUGIN_ROOT}/scripts/flowctl.sh" config set memory.enabled true --json`
+- If "No": `"${PLUGIN_ROOT}/scripts/flowctl.sh" config set memory.enabled false --json`
 
 **Plan-Sync** (if question was asked):
-- If "Yes": `"${PLUGIN_ROOT}/scripts/flowctl" config set planSync.enabled true --json`
-- If "No": `"${PLUGIN_ROOT}/scripts/flowctl" config set planSync.enabled false --json`
+- If "Yes": `"${PLUGIN_ROOT}/scripts/flowctl.sh" config set planSync.enabled true --json`
+- If "No": `"${PLUGIN_ROOT}/scripts/flowctl.sh" config set planSync.enabled false --json`
 
 **Plan-Sync cross-epic** (if question was asked):
-- If "Yes": `"${PLUGIN_ROOT}/scripts/flowctl" config set planSync.crossEpic true --json`
-- If "No": `"${PLUGIN_ROOT}/scripts/flowctl" config set planSync.crossEpic false --json`
+- If "Yes": `"${PLUGIN_ROOT}/scripts/flowctl.sh" config set planSync.crossEpic true --json`
+- If "No": `"${PLUGIN_ROOT}/scripts/flowctl.sh" config set planSync.crossEpic false --json`
 
 **GitHub Scout** (if question was asked):
-- If "Yes": `"${PLUGIN_ROOT}/scripts/flowctl" config set scouts.github true --json`
-- If "No": `"${PLUGIN_ROOT}/scripts/flowctl" config set scouts.github false --json`
+- If "Yes": `"${PLUGIN_ROOT}/scripts/flowctl.sh" config set scouts.github true --json`
+- If "No": `"${PLUGIN_ROOT}/scripts/flowctl.sh" config set scouts.github false --json`
 
 **Review** (if question was asked):
 Map user's answer to config value and persist:
@@ -256,7 +256,7 @@ case "$review_answer" in
   *) REVIEW_BACKEND="none" ;;
 esac
 
-"${PLUGIN_ROOT}/scripts/flowctl" config set review.backend "$REVIEW_BACKEND" --json
+"${PLUGIN_ROOT}/scripts/flowctl.sh" config set review.backend "$REVIEW_BACKEND" --json
 ```
 
 **Docs:**
@@ -279,7 +279,7 @@ Flow-Code setup complete!
 Installed:
 - .flow/bin/flowctl (v<VERSION>)
 - .flow/bin/flowctl.py
-- .flow/bin/_flowctl/ (core engine package)
+- .flow/bin/flowctl/ (core engine package)
 - .flow/usage.md
 
 To use from command line:

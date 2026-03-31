@@ -6,16 +6,16 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import ContextManager, Optional
 
-from _flowctl.compat import _flock, LOCK_EX, LOCK_UN
-from _flowctl.core.constants import RUNTIME_FIELDS, TASKS_DIR
-from _flowctl.core.ids import normalize_task
-from _flowctl.core.io import (
+from flowctl.compat import _flock, LOCK_EX, LOCK_UN
+from flowctl.core.constants import RUNTIME_FIELDS, TASKS_DIR
+from flowctl.core.ids import normalize_task
+from flowctl.core.io import (
     atomic_write,
     atomic_write_json,
     load_json_or_exit,
     now_iso,
 )
-from _flowctl.core.paths import get_flow_dir, get_state_dir
+from flowctl.core.paths import get_flow_dir, get_state_dir
 
 
 # --- StateStore (runtime task state) ---

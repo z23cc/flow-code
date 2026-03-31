@@ -18,7 +18,7 @@ Structured post-epic review that extracts actionable lessons and persists them t
 ### 1. Gather Evidence
 
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh"
 
 # Epic summary
 $FLOWCTL show <epic-id> --json

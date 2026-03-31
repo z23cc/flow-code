@@ -60,8 +60,8 @@ Scaffold or update repo-local Ralph harness. Opt-in only.
    cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-ralph-init/templates/prompt_work.md" scripts/ralph/
    cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-ralph-init/templates/prompt_completion.md" scripts/ralph/
    cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-ralph-init/templates/watch-filter.py" scripts/ralph/
-   cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl" "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py" scripts/ralph/
-   cp -r "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/_flowctl" scripts/ralph/_flowctl
+   cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh" "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py" scripts/ralph/
+   cp -r "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl" scripts/ralph/flowctl
    mkdir -p scripts/ralph/hooks
    cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/ralph-guard.py" scripts/ralph/hooks/
    chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl scripts/ralph/hooks/ralph-guard.py
@@ -74,8 +74,8 @@ Scaffold or update repo-local Ralph harness. Opt-in only.
    ```bash
    mkdir -p scripts/ralph/runs scripts/ralph/hooks
    cp -R "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-ralph-init/templates/." scripts/ralph/
-   cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl" "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py" scripts/ralph/
-   cp -r "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/_flowctl" scripts/ralph/_flowctl
+   cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.sh" "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py" scripts/ralph/
+   cp -r "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl" scripts/ralph/flowctl
    cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/ralph-guard.py" scripts/ralph/hooks/
    chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl scripts/ralph/hooks/ralph-guard.py
    ```

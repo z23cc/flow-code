@@ -5,12 +5,12 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from _flowctl.core.constants import (
+from flowctl.core.constants import (
     EPICS_DIR,
     FLOW_DIR,
     TASKS_DIR,
 )
-from _flowctl.core.ids import (
+from flowctl.core.ids import (
     epic_id_from_task,
     is_epic_id,
     is_task_id,
@@ -18,7 +18,7 @@ from _flowctl.core.ids import (
     normalize_task,
     parse_id,
 )
-from _flowctl.core.io import (
+from flowctl.core.io import (
     atomic_write,
     atomic_write_json,
     error_exit,
@@ -29,8 +29,8 @@ from _flowctl.core.io import (
     read_file_or_stdin,
     read_text_or_exit,
 )
-from _flowctl.core.paths import ensure_flow_exists, get_flow_dir
-from _flowctl.core.state import (
+from flowctl.core.paths import ensure_flow_exists, get_flow_dir
+from flowctl.core.state import (
     load_task_with_state,
     reset_task_runtime,
 )

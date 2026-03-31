@@ -34,7 +34,7 @@ Works out of the box for parallel branches. No setup required.
 ├── bin/                    # (optional) Local flowctl install via /flow-code:setup
 │   ├── flowctl
 │   ├── flowctl.py
-│   └── _flowctl/           # Core engine package
+│   └── flowctl/           # Core engine package
 └── usage.md                # (optional) CLI reference via /flow-code:setup
 ```
 

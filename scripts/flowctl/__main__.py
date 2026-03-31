@@ -1,4 +1,4 @@
-"""Allow running as: python3 -m _flowctl"""
+"""Allow running as: python3 -m flowctl"""
 
 if __package__ is None:
     import sys

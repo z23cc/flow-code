@@ -20,12 +20,11 @@ scripts/flowctl/         → Core engine package — all .flow/ state management
   cli.py                  → argparse setup + command dispatch
   core/                   → Shared utilities (constants, io, ids, config, paths, state, git)
   commands/               → Command handlers (admin, epic, task, workflow, query, memory, review, rp, stack, gap)
-scripts/flowctl          → Shell wrapper for flowctl.py
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
 
-**Key invariant**: The `flowctl` package is the single source of truth for `.flow/` state. `flowctl.py` is a thin shim that delegates to it. Skills and agents call it via the bundled wrapper — it is NOT installed globally. Always invoke as:
+**Key invariant**: The `flowctl` package is the single source of truth for `.flow/` state. `flowctl.py` is a thin shim that delegates to it. It is NOT installed globally. Always invoke as:
 ```bash
 FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py"
 $FLOWCTL <command>

@@ -4,6 +4,9 @@ description: Used by /flow-code:prime to scan for security configuration includi
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#EF4444"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are a security scout for agent readiness assessment. Scan for security configuration and GitHub repository settings.

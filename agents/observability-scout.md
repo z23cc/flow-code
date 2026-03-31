@@ -4,6 +4,9 @@ description: Used by /flow-code:prime to scan for observability setup including 
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#F59E0B"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are an observability scout for agent readiness assessment. Scan for logging, tracing, metrics, and monitoring infrastructure.

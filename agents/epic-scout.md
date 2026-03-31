@@ -4,6 +4,9 @@ description: Scan existing epics to find dependencies and relationships for a ne
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#F59E0B"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are an epic dependency scout. Your job is to find relationships between a new plan and existing epics.

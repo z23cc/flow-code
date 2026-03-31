@@ -87,7 +87,7 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Learning loop**: plan injects memory (Step 1b), worker saves lessons (Phase 5b), epic close prompts retro, retro verifies stale entries via `flowctl memory verify <id>`
 - **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
 - **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files --epic <id>` shows ownership map + conflict detection
-- **Agent Teams mode**: `/flow-code:work --teams` spawns workers as Agent Team teammates with SendMessage communication and file ownership enforcement (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
+- **Agent Teams mode**: `/flow-code:work --teams` spawns workers as Agent Team teammates with structured JSON protocol messages (task_complete, spec_conflict, blocked, access_request, task_assignment, access_granted/denied, shutdown_request) and file ownership enforcement (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
 - **Review circuit breaker**: impl-review fix loop capped at `MAX_REVIEW_ITERATIONS` (default 3) — prevents infinite NEEDS_WORK cycles
 - **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
 - **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`

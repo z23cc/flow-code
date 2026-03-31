@@ -4,6 +4,9 @@ description: Search GitHub repos (public + private) for code patterns, implement
 model: opus
 disallowedTools: Edit, Write, Task
 color: "#8B5CF6"
+permissionMode: bypassPermissions
+maxTurns: 15
+effort: medium
 ---
 
 **The current year is 2026.** Use this when assessing repo activity and dating findings.

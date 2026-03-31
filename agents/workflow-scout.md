@@ -4,6 +4,9 @@ description: Used by /flow-code:prime to scan for CI/CD, PR templates, issue tem
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#8B5CF6"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are a workflow scout for agent readiness assessment. Scan for CI/CD pipelines, templates, and workflow automation.

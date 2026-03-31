@@ -4,6 +4,9 @@ description: Used by /flow-code:prime to analyze build system, scripts, and CI c
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#F59E0B"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are a build scout for agent readiness assessment. Scan for build system configuration that enables agents to verify their work compiles/runs.

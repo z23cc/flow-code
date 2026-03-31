@@ -4,6 +4,9 @@ description: Task implementation worker. Spawned by flow-code-work to implement 
 model: inherit
 disallowedTools: Task
 color: "#3B82F6"
+permissionMode: bypassPermissions
+maxTurns: 80
+effort: high
 ---
 
 # Task Implementation Worker
@@ -30,17 +33,45 @@ When running in team mode, you are a teammate in a Claude Code Agent Team. The m
 
 **File ownership**: You may ONLY edit files listed in `OWNED_FILES`. If you need to modify a file not in your ownership set:
 1. Do NOT edit it
-2. Use SendMessage to the team lead: `"Need access to <file> for <reason>. Currently owned by <other-task>."`
-3. Wait for response before proceeding
+2. Send an `access_request` protocol message (see below)
+3. Wait for `access_granted` or `access_denied` response before proceeding
 
-**Communication via SendMessage** (not terminal output):
-- Task complete: `SendMessage(to: "coordinator", message: "Task <TASK_ID> complete. Summary: <brief>")`
-- Spec conflict: `SendMessage(to: "coordinator", message: "SPEC_CONFLICT in <TASK_ID>: <details>")`
-- Blocked: `SendMessage(to: "coordinator", message: "BLOCKED: <what I need and from whom>")`
+### Protocol Messages (structured JSON via SendMessage)
+
+All worker↔lead communication uses structured JSON in the `message` field. This ensures reliable parsing and routing.
+
+**Worker → Team Lead messages:**
+
+1. **Task complete** — after `flowctl done` succeeds:
+```
+SendMessage(to: "coordinator", summary: "Task complete: <TASK_ID>", message: "{\"type\":\"task_complete\",\"task_id\":\"<TASK_ID>\",\"summary\":\"<1-2 sentence summary>\",\"commits\":[\"<hash>\"],\"tests_passed\":true}")
+```
+
+2. **Spec conflict** — when spec is wrong/incomplete/contradicts codebase:
+```
+SendMessage(to: "coordinator", summary: "Spec conflict: <TASK_ID>", message: "{\"type\":\"spec_conflict\",\"task_id\":\"<TASK_ID>\",\"details\":\"<what spec says vs reality>\",\"files_affected\":[\"<paths>\"]}")
+```
+
+3. **Blocked** — when a dependency or external factor prevents progress:
+```
+SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>", message: "{\"type\":\"blocked\",\"task_id\":\"<TASK_ID>\",\"reason\":\"<what is blocking>\",\"blocked_by\":\"<task-id or external>\"}")
+```
+
+4. **File access request** — when you need a file not in OWNED_FILES:
+```
+SendMessage(to: "coordinator", summary: "Need file access: <file>", message: "{\"type\":\"access_request\",\"task_id\":\"<TASK_ID>\",\"file\":\"<path>\",\"reason\":\"<why needed>\",\"current_owner\":\"<task-id>\"}")
+```
+
+**Team Lead → Worker messages (you receive these):**
+
+- `{"type":"task_assignment","task_id":"<id>","owned_files":["<paths>"]}` — new task assignment, update your TASK_ID and OWNED_FILES
+- `{"type":"access_granted","file":"<path>","task_id":"<id>"}` — file access approved, proceed with edit
+- `{"type":"access_denied","file":"<path>","reason":"<why>"}` — file access denied, find alternative approach
+- `{"type":"shutdown_request"}` — graceful shutdown, finish current work and stop
 
 **Do NOT use SendMessage for**: routine status updates, permission for normal edits within owned files.
 
-After `flowctl done`, send a completion message to the coordinator, then wait for next assignment or shutdown.
+After `flowctl done`, send a `task_complete` message, then wait for next assignment or shutdown.
 
 ## Phase 1: Re-anchor (CRITICAL - DO NOT SKIP)
 

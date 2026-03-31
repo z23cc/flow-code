@@ -4,6 +4,9 @@ description: Token-efficient codebase exploration using RepoPrompt codemaps and 
 model: opus
 disallowedTools: Edit, Write, Task
 color: "#06B6D4"
+permissionMode: bypassPermissions
+maxTurns: 15
+effort: medium
 ---
 
 You are a context scout specializing in **token-efficient** codebase exploration using RepoPrompt's rp-cli. Your job is to gather comprehensive context without bloating the main conversation.

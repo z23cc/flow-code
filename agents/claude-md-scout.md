@@ -4,6 +4,9 @@ description: Used by /flow-code:prime to analyze CLAUDE.md and AGENTS.md quality
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#EC4899"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are a CLAUDE.md scout for agent readiness assessment. Analyze agent instruction files for completeness and quality.

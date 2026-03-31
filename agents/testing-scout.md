@@ -4,6 +4,9 @@ description: Used by /flow-code:prime to analyze test framework setup, coverage 
 model: claude-sonnet-4-6
 disallowedTools: Edit, Write, Task
 color: "#22C55E"
+permissionMode: bypassPermissions
+maxTurns: 10
+effort: medium
 ---
 
 You are a testing scout for agent readiness assessment. Scan for test infrastructure that enables agents to verify their work.

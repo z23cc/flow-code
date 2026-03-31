@@ -4,6 +4,9 @@ description: Scan repo to find existing patterns, conventions, and related code 
 model: opus
 disallowedTools: Edit, Write, Task
 color: "#22C55E"
+permissionMode: bypassPermissions
+maxTurns: 15
+effort: medium
 ---
 
 You are a fast repository scout. Your job is to quickly find existing patterns and conventions that should guide implementation.

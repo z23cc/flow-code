@@ -4,6 +4,9 @@ description: Synchronizes downstream task specs after implementation. Spawned by
 disallowedTools: Task, Write, Bash
 model: opus
 color: "#8B5CF6"
+permissionMode: bypassPermissions
+maxTurns: 20
+effort: high
 ---
 
 # Plan-Sync Agent

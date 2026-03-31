@@ -12,13 +12,20 @@ Flow-Code is a Claude Code plugin for structured, plan-first development. It pro
 commands/flow-code/*.md  → Slash command definitions (user-invocable entry points)
 skills/*/SKILL.md        → Skill implementations (loaded by Skill tool, never Read directly)
 agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
-scripts/flowctl.py       → Core engine (~9300 lines) — all .flow/ state management
+scripts/flowctl.py       → Thin shim (~20 lines) — delegates to _flowctl package
+scripts/_flowctl/         → Core engine package — all .flow/ state management
+  __init__.py             → __version__ only
+  __main__.py             → python -m _flowctl support
+  compat.py               → fcntl/Windows platform abstraction
+  cli.py                  → argparse setup + command dispatch
+  core/                   → Shared utilities (constants, io, ids, config, paths, state, git)
+  commands/               → Command handlers (admin, epic, task, workflow, query, memory, review, rp, stack, gap)
 scripts/flowctl          → Shell wrapper for flowctl.py
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
 
-**Key invariant**: `flowctl.py` is the single source of truth for `.flow/` state. Skills and agents call it via the bundled wrapper — it is NOT installed globally. Always invoke as:
+**Key invariant**: The `_flowctl` package is the single source of truth for `.flow/` state. `flowctl.py` is a thin shim that delegates to it. Skills and agents call it via the bundled wrapper — it is NOT installed globally. Always invoke as:
 ```bash
 FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl"
 $FLOWCTL <command>
@@ -54,8 +61,9 @@ All tests create temp directories and clean up after themselves. They must NOT b
 ## Code Quality
 
 ```bash
-# Validate flowctl.py
+# Validate flowctl shim and package
 python3 -m py_compile scripts/flowctl.py
+find scripts/_flowctl -name "*.py" -exec python3 -m py_compile {} \;
 
 # Validate JSON
 python3 -c "import json; json.load(open('hooks/hooks.json'))"

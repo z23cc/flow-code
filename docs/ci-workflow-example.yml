@@ -27,5 +27,8 @@ jobs:
           # python3 ./scripts/flowctl.py validate --all --json
 
           # Option 2: Download from plugin (example)
+          # Note: flowctl.py requires the _flowctl/ package directory alongside it
           curl -sL https://raw.githubusercontent.com/z23cc/flow-code/main/plugins/flow-code/scripts/flowctl.py -o flowctl.py
+          # Download _flowctl package (clone or use artifact)
+          # git clone --depth 1 https://github.com/z23cc/flow-code.git /tmp/fc && cp -r /tmp/fc/plugins/flow-code/scripts/_flowctl .
           python3 flowctl.py validate --all --json

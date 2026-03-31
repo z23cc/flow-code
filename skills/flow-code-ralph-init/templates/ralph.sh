@@ -729,13 +729,13 @@ PY
   ln -sfn "$RUN_ID" "$SCRIPT_DIR/runs/latest" 2>/dev/null || true
 }
 
-# Write completion marker to progress.txt (MUST match find_active_runs() detection in flowctl.py)
+# Write completion marker to progress.txt (MUST match find_active_runs() detection in _flowctl)
 write_completion_marker() {
   local reason="${1:-DONE}"
   {
     echo ""
     echo "completion_reason=$reason"
-    echo "promise=COMPLETE"  # CANONICAL - must match flowctl.py substring search
+    echo "promise=COMPLETE"  # CANONICAL - must match _flowctl/commands/admin.py substring search
   } >> "$PROGRESS_FILE"
   jlog "info" "run_end" "reason=$reason" "iter=${iter:-0}" "tasks_done=$STATS_TASKS_DONE" "elapsed=$(elapsed_time)"
 }

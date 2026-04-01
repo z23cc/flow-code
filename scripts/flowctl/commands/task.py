@@ -835,3 +835,193 @@ def cmd_task_reset(args: argparse.Namespace) -> None:
         json_output({"success": True, "reset": reset_ids})
     else:
         print(f"Reset: {', '.join(reset_ids)}")
+
+
+# ---------------------------------------------------------------------------
+# Runtime DAG mutation commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_dep_rm(args: argparse.Namespace) -> None:
+    """Remove a dependency from a task."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    if not is_task_id(args.task):
+        error_exit(f"Invalid task ID: {args.task}", use_json=args.json)
+    if not is_task_id(args.depends_on):
+        error_exit(f"Invalid dependency ID: {args.depends_on}", use_json=args.json)
+
+    flow_dir = get_flow_dir()
+    task_path = flow_dir / TASKS_DIR / f"{args.task}.json"
+    task_data = load_json_or_exit(task_path, f"Task {args.task}", use_json=args.json)
+
+    if "depends_on" not in task_data:
+        task_data["depends_on"] = task_data.pop("deps", [])
+
+    if args.depends_on not in task_data["depends_on"]:
+        if args.json:
+            json_output({"task": args.task, "depends_on": task_data["depends_on"],
+                         "removed": False, "message": f"{args.depends_on} not in dependencies"})
+        else:
+            print(f"{args.depends_on} is not a dependency of {args.task}")
+        return
+
+    task_data["depends_on"].remove(args.depends_on)
+    task_data["updated_at"] = now_iso()
+    atomic_write_json(task_path, task_data)
+
+    if args.json:
+        json_output({"task": args.task, "depends_on": task_data["depends_on"],
+                     "removed": True, "message": f"Dependency {args.depends_on} removed from {args.task}"})
+    else:
+        print(f"Dependency {args.depends_on} removed from {args.task}")
+
+
+def cmd_task_skip(args: argparse.Namespace) -> None:
+    """Skip a task (mark as permanently skipped without deleting). Downstream deps treat skipped as done."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    task_id = args.task_id
+    if not is_task_id(task_id):
+        error_exit(f"Invalid task ID: {task_id}", use_json=args.json)
+
+    flow_dir = get_flow_dir()
+    task_path = flow_dir / TASKS_DIR / f"{task_id}.json"
+    if not task_path.exists():
+        error_exit(f"Task {task_id} not found", use_json=args.json)
+
+    task_data = load_task_with_state(task_id, use_json=args.json)
+    status = task_data.get("status", "todo")
+
+    if status == "done":
+        error_exit(f"Cannot skip already-done task {task_id}", use_json=args.json)
+
+    # Update definition
+    def_data = load_json_or_exit(task_path, f"Task {task_id}", use_json=args.json)
+    def_data["status"] = "skipped"
+    def_data["skipped_reason"] = args.reason or ""
+    def_data["skipped_at"] = now_iso()
+    def_data["updated_at"] = now_iso()
+    atomic_write_json(task_path, def_data)
+
+    # Update runtime state
+    from flowctl.core.state import save_task_runtime
+    save_task_runtime(task_id, {"status": "skipped", "skipped_reason": args.reason or ""})
+
+    if args.json:
+        json_output({"success": True, "id": task_id, "status": "skipped",
+                     "reason": args.reason or "",
+                     "message": f"Task {task_id} skipped"})
+    else:
+        print(f"Task {task_id} skipped" + (f": {args.reason}" if args.reason else ""))
+
+
+def cmd_task_split(args: argparse.Namespace) -> None:
+    """Split a task into N sub-tasks. Original task becomes a meta-task depending on all sub-tasks."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    task_id = args.task_id
+    if not is_task_id(task_id):
+        error_exit(f"Invalid task ID: {task_id}", use_json=args.json)
+
+    flow_dir = get_flow_dir()
+    task_path = flow_dir / TASKS_DIR / f"{task_id}.json"
+    if not task_path.exists():
+        error_exit(f"Task {task_id} not found", use_json=args.json)
+
+    task_data = load_task_with_state(task_id, use_json=args.json)
+    status = task_data.get("status", "todo")
+
+    if status in ("done", "skipped"):
+        error_exit(f"Cannot split task {task_id} with status '{status}'", use_json=args.json)
+
+    epic_id = epic_id_from_task(task_id)
+    titles = [t.strip() for t in args.titles.split("|") if t.strip()]
+    if len(titles) < 2:
+        error_exit("Need at least 2 sub-task titles separated by '|'", use_json=args.json)
+
+    # Find next available task number
+    max_task = scan_max_task_id(flow_dir, epic_id)
+    created = []
+
+    # Original task's dependencies become the first sub-task's dependencies
+    original_deps = task_data.get("depends_on", [])
+
+    for i, title in enumerate(titles):
+        sub_num = max_task + 1 + i
+        sub_id = f"{epic_id}.{sub_num}"
+
+        # First sub-task inherits original deps; subsequent depend on previous
+        if i == 0:
+            sub_deps = original_deps
+        else:
+            prev_id = f"{epic_id}.{max_task + i}"
+            sub_deps = [prev_id] if args.chain else []
+
+        sub_data = {
+            "id": sub_id,
+            "epic": epic_id,
+            "title": title,
+            "status": "todo",
+            "priority": task_data.get("priority"),
+            "depends_on": sub_deps,
+            "domain": task_data.get("domain"),
+            "files": [],
+            "assignee": None,
+            "claimed_at": None,
+            "claim_note": "",
+            "split_from": task_id,
+            "spec_path": f"{FLOW_DIR}/{TASKS_DIR}/{sub_id}.md",
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        atomic_write_json(flow_dir / TASKS_DIR / f"{sub_id}.json", sub_data)
+
+        spec_content = create_task_spec(sub_id, title, None)
+        atomic_write(flow_dir / TASKS_DIR / f"{sub_id}.md", spec_content)
+        created.append(sub_id)
+
+    # Mark original task as skipped with split reference
+    def_data = load_json_or_exit(task_path, f"Task {task_id}", use_json=args.json)
+    def_data["status"] = "skipped"
+    def_data["skipped_reason"] = f"Split into: {', '.join(created)}"
+    def_data["split_into"] = created
+    def_data["updated_at"] = now_iso()
+    atomic_write_json(task_path, def_data)
+
+    from flowctl.core.state import save_task_runtime
+    save_task_runtime(task_id, {"status": "skipped", "skipped_reason": f"Split into: {', '.join(created)}"})
+
+    # Update any tasks that depended on the original to depend on the LAST sub-task
+    last_sub = created[-1]
+    tasks_dir = flow_dir / TASKS_DIR
+    for other_file in sorted(tasks_dir.glob(f"{epic_id}.*.json")):
+        other_id = other_file.stem
+        if other_id == task_id or other_id in created:
+            continue
+        other_data = load_json(other_file)
+        if not other_data:
+            continue
+        deps = other_data.get("depends_on", other_data.get("deps", []))
+        if task_id in deps:
+            deps = [last_sub if d == task_id else d for d in deps]
+            other_data["depends_on"] = deps
+            other_data["updated_at"] = now_iso()
+            atomic_write_json(other_file, other_data)
+
+    if args.json:
+        json_output({
+            "success": True,
+            "original": task_id,
+            "split_into": created,
+            "chain": args.chain,
+            "message": f"Task {task_id} split into {len(created)} sub-tasks",
+        })
+    else:
+        print(f"Task {task_id} split into:")
+        for sub_id in created:
+            print(f"  {sub_id}")
+        print(f"Original task marked as skipped. Downstream deps updated to {last_sub}.")

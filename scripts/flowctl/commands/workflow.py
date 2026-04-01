@@ -106,21 +106,21 @@ def cmd_ready(args: argparse.Namespace) -> None:
             in_progress.append(task)
             continue
 
-        if task["status"] == "done":
+        if task["status"] in ("done", "skipped"):
             continue
 
         if task["status"] == "blocked":
             blocked.append({"task": task, "blocked_by": ["status=blocked"]})
             continue
 
-        # Check all deps are done
+        # Check all deps are done (skipped counts as satisfied)
         deps_done = True
         blocking_deps = []
         for dep in task["depends_on"]:
             if dep not in tasks:
                 deps_done = False
                 blocking_deps.append(dep)
-            elif tasks[dep]["status"] != "done":
+            elif tasks[dep]["status"] not in ("done", "skipped"):
                 deps_done = False
                 blocking_deps.append(dep)
 
@@ -326,7 +326,7 @@ def cmd_next(args: argparse.Namespace) -> None:
             deps_done = True
             for dep in task.get("depends_on", []):
                 dep_task = tasks.get(dep)
-                if not dep_task or dep_task.get("status") != "done":
+                if not dep_task or dep_task.get("status") not in ("done", "skipped"):
                     deps_done = False
                     break
             if deps_done:
@@ -435,7 +435,7 @@ def cmd_queue(args: argparse.Namespace) -> None:
             if task.get("status") != "todo":
                 continue
             deps_done = all(
-                all_tasks.get(d, {}).get("status") == "done"
+                all_tasks.get(d, {}).get("status") in ("done", "skipped")
                 for d in task.get("depends_on", [])
             )
             if deps_done:
@@ -532,11 +532,11 @@ def cmd_start(args: argparse.Namespace) -> None:
     task_def = normalize_task(load_task_definition(args.id, use_json=args.json))
     depends_on = task_def.get("depends_on", []) or []
 
-    # Validate all dependencies are done (outside lock - this is read-only check)
+    # Validate all dependencies are done/skipped (outside lock - this is read-only check)
     if not args.force:
         for dep in depends_on:
             dep_data = load_task_with_state(dep, use_json=args.json)
-            if dep_data["status"] != "done":
+            if dep_data["status"] not in ("done", "skipped"):
                 error_exit(
                     f"Cannot start task {args.id}: dependency {dep} is '{dep_data['status']}', not 'done'. "
                     f"Complete dependencies first or use --force to override.",

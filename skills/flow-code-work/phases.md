@@ -202,6 +202,7 @@ The main conversation acts as team lead. Worker↔lead communication uses **plai
 | `"Spec conflict: <id>"` | Spec wrong/contradicts codebase | Pause, report to user |
 | `"Blocked: <id>"` | Dependency or external blocker | Check blocker, unblock or reassign |
 | `"Need file access: <file>"` | Worker needs unowned file | Check owner, grant or deny |
+| `"Need mutation: <id>"` | Task needs structural change | Apply mutation (split/skip/dep change), notify worker |
 
 **Lead → Worker message types:**
 
@@ -241,6 +242,18 @@ While tasks remain in this wave:
        → If locked by active task:
          → SendMessage(to: "worker-<task-id>", summary: "Access denied: <file>",
              message: "Access denied for <file>. Locked by <owner-task-id>. Find an alternative approach.")
+
+     "Need mutation: <id>":
+       → Parse message body for mutation type (split / skip / dep_change)
+       → Apply mutation:
+         split:  $FLOWCTL task split <id> --titles "Part1|Part2|Part3" --chain --json
+         skip:   $FLOWCTL task skip <id> --reason "<reason>" --json
+         dep_rm: $FLOWCTL dep rm <id> <dep-id> --json
+       → Unlock original task files: $FLOWCTL unlock --task <id> --json
+       → Notify worker of result:
+         SendMessage(to: "worker-<task-id>", summary: "Mutation applied: <id>",
+           message: "Mutation applied. <details of what changed>. Check ready tasks for your next assignment.")
+       → Run $FLOWCTL ready to find newly unblocked tasks
 
   2. When a worker completes and goes idle:
      → Run $FLOWCTL ready --epic <epic-id> --json

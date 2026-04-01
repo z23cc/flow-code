@@ -76,13 +76,14 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 ## Key Design Decisions
 
 - **flowctl outputs JSON** (`--json` flag) for machine consumption by skills/agents
-- **State machine**: tasks follow `todo → in_progress → done` (with `blocked` side-state)
+- **State machine**: tasks follow `todo → in_progress → done` (with `blocked` and `skipped` side-states)
 - **Evidence-based completion**: `flowctl done` requires `--summary-file` and `--evidence-json`
 - **Wave-Checkpoint-Wave**: workers execute task batches in parallel with checkpoint gates
 - **Plan review gating**: `flowctl next --require-plan-review` blocks work until plan is reviewed
 - **Architecture invariants**: immutable rules registered via `flowctl invariant add` with verify commands
 - **Gap registry**: epics carry a `gaps` field managed via `flowctl gap`, enforced at epic close
 - **Task restart**: `flowctl restart <task-id>` resets a task and cascades to all downstream dependents (`--dry-run`, `--force`)
+- **Runtime DAG mutation**: `flowctl task split <id> --titles "A|B|C" --chain` splits task into sub-tasks; `flowctl task skip <id> --reason` marks task as skipped (downstream deps treat as satisfied); `flowctl dep rm <task> <dep>` removes a dependency. Workers request mutations via "Need mutation:" protocol message
 - **Git diff snapshots**: worker agent captures baseline rev before implementation and `workspace_changes` in evidence
 - **Review comparison**: `flowctl review-backend --compare <files>` or `--epic <id>` detects consensus/conflict across review receipts (auto-archived to `.flow/reviews/`)
 - **Domain tagging**: `flowctl task create --domain <domain>` tags tasks (frontend/backend/architecture/testing/docs/ops/general), filterable via `tasks --domain`

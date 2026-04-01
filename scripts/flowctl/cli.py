@@ -58,6 +58,9 @@ from flowctl.commands.task import (
     cmd_task_set_acceptance,
     cmd_task_set_spec,
     cmd_task_reset,
+    cmd_dep_rm,
+    cmd_task_skip,
+    cmd_task_split,
 )
 from flowctl.commands.workflow import (
     cmd_ready,
@@ -437,6 +440,19 @@ def main() -> None:
     p_task_reset.add_argument("--json", action="store_true", help="JSON output")
     p_task_reset.set_defaults(func=cmd_task_reset)
 
+    p_task_skip = task_sub.add_parser("skip", help="Skip task (mark as permanently skipped)")
+    p_task_skip.add_argument("task_id", help="Task ID")
+    p_task_skip.add_argument("--reason", help="Why the task is being skipped")
+    p_task_skip.add_argument("--json", action="store_true", help="JSON output")
+    p_task_skip.set_defaults(func=cmd_task_skip)
+
+    p_task_split = task_sub.add_parser("split", help="Split task into sub-tasks (runtime DAG mutation)")
+    p_task_split.add_argument("task_id", help="Task ID to split")
+    p_task_split.add_argument("--titles", required=True, help="Sub-task titles separated by '|' (e.g., 'Backend|Frontend|Tests')")
+    p_task_split.add_argument("--chain", action="store_true", help="Chain sub-tasks sequentially (each depends on previous)")
+    p_task_split.add_argument("--json", action="store_true", help="JSON output")
+    p_task_split.set_defaults(func=cmd_task_split)
+
     p_task_set_backend = task_sub.add_parser(
         "set-backend", help="Set backend specs for impl/review/sync"
     )
@@ -479,6 +495,12 @@ def main() -> None:
     p_dep_add.add_argument("depends_on", help="Dependency task ID (e.g., fn-1.1, fn-1-add-auth.1)")
     p_dep_add.add_argument("--json", action="store_true", help="JSON output")
     p_dep_add.set_defaults(func=cmd_dep_add)
+
+    p_dep_rm = dep_sub.add_parser("rm", help="Remove dependency")
+    p_dep_rm.add_argument("task", help="Task ID")
+    p_dep_rm.add_argument("depends_on", help="Dependency to remove")
+    p_dep_rm.add_argument("--json", action="store_true", help="JSON output")
+    p_dep_rm.set_defaults(func=cmd_dep_rm)
 
     # gap
     p_gap = subparsers.add_parser("gap", help="Requirement gap registry")

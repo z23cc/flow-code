@@ -140,6 +140,76 @@ RESULT=$(python3 "$FLOWCTL" ready --epic "$EPIC" --json)
 READY=$(echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin)['ready']; print(' '.join(t['id'] for t in r))")
 echo "$READY" | grep -q "$EPIC.3" && pass "task 3 unblocked after task 1 done" || fail "task 3 not in ready list"
 
+echo -e "\033[1;33m--- Runtime DAG mutation ---\033[0m"
+
+# New epic for DAG mutation tests
+python3 "$FLOWCTL" epic create --title "DAG mutation" --json > /dev/null
+MEPIC="fn-2-dag-mutation"
+
+# Chain: M1 → M2 → M3
+python3 "$FLOWCTL" task create --epic "$MEPIC" --title "Step A" --json > /dev/null
+python3 "$FLOWCTL" task create --epic "$MEPIC" --title "Step B" --dep "$MEPIC.1" --json > /dev/null
+python3 "$FLOWCTL" task create --epic "$MEPIC" --title "Step C" --dep "$MEPIC.2" --json > /dev/null
+
+# dep rm: remove M2's dep on M1
+RESULT=$(python3 "$FLOWCTL" dep rm "$MEPIC.2" "$MEPIC.1" --json)
+REMOVED=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('removed', False))")
+[[ "$REMOVED" == "True" ]] && pass "dep rm removes dependency" || fail "dep rm failed: $REMOVED"
+
+# After dep rm, M1 and M2 both ready
+RESULT=$(python3 "$FLOWCTL" ready --epic "$MEPIC" --json)
+READY_COUNT=$(echo "$RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['ready']))")
+[[ "$READY_COUNT" == "2" ]] && pass "dep rm unblocks task (2 ready)" || fail "expected 2 ready got $READY_COUNT"
+
+# dep rm idempotent (already removed)
+RESULT=$(python3 "$FLOWCTL" dep rm "$MEPIC.2" "$MEPIC.1" --json)
+REMOVED=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('removed', False))")
+[[ "$REMOVED" == "False" ]] && pass "dep rm idempotent (already removed)" || fail "dep rm should be no-op"
+
+# task skip
+RESULT=$(python3 "$FLOWCTL" task skip "$MEPIC.1" --reason "Not needed" --json)
+STATUS=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+[[ "$STATUS" == "skipped" ]] && pass "task skip sets status=skipped" || fail "expected skipped got $STATUS"
+
+# skipped task not in ready list
+RESULT=$(python3 "$FLOWCTL" ready --epic "$MEPIC" --json)
+READY_IDS=$(echo "$RESULT" | python3 -c "import sys,json; print(' '.join(t['id'] for t in json.load(sys.stdin)['ready']))")
+echo "$READY_IDS" | grep -qv "$MEPIC.1" && pass "skipped task excluded from ready" || fail "skipped task still in ready"
+
+# task split: split M2 into 3 sub-tasks
+RESULT=$(python3 "$FLOWCTL" task split "$MEPIC.2" --titles "Backend|Frontend|Integration" --chain --json)
+SUCCESS=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['success'])")
+SPLIT_COUNT=$(echo "$RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['split_into']))")
+[[ "$SUCCESS" == "True" ]] && pass "task split succeeds" || fail "task split failed"
+[[ "$SPLIT_COUNT" == "3" ]] && pass "split created 3 sub-tasks" || fail "expected 3 sub-tasks got $SPLIT_COUNT"
+
+# Original M2 should be skipped
+RESULT=$(python3 "$FLOWCTL" show "$MEPIC.2" --json)
+STATUS=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+[[ "$STATUS" == "skipped" ]] && pass "original task marked skipped after split" || fail "expected skipped got $STATUS"
+
+# M3 should now depend on last sub-task (M2.6 = MEPIC.6)
+RESULT=$(python3 "$FLOWCTL" show "$MEPIC.3" --json)
+DEPS=$(echo "$RESULT" | python3 -c "import sys,json; print(','.join(json.load(sys.stdin).get('depends_on',[])))")
+echo "$DEPS" | grep -q "$MEPIC.6" && pass "downstream dep updated to last sub-task" || fail "M3 deps=$DEPS, expected $MEPIC.6"
+
+# First sub-task (M4) should be ready
+RESULT=$(python3 "$FLOWCTL" ready --epic "$MEPIC" --json)
+READY_IDS=$(echo "$RESULT" | python3 -c "import sys,json; print(' '.join(t['id'] for t in json.load(sys.stdin)['ready']))")
+echo "$READY_IDS" | grep -q "$MEPIC.4" && pass "first sub-task is ready" || fail "M4 not in ready: $READY_IDS"
+
+# Complete chain: M4 → M5 → M6 → M3 should unblock
+python3 "$FLOWCTL" start "$MEPIC.4" --json > /dev/null
+python3 "$FLOWCTL" done "$MEPIC.4" --summary "done" --evidence-json '{"tests_passed":true}' --json > /dev/null
+python3 "$FLOWCTL" start "$MEPIC.5" --json > /dev/null
+python3 "$FLOWCTL" done "$MEPIC.5" --summary "done" --evidence-json '{"tests_passed":true}' --json > /dev/null
+python3 "$FLOWCTL" start "$MEPIC.6" --json > /dev/null
+python3 "$FLOWCTL" done "$MEPIC.6" --summary "done" --evidence-json '{"tests_passed":true}' --json > /dev/null
+
+RESULT=$(python3 "$FLOWCTL" ready --epic "$MEPIC" --json)
+READY_IDS=$(echo "$RESULT" | python3 -c "import sys,json; print(' '.join(t['id'] for t in json.load(sys.stdin)['ready']))")
+echo "$READY_IDS" | grep -q "$MEPIC.3" && pass "M3 unblocked after split chain completed" || fail "M3 not ready: $READY_IDS"
+
 echo ""
 echo -e "\033[1;33m=== Results ===\033[0m"
 echo -e "Passed: \033[0;32m$PASS\033[0m"

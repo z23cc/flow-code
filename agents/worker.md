@@ -67,6 +67,12 @@ SendMessage(to: "coordinator", summary: "Need file access: <file>",
   message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id>")
 ```
 
+5. **Mutation request** — when the task should be split, skipped, or dependencies changed:
+```
+SendMessage(to: "coordinator", summary: "Need mutation: <TASK_ID>",
+  message: "Task <TASK_ID> needs structural change.\nType: split | skip | dep_change\nDetails: <why the mutation is needed>\nSuggested action: <split into N parts | skip because X | remove dep on Y>")
+```
+
 **Team Lead → Worker messages (you receive these):**
 
 The lead sends plain text messages. Detect intent by the `summary` prefix or keywords:

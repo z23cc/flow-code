@@ -83,11 +83,19 @@ REVIEW_BACKEND=$($FLOWCTL review-backend)
 Based on the request text, decide:
 - **Research**: request references existing code paths → `repo-scout`. involves new/unfamiliar tech → `context-scout`.
 - **Depth**: clear and scoped request → `short`. needs design decisions → `standard`. architecture change → `deep`.
-- **Review**: backend configured (rp/codex/none) → use it. `ASK` (not configured) → `none`.
+- **Review** (auto, layer-aware):
+  - Check `$REVIEW_BACKEND`:
+    - Returns `rp` → use RP for plan review (code-aware, sees full codebase)
+    - Returns `codex` → use Codex for plan review (fallback)
+    - Returns `none` → skip plan review
+    - Returns `ASK` → auto-detect available tools:
+      - `which rp-cli` succeeds → use RP
+      - else `which codex` succeeds → use Codex
+      - else → skip review
 
 Output one line:
 ```
-Research: <repo-scout|context-scout> | Depth: <short|standard|deep> | Review: <backend|none>
+Research: <repo-scout|context-scout> | Depth: <short|standard|deep> | Review: <rp|codex|none> (auto-detected)
 ```
 
 ### Explicit flag overrides

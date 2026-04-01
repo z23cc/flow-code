@@ -1,7 +1,7 @@
 ---
 name: claude-md-scout
 description: Used by /flow-code:prime to analyze CLAUDE.md and AGENTS.md quality and completeness. Do not invoke directly.
-model: claude-sonnet-4-6
+model: haiku
 disallowedTools: Edit, Write, Task
 color: "#EC4899"
 permissionMode: bypassPermissions

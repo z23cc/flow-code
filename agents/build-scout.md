@@ -1,7 +1,7 @@
 ---
 name: build-scout
 description: Used by /flow-code:prime to analyze build system, scripts, and CI configuration. Do not invoke directly.
-model: claude-sonnet-4-6
+model: haiku
 disallowedTools: Edit, Write, Task
 color: "#F59E0B"
 permissionMode: bypassPermissions

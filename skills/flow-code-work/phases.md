@@ -459,7 +459,7 @@ Plan-sync returns summary. Log it but don't block - task updates are best-effort
 
 ### 3j. Completion Review Gate (EPIC_MODE only)
 
-When 3a finds no ready tasks, check if completion review is required.
+When 3a finds no ready tasks, run adversarial review before shipping.
 
 **Check epic's completion review status directly:**
 
@@ -468,29 +468,39 @@ $FLOWCTL show <epic-id> --json | jq -r '.completion_review_status'
 ```
 
 - If `ship` → review already passed, go to Phase 4
-- If `unknown` or `needs_work` → needs review
+- If `unknown` or `needs_work` → run adversarial review
 
-**If review needed:**
+**Adversarial review (always runs — Layer 3 of quality system):**
 
-1. Invoke `/flow-code:epic-review <epic-id>` skill
-   - Pass `--review=<backend>` matching the work review backend
-   - Skill handles rp/codex backend dispatch
-   - Skill runs fix loop internally until SHIP verdict
+The point of epic completion review is adversarial: a different model family tries to **break** the code, not validate it. This catches blind spots that the implementing model missed.
 
-2. After skill returns with SHIP:
-   - Set status: `$FLOWCTL epic set-completion-review-status <epic-id> --status ship --json`
-   - Go to Phase 4 (Quality)
+1. Check codex CLI is available:
+   ```bash
+   which codex >/dev/null 2>&1
+   ```
 
-**Note:** The epic-review skill gets SHIP from the reviewer but does NOT set the status itself. The caller (work skill or Ralph) sets `completion_review_status=ship` after successful review.
+2. If codex available → run adversarial review:
+   ```bash
+   # Use merge-base to scope diff to this epic's changes
+   BRANCH_BASE=$(git merge-base main HEAD)
+   $FLOWCTL codex adversarial --base "$BRANCH_BASE" --json
+   ```
 
-**Fix loop behavior**: Same as impl-review. If reviewer returns NEEDS_WORK:
-1. Skill parses issues
-2. Skill fixes code inline
-3. Skill commits
-4. Skill re-reviews (same chat for rp, same session for codex)
-5. Repeat until SHIP
+   Parse the JSON response:
+   - `verdict: "SHIP"` → proceed to step 4
+   - `verdict: "NEEDS_WORK"` → fix the issues identified, commit, re-run adversarial (repeat until SHIP)
 
-Only after SHIP does control return here. If skill outputs `<promise>RETRY</promise>`, there was a backend error - retry the skill invocation.
+3. If codex not available → skip adversarial review (no fallback to RP — different model family is the point). Log a warning:
+   ```
+   ⚠ Codex CLI not found — skipping Layer 3 adversarial review.
+   Install codex to enable cross-model adversarial review on epic completion.
+   ```
+
+4. After SHIP (or skip):
+   ```bash
+   $FLOWCTL epic set-completion-review-status <epic-id> --status ship --json
+   ```
+   Go to Phase 4 (Quality)
 
 ---
 

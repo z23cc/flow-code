@@ -721,7 +721,7 @@ def cmd_epic_close(args: argparse.Namespace) -> None:
         if not is_task_id(task_id):
             continue  # Skip non-task files (e.g., fn-1.2-review.json)
         task_data = load_task_with_state(task_id, use_json=args.json)
-        if task_data["status"] != "done":
+        if task_data["status"] not in ("done", "skipped"):
             incomplete.append(f"{task_data['id']} ({task_data['status']})")
 
     if incomplete:

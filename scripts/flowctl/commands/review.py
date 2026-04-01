@@ -1742,10 +1742,15 @@ def _load_adversarial_prompt(focus_block: str, diff_summary: str,
 def parse_adversarial_output(output: str) -> Optional[dict]:
     """Parse structured JSON output from adversarial review.
 
-    Tries to extract a JSON object with verdict, summary, findings, and
-    next_steps. Returns the parsed dict on success, None on failure.
+    Handles multiple output formats:
+    1. Direct JSON object with verdict
+    2. JSONL streaming events (codex exec --json) with verdict nested in agent_message
+    3. Markdown-fenced JSON
+    4. JSON embedded in free text
+
+    Returns the parsed dict on success, None on failure.
     """
-    # Try direct JSON parse
+    # Strategy 1: Direct JSON parse (clean output)
     try:
         data = json.loads(output.strip())
         if isinstance(data, dict) and "verdict" in data:
@@ -1753,7 +1758,28 @@ def parse_adversarial_output(output: str) -> Optional[dict]:
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Try extracting JSON from markdown fences or mixed output
+    # Strategy 2: Extract from JSONL streaming events (codex exec --json output)
+    # Look for agent_message items containing the verdict JSON
+    for line in output.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+            if event.get("type") == "item.completed":
+                item = event.get("item", {})
+                if item.get("type") == "agent_message":
+                    text = item.get("text", "")
+                    try:
+                        data = json.loads(text)
+                        if isinstance(data, dict) and "verdict" in data:
+                            return data
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    # Strategy 3: Markdown fences
     json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", output, re.DOTALL)
     if json_match:
         try:
@@ -1763,8 +1789,8 @@ def parse_adversarial_output(output: str) -> Optional[dict]:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Try finding a JSON object anywhere in the output
-    brace_match = re.search(r"\{.*\"verdict\".*\}", output, re.DOTALL)
+    # Strategy 4: Greedy brace match for embedded JSON
+    brace_match = re.search(r"\{[^{}]*\"verdict\"[^{}]*\}", output)
     if brace_match:
         try:
             data = json.loads(brace_match.group(0))

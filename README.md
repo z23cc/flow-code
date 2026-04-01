@@ -82,19 +82,22 @@ Rationale: keeps the system simple, improves re-anchoring, makes automation (Ral
 
 ## Why It Works
 
-### You Control the Granularity
+### Full-Auto by Default
 
-Work task-by-task with full review cycles for maximum control. Or throw the whole epic at it and let Flow-Code handle everything. Same guarantees either way.
+Say one sentence. Flow-Code plans, implements, tests, commits, and opens a draft PR — zero questions asked. AI reads git state and `.flow/` config to make all decisions (branch, review backend, research depth) autonomously.
 
 ```bash
-# One task at a time (review after each)
-/flow-code:work fn-1.1
+# Full auto: plan → implement → test → commit → draft PR
+/flow-code:plan "add OAuth support"
 
-# Entire epic (auto-parallel with Teams coordination)
+# Resume anytime — reads .flow state and continues from where it left off
 /flow-code:work fn-1
+
+# One task at a time for maximum control
+/flow-code:work fn-1.1
 ```
 
-All modes get: re-anchoring before each task, evidence recording, file locking, cross-model review (if rp-cli available).
+All modes get: re-anchoring before each task, evidence recording, file locking, cross-model review (if rp-cli available), and auto push + draft PR on completion.
 
 **Default: Teams mode** — Ready tasks (no unresolved dependencies) are automatically spawned as parallel Agent Team workers with file locking and SendMessage coordination. Single tasks run as a foreground worker with zero overhead. After each wave completes, a structured **Wave Checkpoint** runs: aggregate results, verify integration (guards + invariants), output a summary, then plan the next wave. Newly unblocked tasks become ready for the next batch.
 

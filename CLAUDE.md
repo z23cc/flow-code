@@ -99,6 +99,7 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Worker self-review**: Phase 2.5 runs guard + structured diff review (correctness, quality, performance, testing) before commit
 - **Plan auto-execute**: `/flow-code:plan` defaults to auto-execute work after planning (≤10 tasks direct, >10 suggests Ralph); `--plan-only` to opt out
 - **Goal-backward verification**: worker Phase 5 re-reads acceptance criteria and verifies each is actually satisfied before completing
+- **Full-auto by default**: `/flow-code:plan` and `/flow-code:work` require zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
 
 ## Files to Never Commit
 

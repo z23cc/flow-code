@@ -1711,75 +1711,62 @@ def cmd_checkpoint_delete(args: argparse.Namespace) -> None:
 # Adversarial review via Codex
 # ---------------------------------------------------------------------------
 
-ADVERSARIAL_PROMPT_TEMPLATE = """<role>
-You are performing an adversarial software review.
-Your job is to break confidence in the change, not to validate it.
-</role>
+def _get_plugin_root() -> Path:
+    """Get the flow-code plugin root directory."""
+    return Path(__file__).resolve().parent.parent.parent.parent
 
-<task>
-Review the code changes as if you are trying to find the strongest reasons this change should not ship yet.
-{focus_block}
-</task>
 
-<operating_stance>
-Default to skepticism.
-Assume the change can fail in subtle, high-cost, or user-visible ways until the evidence says otherwise.
-Do not give credit for good intent, partial fixes, or likely follow-up work.
-If something only works on the happy path, treat that as a real weakness.
-</operating_stance>
+def _load_adversarial_prompt(focus_block: str, diff_summary: str,
+                             diff_content: str, embedded_files: str) -> str:
+    """Load adversarial review prompt from prompts/adversarial-review.md."""
+    prompt_path = _get_plugin_root() / "prompts" / "adversarial-review.md"
+    template = prompt_path.read_text()
+    return template.replace(
+        "{{focus_block}}", focus_block,
+    ).replace(
+        "{{diff_summary}}", diff_summary,
+    ).replace(
+        "{{diff_content}}", diff_content,
+    ).replace(
+        "{{embedded_files}}", embedded_files,
+    )
 
-<attack_surface>
-Prioritize failures that are expensive, dangerous, or hard to detect:
-- auth, permissions, tenant isolation, trust boundaries
-- data loss, corruption, duplication, irreversible state changes
-- rollback safety, retries, partial failure, idempotency gaps
-- race conditions, ordering assumptions, stale state, re-entrancy
-- empty-state, null, timeout, degraded dependency behavior
-- version skew, schema drift, migration hazards, compatibility regressions
-- observability gaps that would hide failure or make recovery harder
-</attack_surface>
 
-<review_method>
-Actively try to disprove the change.
-Look for violated invariants, missing guards, unhandled failure paths, and assumptions that stop being true under stress.
-Trace how bad inputs, retries, concurrent actions, or partially completed operations move through the code.
-</review_method>
+def parse_adversarial_output(output: str) -> Optional[dict]:
+    """Parse structured JSON output from adversarial review.
 
-<finding_bar>
-Report only material findings. Each finding must answer:
-1. What can go wrong?
-2. Why is this code path vulnerable?
-3. What is the likely impact?
-4. What concrete change would reduce the risk?
-Do not include style feedback, naming feedback, or speculative concerns without evidence.
-</finding_bar>
+    Tries to extract a JSON object with verdict, summary, findings, and
+    next_steps. Returns the parsed dict on success, None on failure.
+    """
+    # Try direct JSON parse
+    try:
+        data = json.loads(output.strip())
+        if isinstance(data, dict) and "verdict" in data:
+            return data
+    except (json.JSONDecodeError, ValueError):
+        pass
 
-<verdict_format>
-If ANY material risk worth blocking on: <verdict>NEEDS_WORK</verdict>
-If you cannot support any substantive finding: <verdict>SHIP</verdict>
+    # Try extracting JSON from markdown fences or mixed output
+    json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", output, re.DOTALL)
+    if json_match:
+        try:
+            data = json.loads(json_match.group(1).strip())
+            if isinstance(data, dict) and "verdict" in data:
+                return data
+        except (json.JSONDecodeError, ValueError):
+            pass
 
-After the verdict, list findings (if any) with file paths and line numbers.
-Prefer one strong finding over several weak ones. Do not dilute serious issues with filler.
-</verdict_format>
+    # Try finding a JSON object anywhere in the output
+    brace_match = re.search(r"\{.*\"verdict\".*\}", output, re.DOTALL)
+    if brace_match:
+        try:
+            data = json.loads(brace_match.group(0))
+            if isinstance(data, dict) and "verdict" in data:
+                return data
+        except (json.JSONDecodeError, ValueError):
+            pass
 
-<grounding_rules>
-Be aggressive but stay grounded.
-Every finding must be defensible from the provided code context.
-Do not invent files, code paths, or runtime behavior you cannot support.
-If a conclusion depends on inference, state that explicitly.
-</grounding_rules>
-
-<diff_summary>
-{diff_summary}
-</diff_summary>
-
-<diff_content>
-{diff_content}
-</diff_content>
-
-<embedded_files>
-{embedded_files}
-</embedded_files>"""
+    return None
 
 
 def cmd_codex_adversarial(args: argparse.Namespace) -> None:
@@ -1830,7 +1817,7 @@ def cmd_codex_adversarial(args: argparse.Namespace) -> None:
 
     # Build prompt
     focus_block = f"Focus area: {focus}" if focus else ""
-    prompt = ADVERSARIAL_PROMPT_TEMPLATE.format(
+    prompt = _load_adversarial_prompt(
         focus_block=focus_block,
         diff_summary=diff_summary,
         diff_content=diff_content,
@@ -1850,18 +1837,30 @@ def cmd_codex_adversarial(args: argparse.Namespace) -> None:
         msg = (stderr or output or "codex exec failed").strip()
         error_exit(f"Adversarial review failed: {msg}", use_json=args.json, code=2)
 
-    # Parse verdict
-    verdict = parse_codex_verdict(output)
+    # Parse structured JSON output first, fall back to regex verdict
+    structured = parse_adversarial_output(output)
 
     if args.json:
-        json_output({
-            "verdict": verdict or "UNKNOWN",
-            "output": output,
-            "base": base_branch,
-            "focus": focus,
-            "files_reviewed": len(changed_files),
-        })
+        if structured:
+            structured["base"] = base_branch
+            structured["focus"] = focus
+            structured["files_reviewed"] = len(changed_files)
+            json_output(structured)
+        else:
+            verdict = parse_codex_verdict(output)
+            json_output({
+                "verdict": verdict or "UNKNOWN",
+                "output": output,
+                "base": base_branch,
+                "focus": focus,
+                "files_reviewed": len(changed_files),
+            })
     else:
-        print(output)
-        if verdict:
-            print(f"\nVerdict: {verdict}")
+        if structured:
+            print(json.dumps(structured, indent=2))
+            print(f"\nVerdict: {structured.get('verdict', 'UNKNOWN')}")
+        else:
+            print(output)
+            verdict = parse_codex_verdict(output)
+            if verdict:
+                print(f"\nVerdict: {verdict}")

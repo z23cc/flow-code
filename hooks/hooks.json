@@ -13,6 +13,17 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -d .flow ] || bash \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/commit-gate.sh\"",
+            "timeout": 10
+          }
+        ],
+        "description": "Block git commit when flow task is in_progress but guard has not passed"
+      },
+      {
         "matcher": "Edit|Write",
         "hooks": [
           {
@@ -33,6 +44,17 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -d .flow ] || bash \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/commit-gate.sh\"",
+            "timeout": 10
+          }
+        ],
+        "description": "Track flowctl guard pass for commit-gate"
       }
     ],
     "Stop": [

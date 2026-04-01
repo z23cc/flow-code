@@ -1705,3 +1705,163 @@ def cmd_checkpoint_delete(args: argparse.Namespace) -> None:
         })
     else:
         print(f"Deleted checkpoint for {epic_id}")
+
+
+# ---------------------------------------------------------------------------
+# Adversarial review via Codex
+# ---------------------------------------------------------------------------
+
+ADVERSARIAL_PROMPT_TEMPLATE = """<role>
+You are performing an adversarial software review.
+Your job is to break confidence in the change, not to validate it.
+</role>
+
+<task>
+Review the code changes as if you are trying to find the strongest reasons this change should not ship yet.
+{focus_block}
+</task>
+
+<operating_stance>
+Default to skepticism.
+Assume the change can fail in subtle, high-cost, or user-visible ways until the evidence says otherwise.
+Do not give credit for good intent, partial fixes, or likely follow-up work.
+If something only works on the happy path, treat that as a real weakness.
+</operating_stance>
+
+<attack_surface>
+Prioritize failures that are expensive, dangerous, or hard to detect:
+- auth, permissions, tenant isolation, trust boundaries
+- data loss, corruption, duplication, irreversible state changes
+- rollback safety, retries, partial failure, idempotency gaps
+- race conditions, ordering assumptions, stale state, re-entrancy
+- empty-state, null, timeout, degraded dependency behavior
+- version skew, schema drift, migration hazards, compatibility regressions
+- observability gaps that would hide failure or make recovery harder
+</attack_surface>
+
+<review_method>
+Actively try to disprove the change.
+Look for violated invariants, missing guards, unhandled failure paths, and assumptions that stop being true under stress.
+Trace how bad inputs, retries, concurrent actions, or partially completed operations move through the code.
+</review_method>
+
+<finding_bar>
+Report only material findings. Each finding must answer:
+1. What can go wrong?
+2. Why is this code path vulnerable?
+3. What is the likely impact?
+4. What concrete change would reduce the risk?
+Do not include style feedback, naming feedback, or speculative concerns without evidence.
+</finding_bar>
+
+<verdict_format>
+If ANY material risk worth blocking on: <verdict>NEEDS_WORK</verdict>
+If you cannot support any substantive finding: <verdict>SHIP</verdict>
+
+After the verdict, list findings (if any) with file paths and line numbers.
+Prefer one strong finding over several weak ones. Do not dilute serious issues with filler.
+</verdict_format>
+
+<grounding_rules>
+Be aggressive but stay grounded.
+Every finding must be defensible from the provided code context.
+Do not invent files, code paths, or runtime behavior you cannot support.
+If a conclusion depends on inference, state that explicitly.
+</grounding_rules>
+
+<diff_summary>
+{diff_summary}
+</diff_summary>
+
+<diff_content>
+{diff_content}
+</diff_content>
+
+<embedded_files>
+{embedded_files}
+</embedded_files>"""
+
+
+def cmd_codex_adversarial(args: argparse.Namespace) -> None:
+    """Run adversarial review via Codex — tries to break the code, not validate it."""
+    base_branch = args.base
+    focus = getattr(args, "focus", None)
+
+    # Get diff
+    diff_summary = ""
+    diff_content = ""
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--stat", f"{base_branch}..HEAD"],
+            capture_output=True, text=True, cwd=get_repo_root(),
+        )
+        if result.returncode == 0:
+            diff_summary = result.stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        pass
+
+    max_diff_bytes = 50000
+    try:
+        proc = subprocess.Popen(
+            ["git", "diff", f"{base_branch}..HEAD"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=get_repo_root(),
+        )
+        diff_bytes = proc.stdout.read(max_diff_bytes + 1)
+        was_truncated = len(diff_bytes) > max_diff_bytes
+        if was_truncated:
+            diff_bytes = diff_bytes[:max_diff_bytes]
+        while proc.stdout.read(65536):
+            pass
+        proc.stdout.close()
+        proc.stderr.close()
+        proc.wait()
+        diff_content = diff_bytes.decode("utf-8", errors="replace").strip()
+        if was_truncated:
+            diff_content += "\n\n... [diff truncated at 50KB]"
+    except (subprocess.CalledProcessError, OSError):
+        pass
+
+    if not diff_summary and not diff_content:
+        error_exit(f"No changes found between {base_branch} and HEAD", use_json=args.json)
+
+    # Embed changed files
+    changed_files = get_changed_files(base_branch)
+    embedded_content, _ = get_embedded_file_contents(changed_files)
+
+    # Build prompt
+    focus_block = f"Focus area: {focus}" if focus else ""
+    prompt = ADVERSARIAL_PROMPT_TEMPLATE.format(
+        focus_block=focus_block,
+        diff_summary=diff_summary,
+        diff_content=diff_content,
+        embedded_files=embedded_content or "(no files embedded)",
+    )
+
+    # Resolve sandbox
+    try:
+        sandbox = resolve_codex_sandbox(getattr(args, "sandbox", "auto"))
+    except ValueError as e:
+        error_exit(str(e), use_json=args.json, code=2)
+
+    # Run codex
+    output, thread_id, exit_code, stderr = run_codex_exec(prompt, sandbox=sandbox)
+
+    if exit_code != 0:
+        msg = (stderr or output or "codex exec failed").strip()
+        error_exit(f"Adversarial review failed: {msg}", use_json=args.json, code=2)
+
+    # Parse verdict
+    verdict = parse_codex_verdict(output)
+
+    if args.json:
+        json_output({
+            "verdict": verdict or "UNKNOWN",
+            "output": output,
+            "base": base_branch,
+            "focus": focus,
+            "files_reviewed": len(changed_files),
+        })
+    else:
+        print(output)
+        if verdict:
+            print(f"\nVerdict: {verdict}")

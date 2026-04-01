@@ -113,6 +113,7 @@ from flowctl.commands.review import (
     cmd_codex_impl_review,
     cmd_codex_plan_review,
     cmd_codex_completion_review,
+    cmd_codex_adversarial,
     cmd_checkpoint_save,
     cmd_checkpoint_restore,
     cmd_checkpoint_delete,
@@ -924,6 +925,18 @@ def main() -> None:
         help="Sandbox mode (auto: danger-full-access on Windows, read-only on Unix)",
     )
     p_codex_plan.set_defaults(func=cmd_codex_plan_review)
+
+    p_codex_adversarial = codex_sub.add_parser(
+        "adversarial", help="Adversarial review — tries to break the code, not validate it"
+    )
+    p_codex_adversarial.add_argument("--base", default="main", help="Base branch for diff")
+    p_codex_adversarial.add_argument("--focus", help="Specific area to pressure-test (e.g., 'race conditions', 'auth bypass')")
+    p_codex_adversarial.add_argument("--json", action="store_true", help="JSON output")
+    p_codex_adversarial.add_argument(
+        "--sandbox", default="auto",
+        help="Sandbox mode: read-only (default), network-disabled, danger-full-access, or auto"
+    )
+    p_codex_adversarial.set_defaults(func=cmd_codex_adversarial)
 
     p_codex_completion = codex_sub.add_parser(
         "completion-review", help="Epic completion review"

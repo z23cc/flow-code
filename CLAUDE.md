@@ -93,6 +93,7 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files --epic <id>` shows ownership map + conflict detection
 - **File locking (Teams)**: `flowctl lock --task <id> --files <paths>` acquires runtime file locks; `flowctl unlock --task <id>` releases on completion; `flowctl lock-check --file <path>` inspects lock state; `flowctl unlock --all` clears all locks between waves
 - **Agent Teams mode**: `/flow-code:work --teams` spawns workers as Agent Team teammates with plain-text protocol messages (summary-prefix routing: "Task complete:", "Spec conflict:", "Blocked:", "Need file access:", "New task:", "Access granted/denied:", native `shutdown_request`) and file lock enforcement
+- **Adversarial review**: `flowctl codex adversarial --base main [--focus "area"]` runs Codex in adversarial mode — tries to break the code, not validate it. Returns SHIP/NEEDS_WORK with grounded findings
 - **Review circuit breaker**: impl-review fix loop capped at `MAX_REVIEW_ITERATIONS` (default 3) — prevents infinite NEEDS_WORK cycles
 - **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
 - **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`

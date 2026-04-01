@@ -676,16 +676,22 @@ def cmd_done(args: argparse.Namespace) -> None:
     else:
         summary = "- Task completed"
 
-    # Get evidence: file > inline > default
+    # Get evidence: file-or-inline > inline > default
     evidence: dict
     if args.evidence_json:
-        evidence_raw = read_text_or_exit(
-            Path(args.evidence_json), "Evidence file", use_json=args.json
-        )
+        val = args.evidence_json.strip()
+        if val.startswith("{"):
+            # Inline JSON string passed directly
+            evidence_raw = val
+        else:
+            # File path
+            evidence_raw = read_text_or_exit(
+                Path(val), "Evidence file", use_json=args.json
+            )
         try:
             evidence = json.loads(evidence_raw)
         except json.JSONDecodeError as e:
-            error_exit(f"Evidence file invalid JSON: {e}", use_json=args.json)
+            error_exit(f"Evidence JSON invalid: {e}", use_json=args.json)
     elif args.evidence:
         try:
             evidence = json.loads(args.evidence)

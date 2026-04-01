@@ -160,6 +160,84 @@ def delete_task_runtime(task_id: str) -> None:
             state_path.unlink()
 
 
+# --- File Lock Registry (Teams mode) ---
+
+
+def _file_locks_path() -> Path:
+    """Path to the Teams file lock registry."""
+    return get_state_dir() / "file_locks.json"
+
+
+def _load_file_locks() -> dict:
+    """Load file lock registry. Returns {file_path: {task_id, locked_at}}."""
+    path = _file_locks_path()
+    if not path.exists():
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
+def _save_file_locks(locks: dict) -> None:
+    """Save file lock registry atomically."""
+    path = _file_locks_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(path, json.dumps(locks, indent=2, sort_keys=True) + "\n")
+
+
+def lock_files(task_id: str, files: list[str]) -> dict:
+    """Lock files for a task. Returns {locked: [...], already_locked: [{file, owner}]}."""
+    locks = _load_file_locks()
+    locked = []
+    already_locked = []
+    for f in files:
+        existing = locks.get(f)
+        if existing and existing["task_id"] != task_id:
+            already_locked.append({"file": f, "owner": existing["task_id"]})
+        else:
+            locks[f] = {"task_id": task_id, "locked_at": now_iso()}
+            locked.append(f)
+    _save_file_locks(locks)
+    return {"locked": locked, "already_locked": already_locked}
+
+
+def unlock_files(task_id: str, files: list[str] | None = None) -> list[str]:
+    """Unlock files owned by task_id. If files=None, unlock all files for this task."""
+    locks = _load_file_locks()
+    unlocked = []
+    to_remove = []
+    for f, info in locks.items():
+        if info["task_id"] == task_id:
+            if files is None or f in files:
+                to_remove.append(f)
+                unlocked.append(f)
+    for f in to_remove:
+        del locks[f]
+    _save_file_locks(locks)
+    return unlocked
+
+
+def check_file_lock(file_path: str) -> dict | None:
+    """Check if a file is locked. Returns {task_id, locked_at} or None."""
+    locks = _load_file_locks()
+    return locks.get(file_path)
+
+
+def list_file_locks() -> dict:
+    """Return entire file lock registry."""
+    return _load_file_locks()
+
+
+def clear_file_locks() -> int:
+    """Clear all file locks. Returns count cleared."""
+    locks = _load_file_locks()
+    count = len(locks)
+    _save_file_locks({})
+    return count
+
+
 def save_task_definition(task_id: str, definition: dict) -> None:
     """Write definition to tracked file (filters out runtime fields)."""
     flow_dir = get_flow_dir()

@@ -77,6 +77,9 @@ from flowctl.commands.query import (
     cmd_tasks,
     cmd_list,
     cmd_cat,
+    cmd_lock,
+    cmd_unlock,
+    cmd_lock_check,
 )
 from flowctl.commands.memory import (
     cmd_memory_init,
@@ -483,7 +486,7 @@ def main() -> None:
 
     p_gap_add = gap_sub.add_parser("add", help="Register a requirement gap")
     p_gap_add.add_argument("--epic", required=True, help="Epic ID (e.g., fn-1-add-auth)")
-    p_gap_add.add_argument("--capability", required=True, help="What is missing")
+    p_gap_add.add_argument("--capability", "--title", required=True, help="What is missing")
     p_gap_add.add_argument("--priority", default="required", choices=["required", "important", "nice-to-have"], help="Gap priority (default: required)")
     p_gap_add.add_argument("--source", default="manual", help="Where gap was found (default: manual)")
     p_gap_add.add_argument("--task", default=None, help="Task ID that addresses this gap")
@@ -498,7 +501,9 @@ def main() -> None:
 
     p_gap_resolve = gap_sub.add_parser("resolve", help="Mark a gap as resolved")
     p_gap_resolve.add_argument("--epic", required=True, help="Epic ID")
-    p_gap_resolve.add_argument("--capability", required=True, help="Capability to resolve (used to find the gap)")
+    gap_resolve_target = p_gap_resolve.add_mutually_exclusive_group(required=True)
+    gap_resolve_target.add_argument("--capability", "--title", help="Capability to resolve (used to find the gap)")
+    gap_resolve_target.add_argument("--id", dest="gap_id", help="Gap ID to resolve directly (e.g., gap-b07f8fd3)")
     p_gap_resolve.add_argument("--evidence", required=True, help="How the gap was resolved")
     p_gap_resolve.add_argument("--json", action="store_true", help="JSON output")
     p_gap_resolve.set_defaults(func=cmd_gap_resolve)
@@ -524,6 +529,27 @@ def main() -> None:
     p_files.add_argument("--epic", required=True, help="Epic ID (e.g., fn-1, fn-1-add-auth)")
     p_files.add_argument("--json", action="store_true", help="JSON output")
     p_files.set_defaults(func=cmd_files)
+
+    # lock (Teams file locking)
+    p_lock = subparsers.add_parser("lock", help="Lock files for a task (Teams mode)")
+    p_lock.add_argument("--task", required=True, help="Task ID that owns the files")
+    p_lock.add_argument("--files", required=True, help="Comma-separated file paths to lock")
+    p_lock.add_argument("--json", action="store_true", help="JSON output")
+    p_lock.set_defaults(func=cmd_lock)
+
+    # unlock (Teams file unlocking)
+    p_unlock = subparsers.add_parser("unlock", help="Unlock files for a task (Teams mode)")
+    p_unlock.add_argument("--task", default="", help="Task ID to unlock files for")
+    p_unlock.add_argument("--files", help="Comma-separated file paths (omit for all task files)")
+    p_unlock.add_argument("--all", action="store_true", help="Clear ALL file locks")
+    p_unlock.add_argument("--json", action="store_true", help="JSON output")
+    p_unlock.set_defaults(func=cmd_unlock)
+
+    # lock-check (Teams file lock inspection)
+    p_lock_check = subparsers.add_parser("lock-check", help="Check file lock status (Teams mode)")
+    p_lock_check.add_argument("--file", help="Specific file to check (omit to list all)")
+    p_lock_check.add_argument("--json", action="store_true", help="JSON output")
+    p_lock_check.set_defaults(func=cmd_lock_check)
 
     p_tasks = subparsers.add_parser("tasks", help="List tasks")
     p_tasks.add_argument("--epic", help="Filter by epic ID (e.g., fn-1, fn-1-add-auth)")
@@ -592,8 +618,8 @@ def main() -> None:
     p_done.add_argument("id", help="Task ID (e.g., fn-1.2, fn-1-add-auth.2)")
     p_done.add_argument("--summary-file", help="Done summary markdown file")
     p_done.add_argument("--summary", help="Done summary (inline text)")
-    p_done.add_argument("--evidence-json", help="Evidence JSON file")
-    p_done.add_argument("--evidence", help="Evidence JSON (inline string)")
+    p_done.add_argument("--evidence-json", help="Evidence JSON file path or inline JSON string (auto-detected)")
+    p_done.add_argument("--evidence", help="Evidence JSON (inline string, legacy — prefer --evidence-json)")
     p_done.add_argument("--force", action="store_true", help="Skip status checks")
     p_done.add_argument("--json", action="store_true", help="JSON output")
     p_done.set_defaults(func=cmd_done)

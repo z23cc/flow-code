@@ -49,6 +49,9 @@ bash scripts/smoke_test.sh
 # Full CI tests (flowctl + ralph helpers + symbol extraction)
 bash scripts/ci_test.sh
 
+# Teams e2e tests (file locking, ownership, protocol)
+bash scripts/teams_e2e_test.sh
+
 # Ralph e2e tests
 bash scripts/ralph_e2e_test.sh
 bash scripts/ralph_e2e_rp_test.sh    # RepoPrompt backend
@@ -87,7 +90,8 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Learning loop**: plan injects memory (Step 1b), worker saves lessons (Phase 5b), epic close prompts retro, retro verifies stale entries via `flowctl memory verify <id>`
 - **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
 - **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files --epic <id>` shows ownership map + conflict detection
-- **Agent Teams mode**: `/flow-code:work --teams` spawns workers as Agent Team teammates with structured JSON protocol messages (task_complete, spec_conflict, blocked, access_request, task_assignment, access_granted/denied, shutdown_request) and file ownership enforcement (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`)
+- **File locking (Teams)**: `flowctl lock --task <id> --files <paths>` acquires runtime file locks; `flowctl unlock --task <id>` releases on completion; `flowctl lock-check --file <path>` inspects lock state; `flowctl unlock --all` clears all locks between waves
+- **Agent Teams mode**: `/flow-code:work --teams` spawns workers as Agent Team teammates with plain-text protocol messages (summary-prefix routing: "Task complete:", "Spec conflict:", "Blocked:", "Need file access:", "New task:", "Access granted/denied:", native `shutdown_request`) and file lock enforcement
 - **Review circuit breaker**: impl-review fix loop capped at `MAX_REVIEW_ITERATIONS` (default 3) — prevents infinite NEEDS_WORK cycles
 - **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
 - **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`

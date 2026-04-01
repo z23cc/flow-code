@@ -22,7 +22,14 @@ from flowctl.core.io import (
     read_text_or_exit,
 )
 from flowctl.core.paths import ensure_flow_exists, get_flow_dir
-from flowctl.core.state import load_task_with_state
+from flowctl.core.state import (
+    load_task_with_state,
+    lock_files,
+    unlock_files,
+    check_file_lock,
+    list_file_locks,
+    clear_file_locks,
+)
 
 
 def cmd_show(args: argparse.Namespace) -> None:
@@ -432,3 +439,96 @@ def cmd_cat(args: argparse.Namespace) -> None:
 
     content = read_text_or_exit(spec_path, f"Spec {args.id}", use_json=False)
     print(content)
+
+
+# --- File Lock Commands (Teams mode) ---
+
+
+def cmd_lock(args: argparse.Namespace) -> None:
+    """Lock files for a task (Teams mode). Prevents other tasks from editing them."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    files = [f.strip() for f in args.files.split(",") if f.strip()]
+    if not files:
+        error_exit("No files specified. Use --files file1,file2", use_json=args.json)
+
+    result = lock_files(args.task, files)
+
+    if args.json:
+        json_output({
+            "success": True,
+            "task": args.task,
+            "locked": result["locked"],
+            "already_locked": result["already_locked"],
+            "locked_count": len(result["locked"]),
+            "conflict_count": len(result["already_locked"]),
+        })
+    else:
+        for f in result["locked"]:
+            print(f"  \u2713 Locked: {f}")
+        for item in result["already_locked"]:
+            print(f"  \u2717 Already locked: {item['file']} (owner: {item['owner']})")
+
+
+def cmd_unlock(args: argparse.Namespace) -> None:
+    """Unlock files for a task (Teams mode)."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    if args.all:
+        count = clear_file_locks()
+        if args.json:
+            json_output({"success": True, "cleared": count})
+        else:
+            print(f"Cleared {count} file lock(s).")
+        return
+
+    files = [f.strip() for f in args.files.split(",")] if args.files else None
+    unlocked = unlock_files(args.task, files)
+
+    if args.json:
+        json_output({
+            "success": True,
+            "task": args.task,
+            "unlocked": unlocked,
+            "count": len(unlocked),
+        })
+    else:
+        if unlocked:
+            for f in unlocked:
+                print(f"  \u2713 Unlocked: {f}")
+        else:
+            print("  No files to unlock.")
+
+
+def cmd_lock_check(args: argparse.Namespace) -> None:
+    """Check if a file is locked, or list all locks."""
+    if not ensure_flow_exists():
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json)
+
+    if args.file:
+        info = check_file_lock(args.file)
+        if args.json:
+            json_output({
+                "file": args.file,
+                "locked": info is not None,
+                "owner": info["task_id"] if info else None,
+                "locked_at": info["locked_at"] if info else None,
+            })
+        else:
+            if info:
+                print(f"  \u2717 {args.file} locked by {info['task_id']} (since {info['locked_at']})")
+            else:
+                print(f"  \u2713 {args.file} is not locked")
+    else:
+        locks = list_file_locks()
+        if args.json:
+            json_output({"locks": locks, "count": len(locks)})
+        else:
+            if not locks:
+                print("No active file locks.")
+            else:
+                print(f"Active file locks ({len(locks)}):\n")
+                for f, info in sorted(locks.items()):
+                    print(f"  {f} \u2192 {info['task_id']}")

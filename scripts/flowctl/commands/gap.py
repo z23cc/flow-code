@@ -111,11 +111,18 @@ def cmd_gap_resolve(args: argparse.Namespace) -> None:
 
     _, epic_path, epic_data = _load_epic_for_gap(args.epic, args.json)
 
-    gap_id = _gap_id(args.epic, args.capability)
-    gap = next((g for g in epic_data["gaps"] if g["id"] == gap_id), None)
-
-    if not gap:
-        error_exit(f"Gap not found: capability '{args.capability}' (computed id: {gap_id})", use_json=args.json)
+    if getattr(args, "gap_id", None):
+        # Resolve by direct gap ID
+        gap_id = args.gap_id
+        gap = next((g for g in epic_data["gaps"] if g["id"] == gap_id), None)
+        if not gap:
+            error_exit(f"Gap not found: id '{gap_id}'", use_json=args.json)
+    else:
+        # Resolve by capability (content-hash lookup)
+        gap_id = _gap_id(args.epic, args.capability)
+        gap = next((g for g in epic_data["gaps"] if g["id"] == gap_id), None)
+        if not gap:
+            error_exit(f"Gap not found: capability '{args.capability}' (computed id: {gap_id})", use_json=args.json)
 
     if gap["status"] == "resolved":
         if args.json:

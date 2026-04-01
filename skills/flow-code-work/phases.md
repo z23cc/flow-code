@@ -164,14 +164,21 @@ Teams mode replaces worktree isolation with Agent Teams coordination. Workers sh
 #### 3-teams-a. Team Setup
 
 ```bash
-# 1. Get file ownership map
+# 1. Get file ownership map and check for conflicts
 $FLOWCTL files --epic <epic-id> --json
 ```
 
 Check the `conflicts` field. If files overlap between ready tasks, those tasks **cannot run in the same wave** — demote one to the next batch.
 
+```bash
+# 2. Lock files for each ready task (atomic — prevents concurrent edits)
+$FLOWCTL lock --task <task-id-1> --files "file1,file2" --json
+$FLOWCTL lock --task <task-id-2> --files "file3,file4" --json
+# Check conflict_count in response — if >0, a file is already locked by another task
 ```
-# 2. Create the team
+
+```
+# 3. Create the team
 TeamCreate({team_name: "flow-<epic-id>", description: "Working on <epic-title>"})
 ```
 
@@ -211,59 +218,65 @@ Agent({
 
 #### 3-teams-c. Lead Coordination Loop
 
-The main conversation acts as team lead. All worker↔lead communication uses **structured JSON protocol messages** for reliable parsing.
+The main conversation acts as team lead. Worker↔lead communication uses **plain text** SendMessage with structured `summary` prefixes for routing.
 
-**Worker → Lead protocol message types:**
+> **Why plain text?** Claude Code's SendMessage `message` field only accepts strings or 3 native types (`shutdown_request`, `shutdown_response`, `plan_approval_response`). Custom JSON objects are rejected by schema validation. Plain text with consistent summary prefixes is reliable and parseable.
 
-| `type` | Meaning | Action |
-|--------|---------|--------|
-| `task_complete` | Worker finished task | Verify via `$FLOWCTL show <task_id> --json`, assign next task |
-| `spec_conflict` | Spec wrong/contradicts codebase | Pause, report `details` and `files_affected` to user |
-| `blocked` | Dependency or external blocker | Check `blocked_by`, unblock or reassign |
-| `access_request` | Worker needs unowned file | Check `current_owner`, grant or deny |
+**Worker → Lead message types (detect by summary prefix):**
 
-**Lead → Worker protocol message types:**
+| Summary prefix | Meaning | Action |
+|----------------|---------|--------|
+| `"Task complete: <id>"` | Worker finished task | Verify via `$FLOWCTL show <id> --json`, assign next task |
+| `"Spec conflict: <id>"` | Spec wrong/contradicts codebase | Pause, report to user |
+| `"Blocked: <id>"` | Dependency or external blocker | Check blocker, unblock or reassign |
+| `"Need file access: <file>"` | Worker needs unowned file | Check owner, grant or deny |
 
-| `type` | When to send | Format |
-|--------|-------------|--------|
-| `task_assignment` | Worker idle + ready tasks available | `{"type":"task_assignment","task_id":"<id>","owned_files":["<paths>"]}` |
-| `access_granted` | File access approved | `{"type":"access_granted","file":"<path>","task_id":"<id>"}` |
-| `access_denied` | File access denied | `{"type":"access_denied","file":"<path>","reason":"<why>"}` |
-| `shutdown_request` | Wave complete, cleanup | `{"type":"shutdown_request"}` |
+**Lead → Worker message types:**
+
+| Action | Summary prefix | Message format |
+|--------|---------------|----------------|
+| Assign new task | `"New task: <id>"` | Plain text with TASK_ID, OWNED_FILES, FLOWCTL path, and instruction to re-anchor |
+| Grant file access | `"Access granted: <file>"` | `"Access granted for <file>. You may now edit it."` |
+| Deny file access | `"Access denied: <file>"` | `"Access denied for <file>. Reason: <why>. Find an alternative approach."` |
+| Shutdown | `"Shutdown"` | Native `{"type": "shutdown_request"}` object (schema-supported) |
 
 **Coordination loop:**
 
 ```
 While tasks remain in this wave:
-  1. Parse incoming worker messages by `type` field:
+  1. Route incoming worker messages by summary prefix:
 
-     type = "task_complete":
-       → Verify: $FLOWCTL show <msg.task_id> --json (status must be "done")
+     "Task complete: <id>":
+       → Verify: $FLOWCTL show <id> --json (status must be "done")
        → Check for next ready task (see step 2)
 
-     type = "spec_conflict":
-       → Pause wave, report msg.details and msg.files_affected to user
+     "Spec conflict: <id>":
+       → Pause wave, report details to user
        → Wait for user resolution before continuing
 
-     type = "blocked":
-       → Check msg.blocked_by — is it another in-flight task or external?
-       → If in-flight: wait for that task to complete, then notify blocked worker
+     "Blocked: <id>":
+       → Parse message body for blocker info
+       → If in-flight task: wait for it to complete, then notify blocked worker
        → If external: report to user
 
-     type = "access_request":
-       → Check msg.current_owner — is that task still actively editing the file?
-       → If safe to grant:
-         SendMessage(to: "worker-<task-id>", summary: "Access granted: <file>",
-           message: "{\"type\":\"access_granted\",\"file\":\"<msg.file>\",\"task_id\":\"<msg.task_id>\"}")
-       → If conflict risk:
-         SendMessage(to: "worker-<task-id>", summary: "Access denied: <file>",
-           message: "{\"type\":\"access_denied\",\"file\":\"<msg.file>\",\"reason\":\"<reason>\"}")
+     "Need file access: <file>":
+       → Check lock status: $FLOWCTL lock-check --file <file> --json
+       → If not locked or owner task is done:
+         → $FLOWCTL lock --task <requesting-task-id> --files <file> --json
+         → SendMessage(to: "worker-<task-id>", summary: "Access granted: <file>",
+             message: "Access granted for <file>. You may now edit it.")
+       → If locked by active task:
+         → SendMessage(to: "worker-<task-id>", summary: "Access denied: <file>",
+             message: "Access denied for <file>. Locked by <owner-task-id>. Find an alternative approach.")
 
   2. When a worker completes and goes idle:
+     → Unlock completed task's files: $FLOWCTL unlock --task <completed-task-id> --json
      → Run $FLOWCTL ready --epic <epic-id> --json
      → If new tasks available and no file conflicts with active workers:
-       SendMessage(to: "worker-<task-id>", summary: "New task: <new-task-id>",
-         message: "{\"type\":\"task_assignment\",\"task_id\":\"<new-task-id>\",\"owned_files\":[\"<files>\"]}")
+       → $FLOWCTL start <new-task-id> --json
+       → $FLOWCTL lock --task <new-task-id> --files <comma-separated files> --json
+       → SendMessage(to: "worker-<task-id>", summary: "New task: <new-task-id>",
+           message: "New task assigned.\n\nTASK_ID: <new-task-id>\nOWNED_FILES: <comma-separated files>\n\nRead spec: $FLOWCTL cat <new-task-id>\nFollow your worker phases to implement it.")
      → If no tasks, let worker idle until wave completes
 
   3. When all workers in wave are done:
@@ -277,15 +290,17 @@ While tasks remain in this wave:
 #### 3-teams-d. Cleanup
 
 ```
-# 1. Shutdown all workers (protocol message)
+# 1. Shutdown all workers (native schema type)
 For each active worker:
-  SendMessage(to: "worker-<task-id>", summary: "Shutdown",
-    message: {"type": "shutdown_request"})
+  SendMessage(to: "worker-<task-id>", message: {"type": "shutdown_request"})
 
-# 2. Delete team
-TeamDelete({team_name: "flow-<epic-id>"})
+# 2. Unlock all file locks for this wave
+$FLOWCTL unlock --all --json
 
-# 3. Proceed to batch checkpoint (Phase 3d)
+# 3. Delete team
+TeamDelete()
+
+# 4. Proceed to batch checkpoint (Phase 3d)
 ```
 
 No merge-back needed — all work was on the same branch with file ownership preventing conflicts.

@@ -1,7 +1,7 @@
 {
   "name": "flow-code",
-  "version": "0.1.4",
-  "description": "Zero-dependency planning + execution with .flow/ task tracking and Ralph autonomous mode (multi-model review gates). Worker subagent per task with git worktree isolation for parallel execution. Agent Teams mode with structured JSON protocol messages for worker coordination. Auto-detected stack profiles with one-command guard (test/lint/typecheck). Enhanced agent definitions with permissionMode/maxTurns/effort. Lifecycle hooks (SubagentStart/PreCompact/TaskCompleted). Heavy skills run in forked context for main context protection. Memory v2 with atomic entries, dedup, and progressive disclosure. TDD enforcement mode. Multi-epic queue with dependency visualization. Systematic debugging with root-cause-first enforcement. Includes 20 subagents, 19+ commands, 23 skills.",
+  "version": "0.1.6",
+  "description": "Zero-dependency planning + execution with .flow/ task tracking and Ralph autonomous mode (multi-model review gates). Worker subagent per task with git worktree isolation for parallel execution. Agent Teams mode with plain-text protocol, file locking (lock/unlock/lock-check), and summary-prefix routing for worker coordination. Auto-detected stack profiles with one-command guard (test/lint/typecheck). Enhanced agent definitions with permissionMode/maxTurns/effort. Lifecycle hooks (SubagentStart/PreCompact/TaskCompleted). Memory v2 with atomic entries, dedup, and progressive disclosure. TDD enforcement mode. Multi-epic queue with dependency visualization. Includes 20 subagents, 22+ commands, 23 skills.",
   "author": {
     "name": "z23cc",
     "url": "https://github.com/z23cc"

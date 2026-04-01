@@ -31,43 +31,50 @@ The worker may run in the main working directory (sequential mode) or an isolate
 
 When running in team mode, you are a teammate in a Claude Code Agent Team. The main conversation is the team lead.
 
-**File ownership**: You may ONLY edit files listed in `OWNED_FILES`. If you need to modify a file not in your ownership set:
+**File locking**: Before editing, your files are locked via `flowctl lock`. You may ONLY edit files listed in `OWNED_FILES`. If you need to modify a file not in your ownership set:
 1. Do NOT edit it
-2. Send an `access_request` protocol message (see below)
-3. Wait for `access_granted` or `access_denied` response before proceeding
+2. Send an access request message (see below)
+3. Wait for "Access granted:" or "Access denied:" response (timeout: 60s — if no response, skip the file and note it in your completion message)
+4. On grant, the lead will update the lock registry for you
 
-### Protocol Messages (structured JSON via SendMessage)
+### Protocol Messages (plain text via SendMessage)
 
-All worker↔lead communication uses structured JSON in the `message` field. This ensures reliable parsing and routing.
+Worker↔lead communication uses **plain text** messages with structured `summary` prefixes for routing. Claude Code's SendMessage schema only supports `shutdown_request` as a native structured type — all other protocol messages use plain text strings.
 
 **Worker → Team Lead messages:**
 
 1. **Task complete** — after `flowctl done` succeeds:
 ```
-SendMessage(to: "coordinator", summary: "Task complete: <TASK_ID>", message: "{\"type\":\"task_complete\",\"task_id\":\"<TASK_ID>\",\"summary\":\"<1-2 sentence summary>\",\"commits\":[\"<hash>\"],\"tests_passed\":true}")
+SendMessage(to: "coordinator", summary: "Task complete: <TASK_ID>",
+  message: "Task <TASK_ID> completed.\nSummary: <1-2 sentence summary>\nCommits: <hash1>, <hash2>\nTests passed: yes/no")
 ```
 
 2. **Spec conflict** — when spec is wrong/incomplete/contradicts codebase:
 ```
-SendMessage(to: "coordinator", summary: "Spec conflict: <TASK_ID>", message: "{\"type\":\"spec_conflict\",\"task_id\":\"<TASK_ID>\",\"details\":\"<what spec says vs reality>\",\"files_affected\":[\"<paths>\"]}")
+SendMessage(to: "coordinator", summary: "Spec conflict: <TASK_ID>",
+  message: "Spec conflict in <TASK_ID>.\nDetails: <what spec says vs reality>\nAffected files: <path1>, <path2>")
 ```
 
 3. **Blocked** — when a dependency or external factor prevents progress:
 ```
-SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>", message: "{\"type\":\"blocked\",\"task_id\":\"<TASK_ID>\",\"reason\":\"<what is blocking>\",\"blocked_by\":\"<task-id or external>\"}")
+SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
+  message: "Task <TASK_ID> is blocked.\nReason: <what is blocking>\nBlocked by: <task-id or external>")
 ```
 
 4. **File access request** — when you need a file not in OWNED_FILES:
 ```
-SendMessage(to: "coordinator", summary: "Need file access: <file>", message: "{\"type\":\"access_request\",\"task_id\":\"<TASK_ID>\",\"file\":\"<path>\",\"reason\":\"<why needed>\",\"current_owner\":\"<task-id>\"}")
+SendMessage(to: "coordinator", summary: "Need file access: <file>",
+  message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id>")
 ```
 
 **Team Lead → Worker messages (you receive these):**
 
-- `{"type":"task_assignment","task_id":"<id>","owned_files":["<paths>"]}` — new task assignment, update your TASK_ID and OWNED_FILES
-- `{"type":"access_granted","file":"<path>","task_id":"<id>"}` — file access approved, proceed with edit
-- `{"type":"access_denied","file":"<path>","reason":"<why>"}` — file access denied, find alternative approach
-- `{"type":"shutdown_request"}` — graceful shutdown, finish current work and stop
+The lead sends plain text messages. Detect intent by the `summary` prefix or keywords:
+
+- **New task assignment** (summary starts with "New task:"): update your TASK_ID, OWNED_FILES, and re-anchor by reading the new spec
+- **Access granted** (summary starts with "Access granted:"): proceed with the file edit
+- **Access denied** (summary starts with "Access denied:"): find an alternative approach
+- **Shutdown** (native `shutdown_request` type): finish current work and stop
 
 **Do NOT use SendMessage for**: routine status updates, permission for normal edits within owned files.
 

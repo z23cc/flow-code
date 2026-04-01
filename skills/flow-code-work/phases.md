@@ -78,6 +78,35 @@ Based on user's answer from setup questions:
 
 ### 3a. Find Ready Tasks
 
+**State awareness (always runs first):**
+
+Every startup reads current epic state and outputs progress — this is not a special "resume mode", it is normal state reading.
+
+```bash
+# 1. Read all tasks for the epic
+$FLOWCTL tasks --epic <epic-id> --json
+```
+
+Parse the JSON and output a progress summary:
+
+```
+── Progress: <epic-id> ───────────────────
+  Done:        3/7 (fn-N.1, fn-N.2, fn-N.3)
+  In progress: 1   (fn-N.4)
+  Blocked:     1   (fn-N.6)
+  Ready:       2   (fn-N.5, fn-N.7)
+──────────────────────────────────────────
+```
+
+**Restart stale in_progress tasks:** If any task has status `in_progress` but no active worker is running for it (e.g., session was interrupted), restart it so `flowctl ready` picks it up:
+
+```bash
+# For each stale in_progress task (no active worker):
+$FLOWCTL restart <stale-task-id> --json
+```
+
+After restarts, find ready tasks normally:
+
 ```bash
 $FLOWCTL ready --epic <epic-id> --json
 ```
@@ -555,7 +584,7 @@ Confirm before ship:
 **Default mode (Teams — auto-parallel):**
 ```
 Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
-  ├─ 3a: find ALL ready tasks
+  ├─ 3a: read state + progress summary, restart stale tasks, find ready tasks
   ├─ 3b: readiness check
   ├─ 3c: lock files + create team (if >1 task)
   ├─ 3d: spawn workers (parallel if >1, foreground if 1)

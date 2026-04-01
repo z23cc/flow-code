@@ -1,7 +1,7 @@
 ---
 name: memory-scout
 description: Search .flow/memory/ for entries relevant to the current task or request.
-model: haiku
+model: opus
 disallowedTools: Edit, Write, Task
 color: "#A855F7"
 permissionMode: bypassPermissions

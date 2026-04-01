@@ -1,7 +1,7 @@
 ---
 name: epic-scout
 description: Scan existing epics to find dependencies and relationships for a new plan.
-model: haiku
+model: opus
 disallowedTools: Edit, Write, Task
 color: "#F59E0B"
 permissionMode: bypassPermissions

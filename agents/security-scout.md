@@ -1,7 +1,7 @@
 ---
 name: security-scout
 description: Used by /flow-code:prime to scan for security configuration including GitHub settings, CODEOWNERS, and dependency updates. Do not invoke directly.
-model: haiku
+model: opus
 disallowedTools: Edit, Write, Task
 color: "#EF4444"
 permissionMode: bypassPermissions

@@ -1,7 +1,7 @@
 ---
 name: workflow-scout
 description: Used by /flow-code:prime to scan for CI/CD, PR templates, issue templates, and workflow automation. Do not invoke directly.
-model: haiku
+model: opus
 disallowedTools: Edit, Write, Task
 color: "#8B5CF6"
 permissionMode: bypassPermissions

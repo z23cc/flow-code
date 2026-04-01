@@ -228,8 +228,8 @@ The main conversation acts as team lead. Worker↔lead communication uses **plai
 | Summary prefix | Meaning | Action |
 |----------------|---------|--------|
 | `"Task complete: <id>"` | Worker finished task | Verify via `$FLOWCTL show <id> --json`, assign next task |
-| `"Spec conflict: <id>"` | Spec wrong/contradicts codebase | Pause, report to user |
-| `"Blocked: <id>"` | Dependency or external blocker | Check blocker, unblock or reassign |
+| `"Spec conflict: <id>"` | Spec wrong/contradicts codebase | Forward to Codex for decision (modify spec / keep spec / skip) |
+| `"Blocked: <id>"` | Dependency or external blocker | In-flight: wait; External: forward to Codex (skip / remove dep / split) |
 | `"Need file access: <file>"` | Worker needs unowned file | Check owner, grant or deny |
 | `"Need mutation: <id>"` | Task needs structural change | Apply mutation (split/skip/dep change), notify worker |
 
@@ -254,13 +254,28 @@ While tasks remain in this wave:
        → Check for next ready task (see step 2)
 
      "Spec conflict: <id>":
-       → Pause wave, report details to user
-       → Wait for user resolution before continuing
+       → Forward to Codex for decision:
+         $FLOWCTL codex exec "Spec conflict in task <id>.
+         The spec says: <spec excerpt from worker message>
+         But the code shows: <conflict details from worker message>
+         Options: 1) Modify spec to match reality  2) The code is wrong, spec is correct  3) Skip this task
+         Decide which option and explain briefly."
+       → Parse Codex response → apply decision:
+         Option 1: $FLOWCTL task set-spec <id> --file <updated-spec> → restart worker
+         Option 2: notify worker to continue with original spec
+         Option 3: $FLOWCTL task skip <id> --reason "<codex reasoning>" → unlock files
 
      "Blocked: <id>":
        → Parse message body for blocker info
        → If in-flight task: wait for it to complete, then notify blocked worker
-       → If external: report to user
+       → If external: forward to Codex for decision:
+         $FLOWCTL codex exec "Task <id> is blocked by: <reason from worker message>.
+         Options: 1) Skip this task  2) Remove the dependency  3) Split into doable + blocked parts
+         Decide which option and explain briefly."
+       → Parse Codex response → apply decision:
+         Option 1: $FLOWCTL task skip <id> --reason "<codex reasoning>" → unlock files
+         Option 2: $FLOWCTL dep rm <id> <blocking-dep-id> → notify worker to continue
+         Option 3: $FLOWCTL task split <id> --titles "Doable part|Blocked part" --chain → unlock, re-run ready
 
      "Need file access: <file>":
        → Check lock status: $FLOWCTL lock-check --file <file> --json

@@ -140,7 +140,7 @@ TASK_COUNT=$($FLOWCTL tasks --epic <epic-id> --json | python3 -c "import json,sy
 
 **Scale-adaptive execution:**
 
-- **≤ 10 tasks**: Invoke `/flow-code:work <epic-id>` directly in this session. Workers run as subagents with fresh context per task (no context overflow — main session only orchestrates).
+- **≤ 10 tasks**: Invoke `/flow-code:work <epic-id>` directly in this session. Pass `--no-review` so workers skip per-task review (Layer 1 guard handles per-commit quality; Layer 3 codex adversarial handles epic-level quality in Phase 3j). Workers run as subagents with fresh context per task.
 
 - **> 10 tasks**: Print recommendation instead of auto-executing:
   ```

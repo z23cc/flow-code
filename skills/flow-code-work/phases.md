@@ -457,50 +457,39 @@ Plan-sync returns summary. Log it but don't block - task updates are best-effort
 
 **EPIC_MODE**: After 3g→3h, return to 3a for next wave.
 
-### 3j. Completion Review Gate (EPIC_MODE only)
+### 3j. Adversarial Review (EPIC_MODE only — Layer 3)
 
-When 3a finds no ready tasks, run adversarial review before shipping.
+When 3a finds no ready tasks, all tasks are done. Run cross-model adversarial review before shipping.
 
-**Check epic's completion review status directly:**
+**This is Layer 3 of the quality system.** A different model family (GPT via Codex) tries to **break** the code. This catches blind spots that Claude (implementing model) and RP (same model family) both miss.
 
 ```bash
-$FLOWCTL show <epic-id> --json | jq -r '.completion_review_status'
+# 1. Check codex CLI
+which codex >/dev/null 2>&1
 ```
 
-- If `ship` → review already passed, go to Phase 4
-- If `unknown` or `needs_work` → run adversarial review
+**If codex available:**
+```bash
+# 2. Scope diff to this epic's changes only
+BRANCH_BASE=$(git merge-base main HEAD)
+$FLOWCTL codex adversarial --base "$BRANCH_BASE" --json
+```
 
-**Adversarial review (always runs — Layer 3 of quality system):**
+Parse response:
+- `verdict: "SHIP"` → go to Phase 4
+- `verdict: "NEEDS_WORK"` → fix issues, commit, re-run (repeat until SHIP)
 
-The point of epic completion review is adversarial: a different model family tries to **break** the code, not validate it. This catches blind spots that the implementing model missed.
+**If codex not available:**
+```
+⚠ Codex CLI not found — skipping Layer 3 adversarial review.
+  Install: npm install -g @openai/codex
+```
+Go to Phase 4 directly. No fallback to RP — different model family is the point.
 
-1. Check codex CLI is available:
-   ```bash
-   which codex >/dev/null 2>&1
-   ```
-
-2. If codex available → run adversarial review:
-   ```bash
-   # Use merge-base to scope diff to this epic's changes
-   BRANCH_BASE=$(git merge-base main HEAD)
-   $FLOWCTL codex adversarial --base "$BRANCH_BASE" --json
-   ```
-
-   Parse the JSON response:
-   - `verdict: "SHIP"` → proceed to step 4
-   - `verdict: "NEEDS_WORK"` → fix the issues identified, commit, re-run adversarial (repeat until SHIP)
-
-3. If codex not available → skip adversarial review (no fallback to RP — different model family is the point). Log a warning:
-   ```
-   ⚠ Codex CLI not found — skipping Layer 3 adversarial review.
-   Install codex to enable cross-model adversarial review on epic completion.
-   ```
-
-4. After SHIP (or skip):
-   ```bash
-   $FLOWCTL epic set-completion-review-status <epic-id> --status ship --json
-   ```
-   Go to Phase 4 (Quality)
+**After SHIP (or skip):**
+```bash
+$FLOWCTL epic set-completion-review-status <epic-id> --status ship --json
+```
 
 ---
 

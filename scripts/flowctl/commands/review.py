@@ -106,11 +106,15 @@ def resolve_codex_sandbox(sandbox: str) -> str:
     return "danger-full-access" if os.name == "nt" else "read-only"
 
 
+CODEX_EFFORT_LEVELS = ("medium", "high", "xhigh")
+
+
 def run_codex_exec(
     prompt: str,
     session_id: Optional[str] = None,
     sandbox: str = "read-only",
     model: Optional[str] = None,
+    effort: str = "high",
 ) -> tuple[str, Optional[str], int, str]:
     """Run codex exec and return (stdout, thread_id, exit_code, stderr).
 
@@ -160,7 +164,7 @@ def run_codex_exec(
         "--model",
         effective_model,
         "-c",
-        'model_reasoning_effort="high"',
+        f'model_reasoning_effort="{effort}"',
         "--sandbox",
         sandbox,
         "--skip-git-repo-check",
@@ -836,8 +840,9 @@ def cmd_codex_impl_review(args: argparse.Namespace) -> None:
         error_exit(str(e), use_json=args.json, code=2)
 
     # Run codex
+    effort = getattr(args, "effort", "high")
     output, thread_id, exit_code, stderr = run_codex_exec(
-        prompt, session_id=session_id, sandbox=sandbox
+        prompt, session_id=session_id, sandbox=sandbox, effort=effort
     )
 
     # Check for sandbox failures (clear stale receipt and exit)
@@ -1052,8 +1057,9 @@ def cmd_codex_plan_review(args: argparse.Namespace) -> None:
         error_exit(str(e), use_json=args.json, code=2)
 
     # Run codex
+    effort = getattr(args, "effort", "high")
     output, thread_id, exit_code, stderr = run_codex_exec(
-        prompt, session_id=session_id, sandbox=sandbox
+        prompt, session_id=session_id, sandbox=sandbox, effort=effort
     )
 
     # Check for sandbox failures (clear stale receipt and exit)
@@ -1406,8 +1412,9 @@ def cmd_codex_completion_review(args: argparse.Namespace) -> None:
         error_exit(str(e), use_json=args.json, code=2)
 
     # Run codex
+    effort = getattr(args, "effort", "high")
     output, thread_id, exit_code, stderr = run_codex_exec(
-        prompt, session_id=session_id, sandbox=sandbox
+        prompt, session_id=session_id, sandbox=sandbox, effort=effort
     )
 
     # Check for sandbox failures
@@ -1831,7 +1838,10 @@ def cmd_codex_adversarial(args: argparse.Namespace) -> None:
         error_exit(str(e), use_json=args.json, code=2)
 
     # Run codex
-    output, thread_id, exit_code, stderr = run_codex_exec(prompt, sandbox=sandbox)
+    effort = getattr(args, "effort", "high")
+    output, thread_id, exit_code, stderr = run_codex_exec(
+        prompt, sandbox=sandbox, effort=effort
+    )
 
     if exit_code != 0:
         msg = (stderr or output or "codex exec failed").strip()

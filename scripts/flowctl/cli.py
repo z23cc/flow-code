@@ -109,6 +109,7 @@ from flowctl.commands.rp import (
     cmd_rp_setup_review,
 )
 from flowctl.commands.review import (
+    CODEX_EFFORT_LEVELS,
     cmd_codex_check,
     cmd_codex_impl_review,
     cmd_codex_plan_review,
@@ -904,6 +905,10 @@ def main() -> None:
         default="auto",
         help="Sandbox mode (auto: danger-full-access on Windows, read-only on Unix)",
     )
+    p_codex_impl.add_argument(
+        "--effort", choices=CODEX_EFFORT_LEVELS, default="high",
+        help="Model reasoning effort level (default: high)",
+    )
     p_codex_impl.set_defaults(func=cmd_codex_impl_review)
 
     p_codex_plan = codex_sub.add_parser("plan-review", help="Plan review")
@@ -924,6 +929,10 @@ def main() -> None:
         default="auto",
         help="Sandbox mode (auto: danger-full-access on Windows, read-only on Unix)",
     )
+    p_codex_plan.add_argument(
+        "--effort", choices=CODEX_EFFORT_LEVELS, default="high",
+        help="Model reasoning effort level (default: high)",
+    )
     p_codex_plan.set_defaults(func=cmd_codex_plan_review)
 
     p_codex_adversarial = codex_sub.add_parser(
@@ -935,6 +944,10 @@ def main() -> None:
     p_codex_adversarial.add_argument(
         "--sandbox", default="auto",
         help="Sandbox mode: read-only (default), network-disabled, danger-full-access, or auto"
+    )
+    p_codex_adversarial.add_argument(
+        "--effort", choices=CODEX_EFFORT_LEVELS, default="high",
+        help="Model reasoning effort level (default: high)",
     )
     p_codex_adversarial.set_defaults(func=cmd_codex_adversarial)
 
@@ -954,6 +967,10 @@ def main() -> None:
         choices=["read-only", "workspace-write", "danger-full-access", "auto"],
         default="auto",
         help="Sandbox mode (auto: danger-full-access on Windows, read-only on Unix)",
+    )
+    p_codex_completion.add_argument(
+        "--effort", choices=CODEX_EFFORT_LEVELS, default="high",
+        help="Model reasoning effort level (default: high)",
     )
     p_codex_completion.set_defaults(func=cmd_codex_completion_review)
 

@@ -7,16 +7,36 @@
 #
 # Also handles PostToolUse to track guard pass state.
 
-set -euo pipefail
+set -uo pipefail
 
 # No .flow directory → not a flow-code project, allow everything
 [ -d ".flow" ] || exit 0
 
-# Read stdin JSON
+# Read stdin JSON once
 INPUT=$(cat)
 
-EVENT=$(echo "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('hook_event_name',''))" 2>/dev/null || echo "")
-COMMAND=$(echo "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tool_input',{}).get('command',''))" 2>/dev/null || echo "")
+# Parse all fields in one python call (efficient)
+eval "$(echo "$INPUT" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    event = data.get('hook_event_name', '')
+    command = data.get('tool_input', {}).get('command', '')
+    session = data.get('session_id', '')
+    print(f'EVENT=\"{event}\"')
+    print(f'COMMAND={repr(command)}')
+    # Subagent detection: teammate sessions have @ in ID
+    print(f'IS_SUBAGENT={\"yes\" if \"@\" in session else \"no\"}')
+except Exception:
+    print('EVENT=\"\"')
+    print('COMMAND=\"\"')
+    print('IS_SUBAGENT=no')
+" 2>/dev/null || echo 'EVENT="" COMMAND="" IS_SUBAGENT=no')"
+
+# Subagent workers bypass commit gate — they run flowctl done themselves
+if [ "$IS_SUBAGENT" = "yes" ]; then
+    exit 0
+fi
 
 # State file keyed by .flow directory (absolute path hash)
 FLOW_DIR="$(cd .flow && pwd)"
@@ -24,18 +44,16 @@ STATE_FILE="/tmp/flow-commit-gate-$(echo "$FLOW_DIR" | md5 -q 2>/dev/null || ech
 
 # --- PostToolUse: track guard pass ---
 if [ "$EVENT" = "PostToolUse" ]; then
-    # Check if command was flowctl guard and it succeeded
     if echo "$COMMAND" | grep -qE '(flowctl|flowctl\.py)\s+guard'; then
         GUARD_PASSED=$(echo "$INPUT" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 resp = data.get('tool_response', {})
 text = resp.get('stdout', str(resp)) if isinstance(resp, dict) else str(resp)
-# Guard passes when output contains 'guards passed' without 'FAILED'
 if 'guards passed' in text.lower() and 'failed' not in text.lower():
     print('yes')
 elif 'nothing to run' in text.lower() or 'no stack detected' in text.lower():
-    print('yes')  # No guards configured = not blocked
+    print('yes')
 else:
     print('no')
 " 2>/dev/null || echo "no")
@@ -59,7 +77,6 @@ fi
 # Check: is any task in_progress?
 FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/flowctl.py"
 if [ -z "${DROID_PLUGIN_ROOT:-}" ] && [ -z "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-    # Plugin root not set — can't check task state, allow
     exit 0
 fi
 
@@ -71,7 +88,7 @@ active = [t for t in tasks if t.get('status') == 'in_progress']
 print(len(active))
 " 2>/dev/null || echo "0")
 
-# No task in_progress → manual commit outside flow workflow, allow
+# No task in_progress → manual commit, allow
 if [ "$IN_PROGRESS" = "0" ]; then
     exit 0
 fi
@@ -81,10 +98,7 @@ if [ -f "$STATE_FILE" ]; then
     GUARD_TIME=$(cat "$STATE_FILE")
     NOW=$(date +%s)
     AGE=$(( NOW - GUARD_TIME ))
-    # Guard evidence valid for 10 minutes (600 seconds)
     if [ "$AGE" -lt 600 ]; then
-        # Guard was recently run and passed — allow commit
-        # Consume the marker so next commit also requires guard
         rm -f "$STATE_FILE"
         exit 0
     fi

@@ -116,7 +116,10 @@ def patch_task_section(content: str, section: str, new_content: str) -> str:
             result.append(line)
 
     if not section_found:
-        raise ValueError(f"Section '{section}' not found in task spec")
+        # Auto-append missing section instead of failing
+        result.append("")
+        result.append(section)
+        result.append(new_content.rstrip())
 
     return "\n".join(result)
 

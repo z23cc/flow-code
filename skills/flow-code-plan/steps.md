@@ -415,9 +415,12 @@ This checklist is consumed by `/flow-code:epic-review` for structured verificati
 
 ## Step 7: Review (if chosen at start)
 
-If user chose "Yes" to review in SKILL.md setup question:
-1. Invoke `/flow-code:plan-review` with the epic ID
-2. If review returns "Needs Work" or "Major Rethink":
+If review was decided in Context Analysis:
+1. Initialize `PLAN_REVIEW_ITERATIONS=0`
+2. Invoke `/flow-code:plan-review` with the epic ID
+3. If review returns "Needs Work" or "Major Rethink":
+   - Increment `PLAN_REVIEW_ITERATIONS`
+   - **If `PLAN_REVIEW_ITERATIONS >= 5`**: stop the loop. Log warning: "Plan review did not converge after 5 iterations. Proceeding with current plan." Go to Step 8.
    - **Re-anchor EVERY iteration** (do not skip):
      ```bash
      $FLOWCTL show <epic-id> --json
@@ -425,9 +428,9 @@ If user chose "Yes" to review in SKILL.md setup question:
      ```
    - **Immediately fix the issues** (do NOT ask for confirmation — user already consented)
    - Re-run `/flow-code:plan-review`
-3. Repeat until review returns "Ship"
+4. Repeat until review returns "Ship" or iteration limit reached.
 
-**No human gates here** — the review-fix-review loop is fully automated.
+**No human gates here** — the review-fix-review loop is fully automated. Max 5 iterations prevents infinite loops.
 
 **Why re-anchor every iteration?** Per Anthropic's long-running agent guidance: context compresses, you forget details. Re-read before each fix pass.
 

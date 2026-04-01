@@ -1,0 +1,29 @@
+{
+  "name": "flow-code",
+  "owner": {
+    "name": "z23cc",
+    "url": "https://github.com/z23cc"
+  },
+  "metadata": {
+    "description": "Structured plan-first development plugin for Claude Code with .flow/ task tracking, Agent Teams, and Ralph autonomous mode",
+    "version": "0.1.6"
+  },
+  "plugins": [
+    {
+      "name": "flow-code",
+      "description": "Zero-dependency planning + execution with .flow/ task tracking. Agent Teams mode with plain-text protocol and file locking. Ralph autonomous mode with multi-model review gates. Git worktree isolation for parallel execution. 20 subagents, 22+ CLI commands, 23 skills.",
+      "version": "0.1.6",
+      "source": "./",
+      "category": "workflow",
+      "tags": [
+        "workflow",
+        "planning",
+        "execution",
+        "automation",
+        "agent-teams",
+        "task-tracking"
+      ],
+      "strict": true
+    }
+  ]
+}

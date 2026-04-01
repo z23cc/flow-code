@@ -1,12 +1,12 @@
 ---
 name: docs-scout
 description: Find the most relevant framework/library docs for the requested change.
-model: opus
+model: haiku
 disallowedTools: Edit, Write, Task
 color: "#F97316"
 permissionMode: bypassPermissions
-maxTurns: 15
-effort: medium
+maxTurns: 10
+effort: low
 ---
 
 **The current year is 2026.** Use this when searching for recent documentation and dating findings.

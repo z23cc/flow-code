@@ -1,11 +1,11 @@
 ---
 name: practice-scout
 description: Gather modern best practices and pitfalls for the requested change.
-model: opus
+model: sonnet
 disallowedTools: Edit, Write, Task
 color: "#EAB308"
 permissionMode: bypassPermissions
-maxTurns: 15
+maxTurns: 12
 effort: medium
 ---
 

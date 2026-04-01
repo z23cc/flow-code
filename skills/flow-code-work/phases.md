@@ -72,22 +72,19 @@ Based on user's answer from setup questions:
 
 ## Phase 3: Task Loop
 
-**For each task**, spawn a worker subagent with fresh context.
+**Default mode is Teams** — workers run as Agent Team teammates with shared directory and file locking. This applies to both single-task and multi-task execution.
 
-**Parallel mode** (`--parallel`): When the user passes `--parallel` flag, find ALL ready tasks (no unresolved dependencies) and spawn workers for them simultaneously using multiple Task tool calls in a single message. This is safe because ready tasks have no inter-dependencies. After all parallel workers return, verify each, run plan-sync, then find the next batch of ready tasks. Skip parallel mode for SINGLE_TASK_MODE.
+**Fallback: worktree isolation** (`--worktree-parallel`): Uses git worktrees instead of Teams. Only use when Teams is unavailable or user explicitly requests worktree isolation.
 
-### 3a. Find Next Task(s)
+### 3a. Find Ready Tasks
 
 ```bash
 $FLOWCTL ready --epic <epic-id> --json
 ```
 
-**Sequential mode (default):** Pick the first ready task.
-**Parallel mode (`--parallel`):** Collect ALL ready tasks for simultaneous execution.
+Collect ALL ready tasks (no unresolved dependencies). If no ready tasks, check for completion review gate (see 3g below).
 
-If no ready tasks, check for completion review gate (see 3g below).
-
-### 3b. Readiness Check + Start Task(s)
+### 3b. Readiness Check
 
 Before starting, validate each task spec is implementation-ready:
 
@@ -104,64 +101,7 @@ $FLOWCTL cat <task-id>
 - Use AskUserQuestion: "Task `<id>` spec is missing [field]. Add it before starting?"
 - Do NOT spawn a worker with an incomplete spec — workers guess when specs are vague
 
-**If all checks pass:**
-```bash
-$FLOWCTL start <task-id> --json
-```
-
-In parallel mode, check all ready tasks, then start them before spawning workers.
-
-### 3c. Spawn Worker(s)
-
-Use the Task tool to spawn a `worker` subagent. The worker gets fresh context and handles:
-- Re-anchoring (reading spec, git status)
-- Implementation
-- Committing
-- Review cycles (if enabled)
-- Completing the task (flowctl done)
-
-**Prompt template for worker:**
-
-Pass config values only. Worker reads worker.md for phases. Do NOT paraphrase or add step-by-step instructions - worker.md has them.
-
-```
-Implement flow-code task.
-
-TASK_ID: fn-X.Y
-EPIC_ID: fn-X
-FLOWCTL: /path/to/flowctl
-REVIEW_MODE: none|rp|codex
-RALPH_MODE: true|false
-TDD_MODE: true|false
-
-Follow your phases in worker.md exactly.
-```
-
-**Worker returns**: Summary of implementation, files changed, test results, review verdict.
-
-**Parallel mode:** Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls. **Add `isolation: "worktree"` to each call** so each worker gets its own git worktree. Example with 3 ready tasks:
-
-```
-[Agent tool call 1: worker for fn-1.1, isolation: "worktree"]
-[Agent tool call 2: worker for fn-1.2, isolation: "worktree"]
-[Agent tool call 3: worker for fn-1.3, isolation: "worktree"]
-```
-
-All three run concurrently in isolated worktrees. The Agent tool automatically creates a temporary git worktree, runs the worker in it, and returns the `worktree_path` and `branch` if changes were made. flowctl state is shared across worktrees automatically (uses git-common-dir). Wait for all workers to complete before proceeding to 3c½.
-
-**Important parallel constraints:**
-- Only tasks with NO unresolved dependencies are eligible (flowctl ready guarantees this)
-- Each worker commits to its own branch in its own worktree
-- flowctl state (task status, locks, evidence) is shared across worktrees automatically
-- After parallel batch completes, merge branches back (3c½) before finding next batch
-
-### 3-teams. Agent Teams Execution (teams mode only)
-
-**Skip if not `--teams` mode.**
-
-Teams mode replaces worktree isolation with Agent Teams coordination. Workers share the working directory but have exclusive file ownership. They communicate via SendMessage.
-
-#### 3-teams-a. Team Setup
+### 3c. Teams Setup & File Locking
 
 ```bash
 # 1. Get file ownership map and check for conflicts
@@ -171,20 +111,29 @@ $FLOWCTL files --epic <epic-id> --json
 Check the `conflicts` field. If files overlap between ready tasks, those tasks **cannot run in the same wave** — demote one to the next batch.
 
 ```bash
-# 2. Lock files for each ready task (atomic — prevents concurrent edits)
+# 2. Start tasks and lock files for each (atomic — prevents concurrent edits)
+$FLOWCTL start <task-id-1> --json
 $FLOWCTL lock --task <task-id-1> --files "file1,file2" --json
+
+$FLOWCTL start <task-id-2> --json
 $FLOWCTL lock --task <task-id-2> --files "file3,file4" --json
 # Check conflict_count in response — if >0, a file is already locked by another task
 ```
 
 ```
-# 3. Create the team
+# 3. Create the team (skip if only 1 task — single worker doesn't need Teams overhead)
 TeamCreate({team_name: "flow-<epic-id>", description: "Working on <epic-title>"})
 ```
 
-#### 3-teams-b. Spawn Workers as Teammates
+> **Single ready task?** Skip TeamCreate. Spawn one worker with `TEAM_MODE: false` and `run_in_background: false` (foreground). This avoids Teams overhead while still using file locking for safety.
 
-For each ready task with no file conflicts:
+### 3d. Spawn Workers
+
+**Prompt template for worker:**
+
+Pass config values only. Worker reads worker.md for phases. Do NOT paraphrase or add step-by-step instructions - worker.md has them.
+
+**Multiple ready tasks (Teams mode):**
 
 ```
 Agent({
@@ -210,13 +159,36 @@ Agent({
 })
 ```
 
-**Key differences from parallel mode:**
-- No `isolation: "worktree"` — workers share the working directory
-- Workers have `team_name` for SendMessage communication
-- `TEAM_MODE: true` activates file ownership enforcement in worker
-- `OWNED_FILES` lists exactly which files this worker may edit
+Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
 
-#### 3-teams-c. Lead Coordination Loop
+**Single ready task (no Teams overhead):**
+
+```
+Agent({
+  subagent_type: "flow-code:worker",
+  description: "Implement <task-title>",
+  prompt: """
+    Implement flow-code task.
+
+    TASK_ID: <task-id>
+    EPIC_ID: <epic-id>
+    FLOWCTL: /path/to/flowctl
+    REVIEW_MODE: none|rp|codex
+    RALPH_MODE: true|false
+    TDD_MODE: true|false
+
+    Follow your phases in worker.md exactly.
+  """
+})
+```
+
+No `team_name`, no `TEAM_MODE`, no `OWNED_FILES`. Worker runs in foreground.
+
+**Worker returns**: Summary of implementation, files changed, test results, review verdict.
+
+### 3e. Lead Coordination Loop (Teams mode — multiple workers)
+
+**Skip if only 1 worker (foreground mode).**
 
 The main conversation acts as team lead. Worker↔lead communication uses **plain text** SendMessage with structured `summary` prefixes for routing.
 
@@ -248,6 +220,7 @@ While tasks remain in this wave:
 
      "Task complete: <id>":
        → Verify: $FLOWCTL show <id> --json (status must be "done")
+       → Unlock completed task's files: $FLOWCTL unlock --task <id> --json
        → Check for next ready task (see step 2)
 
      "Spec conflict: <id>":
@@ -270,7 +243,6 @@ While tasks remain in this wave:
              message: "Access denied for <file>. Locked by <owner-task-id>. Find an alternative approach.")
 
   2. When a worker completes and goes idle:
-     → Unlock completed task's files: $FLOWCTL unlock --task <completed-task-id> --json
      → Run $FLOWCTL ready --epic <epic-id> --json
      → If new tasks available and no file conflicts with active workers:
        → $FLOWCTL start <new-task-id> --json
@@ -280,15 +252,16 @@ While tasks remain in this wave:
      → If no tasks, let worker idle until wave completes
 
   3. When all workers in wave are done:
-     → Proceed to 3-teams-d
+     → Proceed to 3f (cleanup)
 ```
 
 **Do NOT micromanage** — only intervene on protocol messages from workers. Workers handle their own phases autonomously.
 
 **Idle detection**: Claude Code automatically sends `idle_notification` via the built-in Stop hook when a teammate finishes its turn. Use this as a secondary signal that a worker is ready for reassignment.
 
-#### 3-teams-d. Cleanup
+### 3f. Wave Cleanup
 
+**Teams mode (multiple workers):**
 ```
 # 1. Shutdown all workers (native schema type)
 For each active worker:
@@ -299,44 +272,16 @@ $FLOWCTL unlock --all --json
 
 # 3. Delete team
 TeamDelete()
-
-# 4. Proceed to batch checkpoint (Phase 3d)
 ```
 
-No merge-back needed — all work was on the same branch with file ownership preventing conflicts.
-
-### 3c½. Merge Parallel Branches (parallel mode only)
-
-**Skip if sequential mode, teams mode, or if no workers made changes.**
-
-After all parallel workers return, each worker's changes are on a separate branch in a Claude Code-managed worktree. Merge them back to the working branch sequentially:
-
+**Single worker mode:** Just unlock files:
 ```bash
-WORKTREE_SH="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-worktree-kit/scripts/worktree.sh"
+$FLOWCTL unlock --all --json
 ```
 
-For each worker that returned a branch name (in spawn order):
+No merge-back needed — all work is on the same branch with file ownership preventing conflicts.
 
-```bash
-# 1. Merge the worker branch back (--no-ff for audit trail)
-bash "$WORKTREE_SH" merge-back <worker-branch>
-
-# 2. Clean up the branch (worktree auto-cleaned by Agent tool if merge succeeds)
-git branch -d <worker-branch> 2>/dev/null || true
-```
-
-**Merge order**: Merge in the order workers were spawned. Deterministic order makes conflict debugging easier.
-
-**Conflict handling**: If `merge-back` fails:
-1. The merge is automatically aborted (working tree stays clean)
-2. Log which worker branch conflicted
-3. **Stop the merge sequence** — do NOT merge remaining branches
-4. Report to the user: conflicting branch name + suggestion to resolve manually
-5. Tasks that merged successfully proceed to 3d; failed task stays `in_progress`
-
-**If all merges succeed**: Continue to 3d for all tasks in the batch.
-
-### 3d. Verify Completion & Batch Checkpoint
+### 3g. Verify Completion & Checkpoint
 
 After worker(s) return, verify each task completed:
 
@@ -346,11 +291,9 @@ $FLOWCTL show <task-id> --json
 
 If status is not `done`, the worker failed. Check output and retry or investigate.
 
-**Parallel mode note:** If a merge failed in 3c½, the task may show `done` in flowctl (worker completed in its worktree) but changes are not on the working branch. Flag this to the user.
+#### Wave Checkpoint (EPIC_MODE — MANDATORY after each wave)
 
-#### Batch Checkpoint (parallel mode — MANDATORY after each wave)
-
-After ALL workers in a parallel batch return and merges complete (3c½), run a structured checkpoint before finding the next wave of tasks. This prevents cascading failures and ensures integration quality.
+After ALL workers in a wave return, run a structured checkpoint before finding the next wave of tasks. This prevents cascading failures and ensures integration quality.
 
 **Step 1 — Aggregate Results:**
 Collect from every worker in the batch:
@@ -361,20 +304,14 @@ Collect from every worker in the batch:
 
 **Step 2 — Integration Verification:**
 ```bash
-# Run guards on the merged result (catches cross-task breakage)
+# Run guards on the result (catches cross-task breakage)
 $FLOWCTL guard
 
 # Check architecture invariants still hold
 $FLOWCTL invariants check
-
-# Quick integration test if available
-# (use the epic's quick commands or the project's default test runner)
 ```
 
-If guards or invariants fail after merge, identify which task's changes caused the regression:
-1. Check `git log --oneline -<batch_size>` to see merge order
-2. If identifiable, revert the offending merge and flag the task for retry
-3. If ambiguous, report to user before continuing
+If guards or invariants fail, identify which task's changes caused the regression and report to user.
 
 **Step 3 — Wave Summary:**
 Output a concise checkpoint report:
@@ -389,18 +326,11 @@ Output a concise checkpoint report:
 ───────────────────────────────────────────
 ```
 
-**Step 4 — Wave 2 Planning:**
-Before looping to 3a, assess the next batch:
-- If checkpoint found integration issues → fix before spawning next wave
-- If a failed task blocks downstream tasks → resolve or skip before continuing
-- If remaining ready tasks have shared files with just-completed tasks → consider sequential execution to avoid conflicts
-
 **When to STOP the wave loop:**
 - Guards or invariants fail and cannot be auto-fixed → report to user
 - ≥ 2 tasks in the same wave failed → likely a systemic issue, pause and investigate
-- Merge conflicts in 3c½ → resolve before next wave
 
-### 3d½. Interactive Checkpoint (if `--interactive`)
+### 3g½. Interactive Checkpoint (if `--interactive`)
 
 If `--interactive` was passed, pause after each task completes and show a checkpoint:
 
@@ -419,11 +349,11 @@ Continue to next task? (y/n/skip/abort)
 
 Use AskUserQuestion to wait for response. If no `--interactive` flag, skip this step entirely.
 
-### 3e. Plan Sync (if enabled) — BOTH MODES
+### 3h. Plan Sync (if enabled) — BOTH MODES
 
-**Runs in SINGLE_TASK_MODE and EPIC_MODE.** Only the loop-back in 3f differs by mode.
+**Runs in SINGLE_TASK_MODE and EPIC_MODE.** Only the loop-back in 3i differs by mode.
 
-Only run plan-sync if the task status is `done` (from step 3d). If not `done`, skip plan-sync and investigate/retry.
+Only run plan-sync if the task status is `done` (from step 3g). If not `done`, skip plan-sync and investigate/retry.
 
 Check if plan-sync should run:
 
@@ -464,15 +394,13 @@ Follow your phases in plan-sync.md exactly.
 
 Plan-sync returns summary. Log it but don't block - task updates are best-effort.
 
-### 3f. Loop or Finish
+### 3i. Loop or Finish
 
-**IMPORTANT**: Steps 3d and 3e ALWAYS run after worker returns, regardless of mode. Only the loop-back behavior differs:
+**SINGLE_TASK_MODE**: After 3g→3h, go to Phase 4 (Quality). No loop.
 
-**SINGLE_TASK_MODE**: After 3d→3e, go to Phase 4 (Quality). No loop.
+**EPIC_MODE**: After 3g→3h, return to 3a for next wave.
 
-**EPIC_MODE**: After 3d→3e, return to 3a for next task.
-
-### 3g. Completion Review Gate (EPIC_MODE only)
+### 3j. Completion Review Gate (EPIC_MODE only)
 
 When 3a finds no ready tasks, check if completion review is required.
 
@@ -520,6 +448,45 @@ Context optimization. Each task gets fresh context:
 **Ralph mode**: Worker inherits `bypassPermissions` from parent. FLOW_RALPH=1 and REVIEW_RECEIPT_PATH are passed through.
 
 **Interactive mode**: Permission prompts pass through to user. Worker runs in foreground (blocking).
+
+---
+
+### Worktree Parallel Fallback (`--worktree-parallel`)
+
+**Only use when Teams is unavailable or user explicitly passes `--worktree-parallel`.**
+
+Instead of Teams coordination, each worker gets an isolated git worktree:
+
+```
+[Agent tool call 1: worker for fn-1.1, isolation: "worktree"]
+[Agent tool call 2: worker for fn-1.2, isolation: "worktree"]
+[Agent tool call 3: worker for fn-1.3, isolation: "worktree"]
+```
+
+All run concurrently in isolated worktrees. flowctl state is shared across worktrees automatically (uses git-common-dir). Wait for all workers to complete.
+
+**Merge-back** (after all workers return):
+
+```bash
+WORKTREE_SH="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-worktree-kit/scripts/worktree.sh"
+```
+
+For each worker that returned a branch name (in spawn order):
+
+```bash
+bash "$WORKTREE_SH" merge-back <worker-branch>
+git branch -d <worker-branch> 2>/dev/null || true
+```
+
+**Conflict handling**: If `merge-back` fails:
+1. The merge is automatically aborted (working tree stays clean)
+2. Log which worker branch conflicted
+3. **Stop the merge sequence** — do NOT merge remaining branches
+4. Report to the user: conflicting branch name + suggestion to resolve manually
+
+After merge-back, proceed to 3g (Verify Completion).
+
+---
 
 ## Phase 4: Quality
 
@@ -572,34 +539,19 @@ Confirm before ship:
 
 ## Example flow
 
-**Sequential mode:**
+**Default mode (Teams — auto-parallel):**
 ```
 Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
-  ├─ 3a-c: find task → start → spawn worker
-  ├─ 3d: verify done
-  ├─ 3e: plan-sync (if enabled + downstream tasks exist)
-  ├─ 3f: EPIC_MODE? → loop to 3a | SINGLE_TASK_MODE? → Phase 4
-  ├─ no more tasks → 3g: check completion_review_status
-  │   ├─ status != ship → invoke /flow-code:epic-review → fix loop until SHIP → set status=ship
-  │   └─ status = ship → Phase 4
-  └─ Phase 4 (quality) → Phase 5 (ship)
-```
-
-**Parallel mode (Wave-Checkpoint-Wave):**
-```
-Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
-  ├─ 3a: find ALL ready tasks (Wave 1)
-  ├─ 3b: readiness check all
-  ├─ 3c: spawn workers in parallel (worktree isolation)
-  ├─ 3c½: merge branches back sequentially
-  ├─ 3d: verify done + BATCH CHECKPOINT
-  │   ├─ aggregate results (status, files, tests, reviews)
-  │   ├─ integration verification (guard + invariants)
-  │   ├─ wave summary report
-  │   └─ wave 2 planning (assess next batch safety)
-  ├─ 3d½: interactive pause (if --interactive)
-  ├─ 3e: plan-sync for each completed task
-  ├─ 3f: loop to 3a for next wave (or Phase 4 if done)
-  ├─ no more tasks → 3g: completion review gate
+  ├─ 3a: find ALL ready tasks
+  ├─ 3b: readiness check
+  ├─ 3c: lock files + create team (if >1 task)
+  ├─ 3d: spawn workers (parallel if >1, foreground if 1)
+  ├─ 3e: lead coordination loop (if Teams)
+  ├─ 3f: cleanup (shutdown workers, unlock, delete team)
+  ├─ 3g: verify done + wave checkpoint
+  ├─ 3g½: interactive pause (if --interactive)
+  ├─ 3h: plan-sync (if enabled + downstream tasks exist)
+  ├─ 3i: EPIC_MODE? → loop to 3a | SINGLE_TASK_MODE? → Phase 4
+  ├─ no more tasks → 3j: completion review gate
   └─ Phase 4 (quality) → Phase 5 (ship)
 ```

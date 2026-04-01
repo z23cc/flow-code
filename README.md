@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
 
-[![Version](https://img.shields.io/badge/Version-0.1.3-green)](../../CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.1.6-green)](../../CHANGELOG.md)
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
 
@@ -90,16 +90,13 @@ Work task-by-task with full review cycles for maximum control. Or throw the whol
 # One task at a time (review after each)
 /flow-code:work fn-1.1
 
-# Entire epic (sequential, review after all tasks complete)
+# Entire epic (auto-parallel with Teams coordination)
 /flow-code:work fn-1
-
-# Entire epic (parallel — independent tasks run simultaneously)
-/flow-code:work fn-1 --parallel
 ```
 
-All modes get: re-anchoring before each task, evidence recording, cross-model review (if rp-cli available).
+All modes get: re-anchoring before each task, evidence recording, file locking, cross-model review (if rp-cli available).
 
-**Parallel mode** (Wave-Checkpoint-Wave): Spawns workers for ALL ready tasks (no unresolved dependencies) simultaneously. After each batch completes, a structured **Batch Checkpoint** runs: aggregate results, verify integration (guards + invariants), output a wave summary, then plan the next wave. Newly unblocked tasks become ready for the next batch. Safe because `flowctl ready` only returns tasks with all dependencies resolved.
+**Default: Teams mode** — Ready tasks (no unresolved dependencies) are automatically spawned as parallel Agent Team workers with file locking and SendMessage coordination. Single tasks run as a foreground worker with zero overhead. After each wave completes, a structured **Wave Checkpoint** runs: aggregate results, verify integration (guards + invariants), output a summary, then plan the next wave. Newly unblocked tasks become ready for the next batch.
 
 Workers also use **file-level Wave parallelism** within each task — when touching 3+ files, they issue parallel reads in one message, analyze dependencies at a checkpoint, then issue parallel edits. This achieves 3-4x speedup over sequential file I/O.
 
@@ -1314,7 +1311,7 @@ Natural language also works:
 | Command | Available Flags |
 |---------|-----------------|
 | `/flow-code:plan` | `--research=rp\|grep`, `--review=rp\|codex\|export\|none`, `--no-review` |
-| `/flow-code:work` | `--branch=current\|new\|worktree`, `--review=rp\|codex\|export\|none`, `--no-review`, `--parallel` |
+| `/flow-code:work` | `--branch=current\|new\|worktree`, `--review=rp\|codex\|export\|none`, `--no-review`, `--worktree-parallel`, `--interactive`, `--tdd` |
 | `/flow-code:plan-review` | `--review=rp\|codex\|export` |
 | `/flow-code:impl-review` | `--review=rp\|codex\|export` |
 | `/flow-code:prime` | `--report-only`, `--fix-all` |

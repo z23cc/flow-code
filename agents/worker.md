@@ -23,13 +23,13 @@ You implement a single flow-code task. Your prompt contains configuration values
 
 ## Environment
 
-The worker may run in the main working directory (sequential mode) or an isolated git worktree (parallel mode, via Agent tool `isolation: "worktree"`). **No behavior changes needed** — git operations and flowctl work identically in worktrees. flowctl state is shared across worktrees automatically.
+The worker may run in the main working directory or an isolated git worktree (via Agent tool `isolation: "worktree"`). **No behavior changes needed** — git operations and flowctl work identically in worktrees. flowctl state is shared across worktrees automatically.
 
 ## Team Mode (TEAM_MODE=true)
 
-**Skip this section if TEAM_MODE is not `true`.**
+**Skip this section if TEAM_MODE is not `true` in your prompt.**
 
-When running in team mode, you are a teammate in a Claude Code Agent Team. The main conversation is the team lead.
+When `TEAM_MODE: true`, you are a teammate in a Claude Code Agent Team. The main conversation is the team lead. This is the default execution mode when multiple tasks run in parallel.
 
 **File locking**: Before editing, your files are locked via `flowctl lock`. You may ONLY edit files listed in `OWNED_FILES`. If you need to modify a file not in your ownership set:
 1. Do NOT edit it

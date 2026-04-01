@@ -78,11 +78,10 @@ Parse the arguments for these patterns. If found, use them and skip correspondin
 - `--review=export` or "export review" or "external llm" → export for external LLM
 - `--review=none` or `--no-review` or "no review" or "skip review" → no review
 
-**Parallel mode**:
-- `--parallel` or "run tasks in parallel" or "parallel execution" → spawn all ready tasks simultaneously with git worktree isolation; branches merged back after batch completes (only for EPIC_MODE, skipped for single task)
+**Worktree parallel mode** (fallback when Teams unavailable):
+- `--worktree-parallel` or `--worktree` or "worktree isolation" → spawn workers in isolated git worktrees instead of Teams mode; branches merged back after batch completes. Use only when Teams is unavailable or explicitly requested.
 
-**Teams mode** (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`):
-- `--teams` or "use teams" or "team mode" or "agent teams" → spawn workers as Agent Team teammates with inter-worker communication via SendMessage and file ownership enforcement. Implies parallel execution. Only for EPIC_MODE. Falls back to `--parallel` if teams feature unavailable.
+> **Note**: Teams mode is the default for parallel execution. Multiple ready tasks are automatically spawned as Agent Team teammates with file locking and SendMessage coordination. No flag needed.
 
 **Interactive mode**:
 - `--interactive` or "step by step" or "pause between tasks" → pause for human confirmation at each checkpoint (post-plan, post-impl, post-review). Default: off (autonomous). When enabled, print checkpoint summary and wait for user confirmation before proceeding to next phase.

@@ -34,7 +34,7 @@ $FLOWCTL <command>
 
 1. `/flow-code:plan "description"` → creates epic + tasks in `.flow/`
 2. `/flow-code:plan-review` → Carmack-level review via RepoPrompt or Codex
-3. `/flow-code:work <epic-id>` → executes tasks sequentially with worker subagents
+3. `/flow-code:work <epic-id>` → executes tasks with Teams mode (auto-parallel with file locking)
 4. `/flow-code:impl-review` → post-implementation review
 5. `/flow-code:epic-review` → final review before closing
 

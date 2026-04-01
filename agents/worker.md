@@ -232,58 +232,43 @@ The main conversation will resolve the conflict and re-dispatch you (or update t
 - Acceptance criteria contradict each other
 - Required API endpoint already exists with different signature
 
-## Phase 2.5: Self-Review & Fix Loop
+## Phase 2.5: Verify & Fix
 
-**After implementing, before committing — review your own work and fix issues.**
-
-This loop catches problems at the source. Do NOT skip it.
+**After implementing, before committing — verify your code works. This is normal development: implement → test → fix → retest → pass → commit.**
 
 ### Step 1: Run guard
 ```bash
 <FLOWCTL> guard
 ```
-If guard fails, fix the failures and re-run. Repeat until guard passes (max 3 attempts). If still failing after 3 attempts, proceed to commit and note the failures.
+
+- **Pass** → proceed to Step 2
+- **Fail** → read the error output, fix the code, run guard again
+
+Continue until guard passes. There is no retry limit — this is not a retry loop, it is the development process. A developer does not stop fixing bugs after 3 attempts. You fix until it works.
+
+**If the failure is not a code bug but a spec problem** (e.g., spec asks for something impossible, acceptance criteria contradict each other, required API doesn't exist):
+- Do NOT keep trying to fix code
+- Return early with `SPEC_CONFLICT` status (see Phase 2 spec conflict protocol)
+- In Teams mode, send a `Spec conflict` message to the coordinator
+
+**Teams mode constraint:** When `TEAM_MODE=true`, only fix files in `OWNED_FILES`. If the failure is caused by a file you don't own, send a `Need file access` message and wait for a response. If access is denied or times out, note the issue in your completion summary.
 
 ### Step 2: Review your own diff
 ```bash
 git diff
 ```
 
-Scan your changes against this checklist. Fix any issues you find:
+Scan your changes for obvious issues:
 
-**Correctness:**
-- [ ] New functions handle error cases (not just happy path)
-- [ ] Edge cases considered (empty input, null, boundary values)
-- [ ] No hardcoded values that should be constants/config
+- No commented-out code or debug prints left behind
+- No hardcoded values that should be constants/config
+- Naming is consistent with existing codebase patterns
+- New functions handle error cases, not just happy path
+- No duplicate logic — reuse existing utilities
 
-**Quality:**
-- [ ] No function exceeds ~30 lines — split if longer
-- [ ] Naming is consistent with existing codebase patterns
-- [ ] No commented-out code or debug prints left behind
-- [ ] No duplicate logic — reuse existing utilities
-
-**Performance (if applicable):**
-- [ ] No database queries inside loops (N+1 pattern)
-- [ ] No unnecessary data loading (select only needed fields)
-- [ ] Pagination for list endpoints
-
-**Testing:**
-- [ ] New code paths have corresponding tests
-- [ ] Tests cover both success and failure cases
-
-**Domain-specific** (read from task domain field if set):
-- `backend`: API error responses follow project convention, serializer validation
-- `frontend`: Accessibility attributes, loading/error states handled
-- `testing`: Tests are independent, no shared mutable state
-
-### Step 3: Fix and verify
-If you found issues in Step 2:
-1. Fix them
-2. Re-run `<FLOWCTL> guard` to verify fixes don't break anything
-3. If guard passes, proceed to Phase 3
+If you find issues, fix them and re-run `<FLOWCTL> guard` to verify.
 
 **Rules:**
-- Spend at most 2 iterations on self-review (don't perfectionism-loop)
 - Only fix issues in YOUR changes — don't refactor unrelated code
 - If unsure whether something is an issue, leave it for Phase 4 (external review)
 

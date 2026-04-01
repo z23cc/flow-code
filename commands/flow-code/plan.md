@@ -1,7 +1,7 @@
 ---
 name: flow-code:plan
 description: Draft a structured build plan from a short request
-argument-hint: "<idea or fn-N> [--research=rp|grep] [--review=rp|export|none]"
+argument-hint: "<idea or fn-N> [--plan-only]"
 ---
 
 # IMPORTANT: This command MUST invoke the skill `flow-code-plan`

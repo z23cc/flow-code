@@ -73,80 +73,29 @@ Examples:
 
 If empty, ask: "What should I plan? Give me the feature or bug in 1-5 sentences."
 
-## FIRST: Parse Options or Ask Questions
+## Context Analysis (replaces setup questions)
 
-Check configured backend:
+Analyze the request and context — no questions asked:
 ```bash
 REVIEW_BACKEND=$($FLOWCTL review-backend)
 ```
-Returns: `ASK` (not configured), or `rp`/`codex`/`none` (configured).
 
-### Option Parsing (skip questions if found in arguments)
+Based on the request text, decide:
+- **Research**: request references existing code paths → `repo-scout`. involves new/unfamiliar tech → `context-scout`.
+- **Depth**: clear and scoped request → `short`. needs design decisions → `standard`. architecture change → `deep`.
+- **Review**: backend configured (rp/codex/none) → use it. `ASK` (not configured) → `none`.
 
-Parse the arguments for these patterns. If found, use them and skip questions:
-
-**Research approach**:
-- `--research=rp` or `--research rp` or "use rp" or "context-scout" or "use repoprompt" → context-scout (errors at runtime if rp-cli missing)
-- `--research=grep` or `--research grep` or "use grep" or "repo-scout" or "fast" → repo-scout
-
-**Review mode**:
-- `--review=codex` or "review with codex" or "codex review" or "use codex" → Codex CLI (GPT 5.2 High)
-- `--review=rp` or "review with rp" or "rp chat" or "repoprompt review" → RepoPrompt chat (via `flowctl rp chat-send`)
-- `--review=export` or "export review" or "external llm" → export for external LLM
-- `--review=none` or `--no-review` or "no review" or "skip review" → no review
-
-**Execution mode** (default: execute):
-- `--plan-only` or "just plan" or "don't execute" or "only plan" → create plan but do NOT auto-execute work
-- Default (no flag): after plan is created, automatically invoke `/flow-code:work` to execute
-
-### If options NOT found in arguments
-
-**Plan depth** (parse from args or ask):
-- `--depth=short` or "quick" or "minimal" → SHORT
-- `--depth=standard` or "normal" → STANDARD
-- `--depth=deep` or "comprehensive" or "detailed" → DEEP
-- Default: SHORT (simpler is better)
-
-**If REVIEW_BACKEND is rp, codex, or none** (already configured): Only ask research question. Show override hint:
-
+Output one line:
 ```
-Quick setup: Use RepoPrompt for deeper context?
-a) Yes, context-scout (slower, thorough)
-b) No, repo-scout (faster)
-
-(Reply: "a", "b", or just tell me)
-(Tip: --depth=short|standard|deep, --review=rp|codex|none)
+Research: <repo-scout|context-scout> | Depth: <short|standard|deep> | Review: <backend|none>
 ```
 
-**If REVIEW_BACKEND is ASK** (not configured): Ask all questions (do NOT use AskUserQuestion tool):
+### Explicit flag overrides
 
-```
-Quick setup before planning:
+These flags override the corresponding AI decision without entering the analysis flow:
+- `--research=rp|grep`, `--depth=short|standard|deep`, `--review=rp|codex|export|none`, `--plan-only`
 
-1. **Plan depth** — How detailed?
-   a) Short — problem, acceptance, key context only
-   b) Standard (default) — + approach, risks, test notes
-   c) Deep — + phases, alternatives, rollout plan
-
-2. **Research** — Use RepoPrompt for deeper context?
-   a) Yes, context-scout (slower, thorough)
-   b) No, repo-scout (faster)
-
-3. **Review** — Run Carmack-level review after?
-   a) Codex CLI
-   b) RepoPrompt
-   c) Export for external LLM
-   d) None (configure later)
-
-(Reply: "1a 2b 3d", or just tell me naturally)
-```
-
-Wait for response. Parse naturally — user may reply terse ("1a 2b") or ramble via voice.
-
-**Defaults when empty/ambiguous:**
-- Depth = `standard` (balanced detail)
-- Research = `grep` (repo-scout)
-- Review = configured backend if set, else `none`
+Proceed to Step 1 immediately.
 
 ## Workflow
 
@@ -154,9 +103,9 @@ Read [steps.md](steps.md) and follow each step in order.
 
 **CRITICAL — Step 1 (Research)**: You MUST launch ALL scouts listed in steps.md in ONE parallel Task call. Do NOT skip scouts or run them sequentially. Each scout provides unique signal.
 
-If user chose review:
-- Option 2a: run `/flow-code:plan-review` after Step 4, fix issues until it passes
-- Option 2b: run `/flow-code:plan-review` with export mode after Step 4
+If review was decided (rp/codex/export):
+- rp or codex: run `/flow-code:plan-review` after Step 4, fix issues until it passes
+- export: run `/flow-code:plan-review` with export mode after Step 4
 
 ## Output
 

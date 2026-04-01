@@ -1,7 +1,7 @@
 ---
 name: flow-code:work
 description: Execute a plan end-to-end with checks
-argument-hint: "<fn-N or idea> [--branch=current|new|worktree] [--review=rp|codex|export|none] [--tdd] [--interactive]"
+argument-hint: "<fn-N or idea> [--tdd] [--interactive]"
 ---
 
 # IMPORTANT: This command MUST invoke the skill `flow-code-work`

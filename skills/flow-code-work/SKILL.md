@@ -55,82 +55,34 @@ Examples:
 
 If no input provided, ask for it.
 
-## FIRST: Parse Options or Ask Questions
+## Context Analysis (replaces setup questions)
 
-Check configured backend:
+Read context before proceeding — no questions asked:
 ```bash
+CURRENT_BRANCH=$(git branch --show-current)
+GIT_STATUS=$(git status --porcelain)
 REVIEW_BACKEND=$($FLOWCTL review-backend)
 ```
-Returns: `ASK` (not configured), or `rp`/`codex`/`none` (configured).
 
-### Option Parsing (skip questions if found in arguments)
+Based on context, decide:
+- **Branch**: on feature branch → stay (`current`). on main/master → `new` branch. dirty working tree → `current`.
+- **Review**: backend configured (rp/codex/none) → use it. `ASK` (not configured) → `none`.
 
-Parse the arguments for these patterns. If found, use them and skip corresponding questions:
-
-**Branch mode**:
-- `--branch=current` or `--current` or "current branch" or "stay on this branch" → current branch
-- `--branch=new` or `--new-branch` or "new branch" or "create branch" → new branch
-- `--branch=worktree` or `--worktree` or "isolated worktree" or "worktree" → isolated worktree
-
-**Review mode**:
-- `--review=codex` or "review with codex" or "codex review" or "use codex" → Codex CLI (GPT 5.2 High)
-- `--review=rp` or "review with rp" or "rp chat" or "repoprompt review" → RepoPrompt chat (via `flowctl rp chat-send`)
-- `--review=export` or "export review" or "external llm" → export for external LLM
-- `--review=none` or `--no-review` or "no review" or "skip review" → no review
-
-**Worktree parallel mode** (fallback when Teams unavailable):
-- `--worktree-parallel` or `--worktree` or "worktree isolation" → spawn workers in isolated git worktrees instead of Teams mode; branches merged back after batch completes. Use only when Teams is unavailable or explicitly requested.
-
-> **Note**: Teams mode is the default for parallel execution. Multiple ready tasks are automatically spawned as Agent Team teammates with file locking and SendMessage coordination. No flag needed.
-
-**Interactive mode**:
-- `--interactive` or "step by step" or "pause between tasks" → pause for human confirmation at each checkpoint (post-plan, post-impl, post-review). Default: off (autonomous). When enabled, print checkpoint summary and wait for user confirmation before proceeding to next phase.
-
-**TDD mode**:
-- `--tdd` or "test first" or "test driven" or "red green refactor" → enforce test-first development. Worker writes failing tests before implementation code. Default: off. When enabled, worker executes Phase 2a (TDD Red-Green) before Phase 2 (Implement).
-
-### If options NOT found in arguments
-
-**If REVIEW_BACKEND is rp, codex, or none** (already configured): Only ask branch question. Show override hint:
-
+Output one line:
 ```
-Quick setup: Where to work?
-a) Current branch  b) New branch  c) Isolated worktree
-
-(Reply: "a", "current", or just tell me)
-(Tip: --review=rp|codex|export|none overrides configured backend)
+Branch: <current|new> | Review: <backend|none>
 ```
 
-**If REVIEW_BACKEND is ASK** (not configured): Ask both branch AND review questions:
+### Explicit flag overrides
 
-```
-Quick setup before starting:
+These flags override the corresponding AI decision without entering the analysis flow:
+- `--branch=current|new|worktree`, `--review=rp|codex|export|none`, `--interactive`, `--tdd`, `--worktree-parallel`
 
-1. **Branch** — Where to work?
-   a) Current branch
-   b) New branch
-   c) Isolated worktree
-
-2. **Review** — Run Carmack-level review after?
-   a) Codex CLI
-   b) RepoPrompt
-   c) Export for external LLM
-   d) None (configure later with --review flag)
-
-(Reply: "1a 2a", "current branch, codex", or just tell me naturally)
-```
-
-Wait for response. Parse naturally — user may reply terse or ramble via voice.
-
-**Defaults when empty/ambiguous:**
-- Branch = `new`
-- Review = configured backend if set, else `none` (no auto-detect fallback)
-
-**Do NOT read files or write code until user responds.**
+Proceed to Workflow immediately.
 
 ## Workflow
 
-After setup questions answered, read [phases.md](phases.md) and execute each phase in order.
+Read [phases.md](phases.md) and execute each phase in order.
 
 **Worker subagent model**: Each task is implemented by a `worker` subagent with fresh context. This prevents context bleed between tasks and keeps re-anchor info with the implementation. The main conversation handles task selection and looping; worker handles implementation, commits, and reviews.
 
@@ -154,7 +106,6 @@ $FLOWCTL restart <task-id> --force
 
 ## Guardrails
 
-- Don't start without asking branch question
 - Don't start without plan/epic
 - Don't skip tests
 - Don't leave tasks half-done

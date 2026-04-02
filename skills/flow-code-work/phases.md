@@ -60,15 +60,13 @@ Detect input type in this order (first match wins):
 
 ## Phase 2: Apply Branch Choice
 
-Based on user's answer from setup questions:
-
-- **Worktree**: use `skill: flow-code-worktree-kit`
-- **New branch**:
+- **Worktree** (default when on main): use `skill: flow-code-worktree-kit` to create an isolated worktree. This keeps main clean and allows parallel work.
+- **Current branch** (default when on feature branch or dirty tree): proceed in place.
+- **New branch** (only if explicitly requested via `--branch=new`):
   ```bash
   git checkout main && git pull origin main
   git checkout -b <branch>
   ```
-- **Current branch**: proceed (user already confirmed)
 
 ## Phase 3: Task Loop
 

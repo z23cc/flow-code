@@ -131,7 +131,7 @@ All modes get: re-anchoring before each task, evidence recording, file locking, 
 
 Workers also use **file-level Wave parallelism** within each task — when touching 3+ files, they issue parallel reads in one message, analyze dependencies at a checkpoint, then issue parallel edits. This achieves 3-4x speedup over sequential file I/O.
 
-**Review timing**: The RepoPrompt review runs once at the end of the work package—after a single task if you specified `fn-N.M`, or after all tasks if you specified `fn-N`. For tighter review loops on large epics, work task-by-task.
+**Three-layer review timing**: Layer 1 (guard) runs per-commit automatically. Layer 2 (RP plan-review) runs once during planning. Layer 3 (Codex adversarial) runs once when all tasks complete. No per-task review overhead — quality gates are at the right level.
 
 ### No Context Length Worries
 
@@ -475,20 +475,17 @@ Use `--fix-all` to skip questions and apply everything. Use `--report-only` to j
 
 ---
 
-### Interactive vs Autonomous (The Handoff)
+### Full-Auto vs Interactive
 
-After planning completes, you choose how to execute:
+By default, everything is autonomous. Use `--interactive` only when you want to pause between tasks.
 
-| Mode | Command | When to Use |
-|------|---------|-------------|
-| **Interactive** | `/flow-code:work fn-1` | Complex tasks, learning a codebase, taste matters, want to intervene |
-| **Autonomous (Ralph)** | `scripts/ralph/ralph.sh` | Clear specs, bulk implementation, overnight runs |
+| Mode | Trigger | Behavior |
+|------|---------|----------|
+| **Full-auto** (default) | `/flow-code:plan "idea"` | Plan → work → review → PR, zero questions |
+| **Interactive** | `--interactive` flag | Pauses after each task for human confirmation |
+| **Ralph** (multi-session) | `scripts/ralph/ralph.sh` | Fresh context per iteration, overnight runs |
 
-**The heuristic:** If you can write checkboxes, you can Ralph it. If you can't, you're not ready to loop—you're ready to think.
-
-For full autonomous mode, prepare 5-10 plans before starting Ralph. See [Ralph Mode](#ralph-autonomous-mode) for setup.
-
-> 📖 Deep dive: [Ralph Mode: Why AI Agents Should Forget](https://medium.com/byte-sized-brainwaves/ralph-mode-why-ai-agents-should-forget-9f98bec6fc91)
+For large epics (>10 tasks), Ralph provides fresh context per session. See [Ralph Mode](#ralph-autonomous-mode) for setup.
 
 ---
 
@@ -724,9 +721,9 @@ Ralph writes run artifacts under `scripts/ralph/runs/`, including review receipt
 
 Autonomous coding agents are taking the industry by storm—loop until done, commit, repeat. Most solutions gate progress by tests and linting alone. Ralph goes further.
 
-**Multi-model review gates**: Ralph uses [RepoPrompt](https://repoprompt.com/?atp=KJbuL4) (macOS) or OpenAI Codex CLI (cross-platform) to send plan and implementation reviews to a *different* model. A second set of eyes catches blind spots that self-review misses. RepoPrompt's builder provides full file context; Codex uses context hints from changed files.
+**Multi-model review gates**: Ralph uses [RepoPrompt](https://repoprompt.com) (macOS) or OpenAI Codex CLI (cross-platform) to send plan and implementation reviews to a *different* model. A second set of eyes catches blind spots that self-review misses. RepoPrompt's builder provides full file context; Codex uses context hints from changed files.
 
-**Review loops until Ship**: Reviews don't just flag issues—they block progress until resolved. Ralph runs fix → re-review cycles until the reviewer returns `<verdict>SHIP</verdict>`. No "LGTM with nits" that get ignored.
+**Review loops until Ship** (max 2 iterations): Reviews block progress until resolved. Fix → re-review cycles run until `SHIP` verdict or iteration limit (prevents infinite loops from diminishing-returns fixes).
 
 **Receipt-based gating**: Reviews must produce a receipt JSON file proving they ran. No receipt = no progress. This prevents drift where Claude skips the review step and marks things done anyway.
 
@@ -768,37 +765,24 @@ touch scripts/ralph/runs/<run-id>/STOP
 
 Ralph checks sentinels at iteration boundaries (after Claude returns, before next iteration).
 
-### Review Mode (per-task vs per-epic)
+### Review Mode (Three-Layer Quality)
 
-By default Ralph reviews every task individually (`per-task`). For faster iteration, use `per-epic` mode — runs all tasks first, then one comprehensive epic-level review.
+Ralph uses the same three-layer quality system as interactive mode:
+
+```
+plan → RP plan-review (Layer 2)
+task 1 → guard ✓ (Layer 1)
+task 2 → guard ✓
+task N → guard ✓
+all done → Codex adversarial (Layer 3)
+→ push + draft PR
+```
 
 **Configure in `scripts/ralph/config.env`:**
 
 ```bash
-# per-epic: skip per-task reviews, single epic-level review after all tasks complete
-REVIEW_MODE=per-epic
-
 # Review backend (rp = RepoPrompt, codex = Codex CLI, none = skip)
 WORK_REVIEW=rp
-
-# Completion review auto-inherits from WORK_REVIEW when per-epic mode is active
-# Set explicitly to override: COMPLETION_REVIEW=codex
-```
-
-**Execution flow comparison:**
-
-```
-per-task (default):                    per-epic (recommended for speed):
-
- plan → plan_review (optional)          plan → plan_review (optional)
- task 1 → impl_review ✓                 task 1 → done (no review)
- task 2 → impl_review ✓                 task 2 → done (no review)
- task 3 → impl_review ✓                 task 3 → done (no review)
- ...                                    ...
- task N → impl_review ✓                 task N → done (no review)
- epic completion_review ✓               epic completion_review ✓ (covers all)
- ────────────────────────               ────────────────────────
- N+1 reviews total                      1 review total
 ```
 
 **Common configurations:**
@@ -1099,7 +1083,7 @@ Reviews block progress until `<verdict>SHIP</verdict>`. Fix → re-review cycles
 
 #### RepoPrompt (Recommended)
 
-[RepoPrompt](https://repoprompt.com/?atp=KJbuL4) provides the best review experience on macOS.
+[RepoPrompt](https://repoprompt.com) provides the best review experience on macOS.
 
 **Why recommended:**
 - Best-in-class context builder for reviews (full file context, smart selection)
@@ -1342,8 +1326,8 @@ Natural language also works:
 
 | Command | Available Flags |
 |---------|-----------------|
-| `/flow-code:plan` | `--research=rp\|grep`, `--review=rp\|codex\|export\|none`, `--no-review` |
-| `/flow-code:work` | `--branch=current\|new\|worktree`, `--review=rp\|codex\|export\|none`, `--no-review`, `--worktree-parallel`, `--interactive`, `--tdd` |
+| `/flow-code:plan` | `--research=rp\|grep`, `--depth=short\|standard\|deep`, `--review=rp\|codex\|export\|none`, `--plan-only` |
+| `/flow-code:work` | `--branch=current\|worktree\|new`, `--review=rp\|codex\|none`, `--no-review`, `--interactive`, `--tdd`, `--no-pr` |
 | `/flow-code:plan-review` | `--review=rp\|codex\|export` |
 | `/flow-code:impl-review` | `--review=rp\|codex\|export` |
 | `/flow-code:prime` | `--report-only`, `--fix-all` |
@@ -1768,7 +1752,7 @@ This creates a complete audit trail: what was planned, what was done, how it was
 
 - Python 3.8+
 - git
-- Optional: [RepoPrompt](https://repoprompt.com/?atp=KJbuL4) for macOS GUI reviews + enables **context-scout** (deeper codebase discovery than repo-scout). Reviews work without it via Codex backend.
+- Optional: [RepoPrompt](https://repoprompt.com) for macOS GUI reviews + enables **context-scout** (deeper codebase discovery than repo-scout). Reviews work without it via Codex backend.
 - Optional: OpenAI Codex CLI (`npm install -g @openai/codex`) for cross-platform terminal-based reviews
 
 Without a review backend, reviews are skipped.
@@ -1916,6 +1900,6 @@ Prompts (use `/prompts:<name>`):
 
 <div align="center">
 
-Made by [z23cc](https://github.com/z23cc) · [@z23cc](https://twitter.com/z23cc)
+Made by [z23cc](https://github.com/z23cc)
 
 </div>

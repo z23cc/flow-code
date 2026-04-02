@@ -11,7 +11,9 @@
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
 
-**Plan first, work second. Zero external dependencies.**
+**A production-grade harness for Claude Code. Full-auto development from idea to PR.**
+
+**Zero external dependencies. Zero questions asked.**
 
 </div>
 
@@ -19,9 +21,25 @@
 
 > **Active development.** [Changelog](../../CHANGELOG.md) | [Report issues](https://github.com/z23cc/flow-code/issues)
 
-🌐 **Prefer a visual overview?** See the [Flow-Code app page](https://github.com/z23cc/flow-code) for diagrams and examples.
+### What is Harness Engineering?
 
-> **New: Codex Review Backend.** Cross-model reviews now work on Linux/Windows via OpenAI Codex CLI. Same Carmack-level criteria as RepoPrompt. See [Cross-Model Reviews](#cross-model-reviews) for setup.
+> *"The model is commodity; the harness is moat."* — [Anthropic](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), [OpenAI](https://openai.com/index/harness-engineering/), [Mitchell Hashimoto](https://mitchellh.com/writing/my-ai-adoption-journey)
+
+A **harness** wraps around an AI coding agent to handle everything the model can't do alone: state management, context bridging, quality gates, multi-agent coordination, and error recovery. Flow-Code is a complete harness for Claude Code.
+
+### How Flow-Code Compares
+
+| Capability | Flow-Code | [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (12.5K⭐) | [claude-mem](https://github.com/thedotmack/claude-mem) (44K⭐) | [superpowers](https://github.com/anthropics/claude-plugins-official) |
+|---|---|---|---|---|
+| Task DAG + state machine | ✅ 37 commands, deps, split/skip | ❌ | ❌ | ❌ |
+| Parallel Teams + file lock | ✅ Agent Teams, atomic locks | ❌ | ❌ | ✅ parallel agents (no locks) |
+| Three-layer quality | ✅ guard + RP + Codex adversarial | ❌ | ❌ | ❌ |
+| Runtime DAG mutation | ✅ split/skip/dep rm mid-execution | ❌ | ❌ | ❌ |
+| Cross-model adversarial review | ✅ GPT tries to break Claude's code | ❌ | ❌ | ❌ |
+| Full-auto (zero questions) | ✅ AI decides branch/review/depth | ❌ | ❌ | ❌ |
+| Context preservation | ✅ PreCompact hook | ❌ | ✅ embedding + RAG | ❌ |
+| Auto draft PR | ✅ | ❌ | ❌ | ❌ |
+| Zero dependencies | ✅ pure Python + Bash | ❌ Node.js | ❌ ChromaDB | ❌ Node.js |
 
 ---
 
@@ -47,9 +65,19 @@
 
 ## What Is This?
 
-Flow-Code is a Claude Code plugin for plan-first orchestration. Bundled task tracking, dependency graphs, re-anchoring, and cross-model reviews.
+Flow-Code is a **harness engineering framework** for Claude Code. One command goes from idea to draft PR — planning, parallel implementation, three-layer quality gates, and cross-model adversarial review, all fully automated.
 
-Everything lives in your repo. No external services. No global config. Uninstall: delete `.flow/` (and `scripts/ralph/` if enabled).
+```
+/flow-code:plan "Add OAuth login"
+  → AI research (adaptive scouts)
+  → RP plan-review (code-aware)
+  → Teams parallel workers (file locking)
+  → guard per-commit (Layer 1)
+  → Codex adversarial (Layer 3: GPT tries to break it)
+  → auto push + draft PR
+```
+
+Everything lives in your repo as `.flow/` state. No external services. No global config. Zero dependencies (pure Python + Bash). Uninstall: delete `.flow/`.
 
 <table>
 <tr>
@@ -114,16 +142,17 @@ Workers also use **file-level Wave parallelism** within each task — when touch
 
 Never worry about 200K token limits again.
 
-### Reviewer as Safety Net
+### Three-Layer Quality System
 
-If drift happens despite re-anchoring, a different model catches it before it compounds:
+Each layer catches different types of problems. No overlap, no waste:
 
-1. Claude implements task
-2. GPT reviews via RepoPrompt (sees full files, not diffs)
-3. Reviews block until `SHIP` verdict
-4. Fix → re-review cycles continue until approved
+| Layer | Tool | When | What it catches |
+|-------|------|------|----------------|
+| **1. Guard** | `flowctl guard` (lint/type/test) | Every commit | Syntax, types, test failures |
+| **2. RP Plan-Review** | RepoPrompt context_builder | Plan phase | Spec-code inconsistency (RP sees full codebase) |
+| **3. Codex Adversarial** | `flowctl codex adversarial` | Epic completion | Security, concurrency, edge cases (different model family) |
 
-Two models catch what one misses.
+Guard is deterministic. RP validates against existing code. Codex (GPT) tries to **break** what Claude built — different architectures have different blind spots.
 
 ---
 

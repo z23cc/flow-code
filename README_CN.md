@@ -11,7 +11,9 @@
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
 
-**先规划，后执行。零外部依赖。**
+**Claude Code 的生产级 Harness。从想法到 PR，全自动。**
+
+**零外部依赖。零交互问题。**
 
 </div>
 
@@ -19,7 +21,23 @@
 
 > **活跃开发中。** [更新日志](../../CHANGELOG.md) | [报告问题](https://github.com/z23cc/flow-code/issues)
 
-> **Codex 审查后端**：跨模型审查现已支持 Linux/Windows（通过 OpenAI Codex CLI）。与 RepoPrompt 使用相同的 Carmack 级审查标准。详见[跨模型审查](#跨模型审查)。
+### 什么是 Harness Engineering？
+
+> *"模型是商品，harness 是护城河。"* — [Anthropic](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)、[OpenAI](https://openai.com/index/harness-engineering/)、[Mitchell Hashimoto](https://mitchellh.com/writing/my-ai-adoption-journey)
+
+**Harness** 包裹在 AI 编码 agent 外围，处理模型无法独立完成的一切：状态管理、上下文桥接、质量门控、多 agent 协调、错误恢复。Flow-Code 是 Claude Code 的完整 harness。
+
+### 对比
+
+| 能力 | Flow-Code | [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (12.5K⭐) | [claude-mem](https://github.com/thedotmack/claude-mem) (44K⭐) | [superpowers](https://github.com/anthropics/claude-plugins-official) |
+|---|---|---|---|---|
+| Task DAG + 状态机 | ✅ 37 命令，依赖图，split/skip | ❌ | ❌ | ❌ |
+| Teams 并行 + 文件锁 | ✅ Agent Teams，原子锁 | ❌ | ❌ | ✅ 并行 agents（无锁） |
+| 三层质量体系 | ✅ guard + RP + Codex 对抗 | ❌ | ❌ | ❌ |
+| 运行时 DAG 变更 | ✅ 执行中 split/skip/dep rm | ❌ | ❌ | ❌ |
+| 跨模型对抗审查 | ✅ GPT 试图破坏 Claude 的代码 | ❌ | ❌ | ❌ |
+| 全自动（零问题） | ✅ AI 决定 branch/review/depth | ❌ | ❌ | ❌ |
+| 零依赖 | ✅ 纯 Python + Bash | ❌ Node.js | ❌ ChromaDB | ❌ Node.js |
 
 ---
 
@@ -53,9 +71,19 @@
 
 ## 这是什么？
 
-Flow-Code 是一个 Claude Code 插件，用于计划优先的工作流编排。内置任务追踪、依赖图、重锚定和跨模型审查。
+Flow-Code 是 Claude Code 的 **Harness Engineering 框架**。一条命令，从想法到 draft PR — 规划、并行实现、三层质量门控、跨模型对抗审查，全自动。
 
-所有数据存储在你的仓库中。无外部服务。无全局配置。卸载：删除 `.flow/`（启用了 Ralph 的话还有 `scripts/ralph/`）。
+```
+/flow-code:plan "添加 OAuth 登录"
+  → AI 研究（自适应 scouts）
+  → RP plan-review（代码感知）
+  → Teams 并行 workers（文件锁）
+  → guard 每次提交（Layer 1）
+  → Codex 对抗审查（Layer 3：GPT 试图破坏）
+  → auto push + draft PR
+```
+
+所有状态存储在 `.flow/` 目录。无外部服务。无全局配置。零依赖（纯 Python + Bash）。卸载：删除 `.flow/`。
 
 ---
 

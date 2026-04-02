@@ -93,39 +93,36 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 - Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
-**Scout selection is determined by Depth** (decided in Context Analysis). No second judgment needed — Depth directly maps to scout set:
+**Scout selection: base set + topic-triggered additions.** (Follows Anthropic's multi-agent research pattern.)
 
-### Depth → Scout mapping
+### Base set (always run)
 
-**Depth: short** (bug fix, config change, small known-pattern task)
-| Scout | Condition |
-|-------|-----------|
-| `flow-code:repo-scout` or `flow-code:context-scout` | Based on Research decision |
-| `flow-code:memory-scout` | IF memory.enabled |
-Total: 1-2 scouts, ~20s
+| Scout | Condition | Why always |
+|-------|-----------|------------|
+| `flow-code:repo-scout` or `flow-code:context-scout` | Based on Research decision | Must understand existing code |
+| `flow-code:memory-scout` | IF memory.enabled | Fast (~5s), catches known pitfalls |
 
-**Depth: standard** (new endpoint, new component, moderate scope)
-| Scout | Condition |
-|-------|-----------|
-| `flow-code:repo-scout` or `flow-code:context-scout` | Based on Research decision |
-| `flow-code:practice-scout` | Always |
-| `flow-code:epic-scout` | Always |
-| `flow-code:memory-scout` | IF memory.enabled |
-Total: 3-4 scouts, ~40s
+### Topic-triggered additions
 
-**Depth: deep** (architecture, security, new tech, cross-cutting)
-| Scout | Condition |
-|-------|-----------|
-| `flow-code:repo-scout` or `flow-code:context-scout` | Based on Research decision |
-| `flow-code:practice-scout` | Always |
-| `flow-code:docs-scout` | Always |
-| `flow-code:epic-scout` | Always |
-| `flow-code:docs-gap-scout` | Always |
-| `flow-code:github-scout` | IF scouts.github |
-| `flow-code:memory-scout` | IF memory.enabled |
-Total: 5-7 scouts, ~80s
+Scan the request text for these topics. If found, add the corresponding scout:
 
-**Run selected scouts in parallel in ONE Agent/Task call.** Never run sequentially.
+| Topic keywords in request | Add scout | Why |
+|---------------------------|-----------|-----|
+| security, auth, permissions, credentials, encryption, CSRF, XSS | `flow-code:practice-scout` | Security pitfalls need external knowledge |
+| new API, unfamiliar library, migration, upgrade, new framework | `flow-code:docs-scout` | Need external documentation |
+| new API, unfamiliar library, novel pattern, "how do others" | `flow-code:github-scout` (IF scouts.github) | Find prior art |
+| multiple epics open, depends on, cross-epic | `flow-code:epic-scout` | Check dependency conflicts |
+| user-facing, UI, documentation, README, public API | `flow-code:docs-gap-scout` | Docs may need updating |
+| best practices, patterns, performance, testing strategy | `flow-code:practice-scout` | Need external guidance |
+| architecture, refactor, system design, database schema | `flow-code:practice-scout` + `flow-code:docs-scout` | Major design decisions |
+
+### Rules
+
+- **Minimum**: 1 scout (repo-scout). Even the simplest fix needs to know existing patterns.
+- **Maximum**: 7 scouts. Beyond this, coordination overhead dominates (Anthropic research).
+- **No duplication**: if a scout is triggered by multiple topics, run it once.
+- **Run ALL selected scouts in parallel in ONE Agent/Task call.** Never run sequentially.
+- **Depth influences topic detection**: `deep` depth should lower the threshold for adding scouts (when in doubt, add). `short` depth should raise it (only add if clearly relevant).
 
 Must capture:
 - File paths + line refs

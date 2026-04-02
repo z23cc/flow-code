@@ -19,8 +19,6 @@
 
 ---
 
-> **Active development.** [Changelog](../../CHANGELOG.md) | [Report issues](https://github.com/z23cc/flow-code/issues)
-
 ### What is Harness Engineering?
 
 > *"The model is commodity; the harness is moat."* — [Anthropic](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), [OpenAI](https://openai.com/index/harness-engineering/), [Mitchell Hashimoto](https://mitchellh.com/writing/my-ai-adoption-journey)

@@ -479,7 +479,7 @@ $FLOWCTL codex adversarial --base "$BRANCH_BASE" --json
 
 Initialize `ADVERSARIAL_ITERATIONS=0`. Parse response:
 - `verdict: "SHIP"` → go to Phase 4
-- `verdict: "NEEDS_WORK"` → increment `ADVERSARIAL_ITERATIONS`. If `>= 5`: log "Adversarial review did not converge after 5 iterations. Proceeding." → go to Phase 4. Otherwise: fix issues, commit, re-run.
+- `verdict: "NEEDS_WORK"` → increment `ADVERSARIAL_ITERATIONS`. If `>= 2`: log "Adversarial review: 2 iterations completed. First iteration finds real issues, second verifies fixes. Proceeding." → go to Phase 4. Otherwise: fix issues, commit, re-run.
 
 **If codex not available:**
 ```

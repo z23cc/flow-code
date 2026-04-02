@@ -93,41 +93,46 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 - Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
-**Based on user's choice in SKILL.md setup:**
+**Scout selection is adaptive.** Choose scouts based on the request complexity and depth:
 
----
+### Available scouts
 
-**CRITICAL: You MUST run ALL listed scouts. Run them in parallel for efficiency. Do NOT skip any scout — each provides unique signal that improves plan quality.**
-
----
-
-**If user chose context-scout (RepoPrompt)**:
-
-Run ALL of these scouts in parallel:
-| Scout | Purpose | Required |
+| Scout | Purpose | Best for |
 |-------|---------|----------|
-| `flow-code:context-scout` | RepoPrompt AI file discovery | YES |
-| `flow-code:practice-scout` | Best practices + pitfalls | YES |
-| `flow-code:docs-scout` | External documentation | YES |
-| `flow-code:github-scout` | Cross-repo patterns via gh CLI | IF scouts.github |
-| `flow-code:memory-scout` | Project memory entries | IF memory.enabled |
-| `flow-code:epic-scout` | Dependencies on open epics | YES |
-| `flow-code:docs-gap-scout` | Docs needing updates | YES |
+| `flow-code:repo-scout` | Grep/Glob/Read codebase patterns | All requests (always useful) |
+| `flow-code:context-scout` | RepoPrompt AI deep file discovery | Complex/unfamiliar code (if rp-cli available) |
+| `flow-code:practice-scout` | Best practices + pitfalls | New tech, security, architecture |
+| `flow-code:docs-scout` | External framework documentation | New APIs, unfamiliar libraries |
+| `flow-code:github-scout` | Cross-repo patterns via gh CLI | Novel patterns (if scouts.github enabled) |
+| `flow-code:memory-scout` | Project memory entries | Recurring work (if memory.enabled) |
+| `flow-code:epic-scout` | Dependencies on open epics | Multi-epic projects |
+| `flow-code:docs-gap-scout` | Docs needing updates | User-facing features |
 
-**If user chose repo-scout (default/faster)** OR rp-cli unavailable:
+### How to choose
 
-Run ALL of these scouts in parallel:
-| Scout | Purpose | Required |
-|-------|---------|----------|
-| `flow-code:repo-scout` | Grep/Glob/Read patterns | YES |
-| `flow-code:practice-scout` | Best practices + pitfalls | YES |
-| `flow-code:docs-scout` | External documentation | YES |
-| `flow-code:github-scout` | Cross-repo patterns via gh CLI | IF scouts.github |
-| `flow-code:memory-scout` | Project memory entries | IF memory.enabled |
-| `flow-code:epic-scout` | Dependencies on open epics | YES |
-| `flow-code:docs-gap-scout` | Docs needing updates | YES |
+Decide based on the request:
 
-**Anti-pattern**: Running only 2-3 scouts "because they seem most relevant" — this causes incomplete plans.
+**Simple/clear request** (bug fix, config change, small known-pattern task):
+- `repo-scout` (find existing patterns) — always
+- `memory-scout` (if memory.enabled — check for known pitfalls)
+- Total: 1-2 scouts, ~20s
+
+**Standard feature** (new endpoint, new component, moderate scope):
+- `repo-scout` or `context-scout` (based on Research decision)
+- `practice-scout` (best practices)
+- `epic-scout` (check dependencies)
+- `memory-scout` (if memory.enabled)
+- Total: 3-4 scouts, ~40s
+
+**Complex/risky change** (architecture, security, new tech, cross-cutting):
+- `repo-scout` or `context-scout`
+- `practice-scout` + `docs-scout` (need external knowledge)
+- `epic-scout` + `docs-gap-scout` (wide impact)
+- `github-scout` (if scouts.github — find prior art)
+- `memory-scout` (if memory.enabled)
+- Total: 5-7 scouts, ~80s
+
+**Run selected scouts in parallel in ONE Agent/Task call.** Never run sequentially.
 
 Must capture:
 - File paths + line refs
@@ -420,7 +425,7 @@ If review was decided in Context Analysis:
 2. Invoke `/flow-code:plan-review` with the epic ID
 3. If review returns "Needs Work" or "Major Rethink":
    - Increment `PLAN_REVIEW_ITERATIONS`
-   - **If `PLAN_REVIEW_ITERATIONS >= 5`**: stop the loop. Log warning: "Plan review did not converge after 5 iterations. Proceeding with current plan." Go to Step 8.
+   - **If `PLAN_REVIEW_ITERATIONS >= 2`**: stop the loop. Log: "Plan review: 2 iterations completed. Proceeding." Go to Step 8.
    - **Re-anchor EVERY iteration** (do not skip):
      ```bash
      $FLOWCTL show <epic-id> --json

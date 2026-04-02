@@ -93,36 +93,34 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 - Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
-**Scout selection: base set + topic-triggered additions.** (Follows Anthropic's multi-agent research pattern.)
+**Scout selection: AI decides.** Read the request, read what each scout does, pick the ones that would actually help this specific plan. No fixed rules or keyword tables.
 
-### Base set (always run)
+### Available scouts
 
-| Scout | Condition | Why always |
-|-------|-----------|------------|
-| `flow-code:repo-scout` or `flow-code:context-scout` | Based on Research decision | Must understand existing code |
-| `flow-code:memory-scout` | IF memory.enabled | Fast (~5s), catches known pitfalls |
+| Scout | What it finds | Cost |
+|-------|--------------|------|
+| `flow-code:repo-scout` | Existing code patterns, file structure, reuse points via Grep/Glob | Fast, ~10s |
+| `flow-code:context-scout` | Deep cross-file analysis via RepoPrompt context_builder | Slow, ~30s. Use instead of repo-scout when code relationships are complex. Requires rp-cli. |
+| `flow-code:practice-scout` | Best practices, pitfalls, gotchas from web search | Medium, ~20s |
+| `flow-code:docs-scout` | External framework/library documentation | Medium, ~20s |
+| `flow-code:github-scout` | Cross-repo code patterns and examples via gh CLI | Medium, ~20s. Requires scouts.github config. |
+| `flow-code:memory-scout` | Project-specific pitfalls and conventions from .flow/memory/ | Fast, ~5s. Requires memory.enabled config. |
+| `flow-code:epic-scout` | Dependencies and conflicts with other open epics | Fast, ~10s |
+| `flow-code:docs-gap-scout` | Documentation that needs updating after this change | Fast, ~10s |
 
-### Topic-triggered additions
+### How to decide
 
-Scan the request text for these topics. If found, add the corresponding scout:
+Ask yourself for each scout: **"Would this scout's output change my plan?"**
+- Yes → include it
+- No → skip it
+- Unsure → include it (the cost of an unnecessary scout is ~10s; the cost of missing context is a bad plan)
 
-| Topic keywords in request | Add scout | Why |
-|---------------------------|-----------|-----|
-| security, auth, permissions, credentials, encryption, CSRF, XSS | `flow-code:practice-scout` | Security pitfalls need external knowledge |
-| new API, unfamiliar library, migration, upgrade, new framework | `flow-code:docs-scout` | Need external documentation |
-| new API, unfamiliar library, novel pattern, "how do others" | `flow-code:github-scout` (IF scouts.github) | Find prior art |
-| multiple epics open, depends on, cross-epic | `flow-code:epic-scout` | Check dependency conflicts |
-| user-facing, UI, documentation, README, public API | `flow-code:docs-gap-scout` | Docs may need updating |
-| best practices, patterns, performance, testing strategy | `flow-code:practice-scout` | Need external guidance |
-| architecture, refactor, system design, database schema | `flow-code:practice-scout` + `flow-code:docs-scout` | Major design decisions |
+### Constraints
 
-### Rules
-
-- **Minimum**: 1 scout (repo-scout). Even the simplest fix needs to know existing patterns.
-- **Maximum**: 7 scouts. Beyond this, coordination overhead dominates (Anthropic research).
-- **No duplication**: if a scout is triggered by multiple topics, run it once.
-- **Run ALL selected scouts in parallel in ONE Agent/Task call.** Never run sequentially.
-- **Depth influences topic detection**: `deep` depth should lower the threshold for adding scouts (when in doubt, add). `short` depth should raise it (only add if clearly relevant).
+- **Always include** repo-scout or context-scout (one of the two — must understand existing code)
+- **Always include** memory-scout if memory.enabled (fast and catches known pitfalls)
+- **Maximum 7 scouts** — beyond this, coordination overhead dominates
+- **Run selected scouts in parallel in ONE Agent/Task call.** Never sequentially.
 
 Must capture:
 - File paths + line refs

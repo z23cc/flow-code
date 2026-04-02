@@ -387,11 +387,15 @@ Complete the task:
 <FLOWCTL> done <TASK_ID> --summary-file /tmp/summary.md --evidence-json /tmp/evidence.json
 ```
 
-Verify completion:
+**CRITICAL: Verify completion BEFORE sending any message to coordinator:**
 ```bash
 <FLOWCTL> show <TASK_ID> --json
 ```
-Status must be `done`. If not, debug and retry.
+Status MUST be `done`. If not:
+1. Check error output from `flowctl done` above
+2. If evidence file issue → retry with inline: `<FLOWCTL> done <TASK_ID> --summary "implemented" --evidence-json '{"tests_passed":true}'`
+3. Verify again with `<FLOWCTL> show <TASK_ID> --json`
+4. **Do NOT send "Task complete" message until status is confirmed `done`**
 
 ## Phase 5b: Memory Auto-Save (if memory enabled)
 

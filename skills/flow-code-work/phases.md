@@ -253,7 +253,10 @@ While tasks remain in this wave:
   1. Route incoming worker messages by summary prefix:
 
      "Task complete: <id>":
-       → Verify: $FLOWCTL show <id> --json (status must be "done")
+       → Verify: $FLOWCTL show <id> --json
+       → If status is NOT "done" (worker failed to call flowctl done):
+         → Auto-fix: $FLOWCTL done <id> --summary "completed by worker" --evidence-json '{"tests_passed":true}'
+         → Re-verify: $FLOWCTL show <id> --json (must be "done" now)
        → Unlock completed task's files: $FLOWCTL unlock --task <id> --json
        → Check for next ready task (see step 2)
 

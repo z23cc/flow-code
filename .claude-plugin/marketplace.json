@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Structured plan-first development plugin for Claude Code with .flow/ task tracking, Agent Teams, and Ralph autonomous mode",
-    "version": "0.1.14"
+    "version": "0.1.15"
   },
   "plugins": [
     {
       "name": "flow-code",
       "description": "Zero-dependency planning + execution with .flow/ task tracking. Three-layer quality (guard + RP plan-review + Codex adversarial). Full-auto, zero questions. Teams auto-parallel, DAG mutation, Codex-driven decisions, auto draft-PR, session summary. 5 prompt templates. 20 subagents, 25+ CLI commands, 23 skills.",
-      "version": "0.1.14",
+      "version": "0.1.15",
       "source": "./",
       "category": "workflow",
       "tags": [

@@ -1757,13 +1757,6 @@ chmod +x .flow/bin/flowctl
 <!-- END FLOW-CODE -->
 ```
 
-### 社区移植和受启发的项目
-
-| 项目 | 平台 | 说明 |
-|------|------|------|
-| [flow-code-opencode](https://github.com/z23cc/flow-code-opencode) | OpenCode | Flow-Code 移植 |
-| [FlowFactory](https://github.com/Gitmaxd/flowfactory) | Factory.ai Droid | Flow 移植（注意：flow-code 现已原生支持 Droid） |
-
 ---
 
 <div align="center">

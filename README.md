@@ -1887,13 +1887,6 @@ Prompts (use `/prompts:<name>`):
 <!-- END FLOW-CODE -->
 ```
 
-### Community Ports and Inspired Projects
-
-| Project | Platform | Notes |
-|---------|----------|-------|
-| [flow-code-opencode](https://github.com/z23cc/flow-code-opencode) | OpenCode | Flow-Code port |
-| [FlowFactory](https://github.com/Gitmaxd/flowfactory) | Factory.ai Droid | Flow port (note: flow-code now has native Droid support) |
-
 ---
 
 <div align="center">

@@ -72,7 +72,9 @@ Based on user's answer from setup questions:
 
 ## Phase 3: Task Loop
 
-**Default mode is Teams** — workers run as Agent Team teammates with shared directory and file locking. This applies to both single-task and multi-task execution.
+**Default mode is Teams** — workers run as Agent Team teammates with shared directory and file locking.
+
+**CRITICAL: When multiple tasks are ready with no file conflicts, they MUST run in parallel via Teams mode. Do NOT execute them sequentially "for quality" or "one at a time." Teams mode with file locking IS the quality mechanism. Sequential execution wastes time and provides no additional safety.**
 
 **Fallback: worktree isolation** (`--worktree-parallel`): Uses git worktrees instead of Teams. Only use when Teams is unavailable or user explicitly requests worktree isolation.
 
@@ -150,11 +152,13 @@ $FLOWCTL lock --task <task-id-2> --files "file3,file4" --json
 ```
 
 ```
-# 3. Create the team (skip if only 1 task — single worker doesn't need Teams overhead)
+# 3. Create the team
 TeamCreate({team_name: "flow-<epic-id>", description: "Working on <epic-title>"})
 ```
 
-> **Single ready task?** Skip TeamCreate. Spawn one worker with `TEAM_MODE: false` and `run_in_background: false` (foreground). This avoids Teams overhead while still using file locking for safety.
+**Decision:**
+- **2+ ready tasks with no file conflicts → Teams mode (mandatory).** Create team, spawn all workers in parallel with `run_in_background: true`.
+- **1 ready task → foreground mode.** Skip TeamCreate, spawn one worker with `TEAM_MODE: false` and `run_in_background: false`.
 
 ### 3d. Spawn Workers
 

@@ -70,6 +70,47 @@ FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py"
 $FLOWCTL init --json
 ```
 
+## Step 0.5: Clarity Check (auto — no human input)
+
+Before research, check if the request is clear enough to plan directly.
+
+**Clear request indicators** (skip to Step 1):
+- Specific feature with defined behavior ("add /api/health/ endpoint returning JSON status")
+- Bug fix with reproduction steps
+- References existing patterns to follow
+- Has acceptance criteria or spec file
+
+**Ambiguous request indicators** (run mini brainstorm):
+- Vague goal ("improve UX", "make it faster", "refactor auth")
+- Multiple valid approaches with no obvious best choice
+- Missing who/what/why ("add payment support" — subscription? one-time? both?)
+- Scope unclear ("redesign the dashboard" — full rewrite? incremental?)
+
+**If ambiguous → Mini brainstorm (AI decides, no human input):**
+
+1. **Pressure test** (3 questions, answer them yourself from context):
+   - What specific user problem does this solve?
+   - What happens if we do nothing?
+   - Is there a simpler framing that delivers 80% of the value?
+
+2. **Generate 2-3 approaches** (one sentence each):
+   - Approach A: [minimal/safe]
+   - Approach B: [balanced]
+   - Approach C: [comprehensive]
+
+3. **Pick the best approach** based on:
+   - Blast radius (smaller is safer)
+   - Value delivered per effort
+   - Alignment with existing codebase patterns (from repo-scout later, but estimate now)
+   
+4. **Output one line** and continue to Step 1:
+   ```
+   Clarified: "<original request>" → "<specific plan target>"
+   Approach: <A|B|C> — <one sentence why>
+   ```
+
+**Total cost**: ~10 seconds for the clarity check. ~30 seconds if mini brainstorm runs. Zero for clear requests.
+
 ## Step 1: Fast research (parallel)
 
 **If input is a Flow ID** (fn-N-slug or fn-N-slug.M, including legacy fn-N/fn-N-xxx): First fetch it with `$FLOWCTL show <id> --json` and `$FLOWCTL cat <id>` to get the request context.

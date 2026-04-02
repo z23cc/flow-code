@@ -93,34 +93,27 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 - Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
-**Scout selection: AI decides.** Read the request, read what each scout does, pick the ones that would actually help this specific plan. No fixed rules or keyword tables.
+**Scout selection: AI decides per-request.** For each scout, a specific question tells you if it's worth running.
 
-### Available scouts
+### Scout decision guide
 
-| Scout | What it finds | Cost |
-|-------|--------------|------|
-| `flow-code:repo-scout` | Existing code patterns, file structure, reuse points via Grep/Glob | Fast, ~10s |
-| `flow-code:context-scout` | Deep cross-file analysis via RepoPrompt context_builder | Slow, ~30s. Use instead of repo-scout when code relationships are complex. Requires rp-cli. |
-| `flow-code:practice-scout` | Best practices, pitfalls, gotchas from web search | Medium, ~20s |
-| `flow-code:docs-scout` | External framework/library documentation | Medium, ~20s |
-| `flow-code:github-scout` | Cross-repo code patterns and examples via gh CLI | Medium, ~20s. Requires scouts.github config. |
-| `flow-code:memory-scout` | Project-specific pitfalls and conventions from .flow/memory/ | Fast, ~5s. Requires memory.enabled config. |
-| `flow-code:epic-scout` | Dependencies and conflicts with other open epics | Fast, ~10s |
-| `flow-code:docs-gap-scout` | Documentation that needs updating after this change | Fast, ~10s |
-
-### How to decide
-
-Ask yourself for each scout: **"Would this scout's output change my plan?"**
-- Yes → include it
-- No → skip it
-- Unsure → include it (the cost of an unnecessary scout is ~10s; the cost of missing context is a bad plan)
+| Scout | ~Cost | Include when... | Skip when... |
+|-------|-------|----------------|-------------|
+| `repo-scout` | 10s | **Always** — unless using context-scout instead | Using context-scout |
+| `context-scout` | 30s | Change touches multiple modules or unfamiliar code. Requires rp-cli | Single-file change in well-known area. rp-cli unavailable |
+| `practice-scout` | 20s | Involves security, auth, payments, concurrency, new patterns, or anything you're not 100% sure about best practices | Straightforward CRUD, config change, or well-trodden pattern you've done many times in this codebase |
+| `docs-scout` | 20s | Uses an API/library you haven't used recently, or a framework feature that may have changed | Uses only project-internal code, no external APIs |
+| `github-scout` | 20s | Novel pattern with no existing example in this codebase. Requires scouts.github | Pattern already exists in this repo (repo-scout will find it) |
+| `memory-scout` | 5s | **Always if memory.enabled** — near-zero cost, catches known pitfalls | memory.enabled is false |
+| `epic-scout` | 10s | Project has 2+ open epics that might overlap | This is the only active epic |
+| `docs-gap-scout` | 10s | Change adds/changes user-facing behavior, public APIs, or CLI commands | Internal refactor, backend-only change invisible to users |
 
 ### Constraints
 
-- **Always include** repo-scout or context-scout (one of the two — must understand existing code)
-- **Always include** memory-scout if memory.enabled (fast and catches known pitfalls)
-- **Maximum 7 scouts** — beyond this, coordination overhead dominates
-- **Run selected scouts in parallel in ONE Agent/Task call.** Never sequentially.
+- **Minimum 1**: repo-scout or context-scout (must understand existing code)
+- **Maximum 7**: coordination overhead dominates beyond this
+- **Parallel only**: run ALL selected scouts in ONE Agent/Task call, never sequentially
+- **When in doubt, include**: a wasted 10s scout is cheaper than a plan missing context
 
 Must capture:
 - File paths + line refs

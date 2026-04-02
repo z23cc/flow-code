@@ -434,24 +434,34 @@ If review was decided in Context Analysis:
 
 **Why re-anchor every iteration?** Per Anthropic's long-running agent guidance: context compresses, you forget details. Re-read before each fix pass.
 
-## Step 8: Offer next steps
+## Step 8: Execute or Offer next steps
 
-Show epic summary with size breakdown and offer options:
+**Default: auto-execute immediately.** Do NOT show a menu or wait for user input unless `--plan-only` was specified.
 
-```
-Epic fn-N-slug created: "<title>"
-Tasks: M total | Sizes: Ns S, Nm M
-
-Next steps:
-1) Start work: `/flow-code:work fn-N-slug`
-2) Refine via interview: `/flow-code:interview fn-N-slug`
-3) Review the plan: `/flow-code:plan-review fn-N-slug`
-4) Go deeper on specific tasks (tell me which)
-5) Simplify (reduce detail level)
+```bash
+TASK_COUNT=$($FLOWCTL tasks --epic <epic-id> --json | python3 -c "import json,sys; print(json.load(sys.stdin)['count'])")
 ```
 
-If user selects 4 or 5:
-- **Go deeper**: Ask which task(s), then add more context/research to those specific tasks
-- **Simplify**: Remove non-essential sections, tighten acceptance criteria, merge small tasks
+**If `--plan-only` was specified:**
+```
+Plan created: <epic-id> (N tasks)
+Next: /flow-code:work <epic-id>
+```
+Stop here. Do NOT auto-execute.
 
-Loop back to options after changes until user selects 1, 2, or 3.
+**Otherwise (default — auto-execute):**
+
+Show one-line summary, then invoke work immediately:
+```
+Epic <epic-id>: "<title>" (N tasks) — executing...
+```
+
+- **≤ 10 tasks**: Invoke `/flow-code:work <epic-id> --no-review` directly in this session.
+- **> 10 tasks**: Print recommendation:
+  ```
+  Epic has N tasks — recommend using Ralph for fresh context per task:
+    /flow-code:ralph-init
+  Or: /flow-code:work <epic-id>
+  ```
+
+**CRITICAL: Do NOT show an options menu. Do NOT wait for user selection. The default behavior is to proceed to work immediately.**

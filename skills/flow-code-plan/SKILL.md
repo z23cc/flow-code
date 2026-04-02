@@ -129,34 +129,12 @@ All plans go into `.flow/`:
 - No code changes
 - No plan files outside `.flow/`
 
-## Auto-Execute (default behavior)
+## Auto-Execute
 
-**After plan is created, automatically execute it — unless `--plan-only` was specified.**
-
-```bash
-# Check task count
-TASK_COUNT=$($FLOWCTL tasks --epic <epic-id> --json | python3 -c "import json,sys; print(json.load(sys.stdin)['count'])")
-```
-
-**Scale-adaptive execution:**
-
-- **≤ 10 tasks**: Invoke `/flow-code:work <epic-id>` directly in this session. Pass `--no-review` so workers skip per-task review (Layer 1 guard handles per-commit quality; Layer 3 codex adversarial handles epic-level quality in Phase 3j). Workers run as subagents with fresh context per task.
-
-- **> 10 tasks**: Print recommendation instead of auto-executing:
-  ```
-  Epic has N tasks — recommend using Ralph for fresh context per task:
-    /flow-code:ralph-init
-
-  Or execute in this session (may be slower for large epics):
-    /flow-code:work <epic-id>
-  ```
-
-**If `--plan-only`**: Skip auto-execute, print:
-```
-Plan created: <epic-id> (N tasks)
-Next: /flow-code:work <epic-id>
-```
+**Steps.md Step 8 handles auto-execution.** After steps complete:
+- Default: `/flow-code:work <epic-id> --no-review` invoked automatically (Step 8)
+- `--plan-only`: shows plan summary and stops (Step 8)
 
 **After work completes** (if auto-executed):
-- If all tasks done → suggest: `/flow-code:epic-review <epic-id>` or auto-invoke if review backend configured
-- Print epic close command: `flowctl epic close <epic-id>`
+- All tasks done → Layer 3 adversarial review runs automatically (Phase 3j)
+- Then auto push + draft PR (Phase 5)

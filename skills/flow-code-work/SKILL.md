@@ -23,8 +23,8 @@ $FLOWCTL <command>
 - You MUST stage with `git add -A` (never list files). This ensures `.flow/` and `scripts/ralph/` (if present) are included.
 - Do NOT claim completion until `flowctl show <task>` reports `status: done`.
 - Do NOT invoke `/flow-code:impl-review` until tests/Quick commands are green.
-- Default parallel mode is worktree isolation (stronger isolation, simpler).
-  Use `--teams` for Teams coordination (TeamCreate + team_name + flowctl lock + coordination loop).
+- Default parallel mode: Worktree isolation + Teams coordination (both always active).
+  Workers spawn in isolated worktrees with TeamCreate + team_name + coordination loop.
 
 **Role**: execution lead, plan fidelity first.
 **Goal**: complete every task in order with tests.
@@ -81,7 +81,7 @@ Branch: <current|worktree> | Review: none (Layer 1 guard + Layer 3 adversarial)
 ### Explicit flag overrides
 
 These flags override the corresponding AI decision without entering the analysis flow:
-- `--branch=current|new|worktree`, `--review=rp|codex|export|none`, `--interactive`, `--tdd`, `--teams`
+- `--branch=current|new|worktree`, `--review=rp|codex|export|none`, `--interactive`, `--tdd`
 
 Proceed to Workflow immediately.
 

@@ -1248,7 +1248,7 @@ def cmd_worker_prompt(args: argparse.Namespace) -> None:
             task_id=task_id,
             epic_id=epic_id,
             flowctl_path=flowctl_path,
-            team=getattr(args, "team", False),
+            team=True,  # Teams always enabled by default
             tdd=args.tdd,
             review=args.review,
             ralph=getattr(args, "ralph", False),
@@ -1286,11 +1286,8 @@ def cmd_worker_prompt(args: argparse.Namespace) -> None:
         )
 
     # Determine which tags to include
-    # Worktree isolation is the default — only include "team" with --team
-    include_tags = {"core"}
-
-    if getattr(args, "team", False):
-        include_tags.add("team")
+    # Both worktree and teams are default — always include team sections
+    include_tags = {"core", "team"}
 
     if args.tdd:
         include_tags.add("tdd")
@@ -1327,17 +1324,13 @@ def cmd_worker_prompt(args: argparse.Namespace) -> None:
 # worker-phase: phase-gate sequential execution
 # ---------------------------------------------------------------------------
 
-def _build_phase_sequence(tdd: bool = False, review: bool = False, team: bool = False) -> list[str]:
+def _build_phase_sequence(tdd: bool = False, review: bool = False, **_kwargs) -> list[str]:
     """Build the phase sequence based on mode flags.
 
-    Worktree isolation is the default — no Phase 0.
-    Teams mode (--team) adds Phase 0 for configuration verification.
+    Default always includes Phase 0 (Worktree + Teams both active).
     Modes combine additively: --tdd --review adds their phases to the base.
     """
-    from flowctl.core.constants import PHASE_SEQ_TEAM
-
-    # Pick base sequence: team includes Phase 0, default does not
-    base = PHASE_SEQ_TEAM if team else PHASE_SEQ_DEFAULT
+    base = PHASE_SEQ_DEFAULT
 
     if not tdd and not review:
         return list(base)
@@ -1388,7 +1381,7 @@ def cmd_worker_phase_next(args: argparse.Namespace) -> None:
     seq = _build_phase_sequence(
         tdd=args.tdd,
         review=args.review is not None,
-        team=getattr(args, "team", False),
+        team=True,  # Teams always enabled by default
     )
 
     # Load current progress
@@ -1430,10 +1423,8 @@ def cmd_worker_phase_next(args: argparse.Namespace) -> None:
         if frontmatter_match:
             raw = raw[frontmatter_match.end():]
 
-        # Build include tags — worktree isolation is the default (team only with --team)
-        include_tags = {"core"}
-        if getattr(args, "team", False):
-            include_tags.add("team")
+        # Build include tags — both worktree and teams are default
+        include_tags = {"core", "team"}
         if args.tdd:
             include_tags.add("tdd")
         if args.review is not None:
@@ -1483,7 +1474,7 @@ def cmd_worker_phase_done(args: argparse.Namespace) -> None:
     seq = _build_phase_sequence(
         tdd=args.tdd,
         review=args.review is not None,
-        team=getattr(args, "team", False),
+        team=True,  # Teams always enabled by default
     )
 
     # Validate phase exists in sequence

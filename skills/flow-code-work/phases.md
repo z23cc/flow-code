@@ -71,11 +71,9 @@ Detect input type in this order (first match wins):
 
 ## Phase 3: Task Loop
 
-**Default mode is worktree isolation** — each worker gets an isolated git worktree. Stronger isolation, simpler (no TeamCreate/SendMessage/coordination overhead).
+**Default mode: Worktree + Teams** — each worker gets an isolated git worktree AND runs as a Team teammate. Worktree provides kernel-level file isolation; Teams provides coordination (TeamCreate + SendMessage + file locking).
 
-**CRITICAL: When multiple tasks are ready, they MUST run in parallel. Do NOT execute them sequentially "for quality" or "one at a time." Parallel execution with isolation IS the quality mechanism. Sequential execution wastes time and provides no additional safety.**
-
-**Teams mode** (`--teams`): Uses Agent Teams with shared directory and file locking. Only use when user explicitly passes `--teams`.
+**CRITICAL: When multiple tasks are ready, they MUST run in parallel. Do NOT execute them sequentially "for quality" or "one at a time." Parallel execution with isolation IS the quality mechanism.**
 
 ### 3a. Find Ready Tasks
 
@@ -148,21 +146,17 @@ Use `flowctl worker-prompt --bootstrap` to generate a minimal bootstrap prompt f
 WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--tdd] [--review rp|codex])
 ```
 
-### 3d. Spawn Workers (Worktree Isolation — Default)
+### 3d. Spawn Workers (Worktree + Teams — Default)
 
-Each worker gets an isolated git worktree. No TeamCreate, no SendMessage, no coordination loop needed.
-
-```
-[Agent tool call 1: worker for fn-1.1, isolation: "worktree"]
-[Agent tool call 2: worker for fn-1.2, isolation: "worktree"]
-[Agent tool call 3: worker for fn-1.3, isolation: "worktree"]
-```
+1. Create team: `TeamCreate({team_name: "flow-<epic-id>"})`
+2. Spawn all workers with BOTH `isolation: "worktree"` AND `team_name`:
 
 ```
 Agent({
   subagent_type: "flow-code:worker",
   name: "worker-<task-id>",
   description: "Implement <task-title>",
+  team_name: "flow-<epic-id>",
   isolation: "worktree",
   run_in_background: true,
   prompt: "$WORKER_PROMPT
@@ -173,11 +167,12 @@ Agent({
     REVIEW_MODE: none|rp|codex
     RALPH_MODE: true|false
     TDD_MODE: true|false
+    TEAM_MODE: true
   "
 })
 ```
 
-All run concurrently in isolated worktrees. flowctl state is shared across worktrees automatically (uses git-common-dir). Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
+Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls. Workers run in isolated worktrees (kernel-level file separation) with Teams coordination (SendMessage for status reporting).
 
 **Worker returns**: Summary of implementation, files changed, test results, review verdict.
 

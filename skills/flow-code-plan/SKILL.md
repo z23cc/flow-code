@@ -85,8 +85,8 @@ Based on the request text, decide:
 - **Depth**: clear and scoped request → `short`. needs design decisions → `standard`. architecture change → `deep`.
 - **Review** (auto, layer-aware):
   - Check `$REVIEW_BACKEND`:
-    - Returns `rp` → use RP for plan review (code-aware, sees full codebase)
-    - Returns `codex` → use Codex for plan review (fallback)
+    - Returns `rp` → verify `which rp-cli` succeeds. If available → use RP. If NOT available → **degrade to codex** (RP is macOS-only). If codex also unavailable → skip.
+    - Returns `codex` → use Codex for plan review
     - Returns `none` → skip plan review
     - Returns `ASK` → auto-detect available tools:
       - `which rp-cli` succeeds → use RP

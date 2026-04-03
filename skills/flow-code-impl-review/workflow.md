@@ -253,6 +253,21 @@ For each issue:
 - **Problem**: What's wrong
 - **Suggestion**: How to fix
 
+**Structured findings (optional):** If you found issues, include a `<findings>` block with machine-readable JSON. SHIP reviews with no issues may omit this block.
+
+```
+<findings>
+[
+  {
+    "title": "Short description of the issue",
+    "severity": "critical | major | minor | nitpick",
+    "location": "task ID, file:line, or spec section",
+    "recommendation": "How to fix"
+  }
+]
+</findings>
+```
+
 **REQUIRED**: You MUST end your response with exactly one verdict tag. This is mandatory:
 `<verdict>SHIP</verdict>` or `<verdict>NEEDS_WORK</verdict>` or `<verdict>MAJOR_RETHINK</verdict>`
 

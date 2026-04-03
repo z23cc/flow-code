@@ -123,6 +123,19 @@ For each issue found:
 - **Problem**: What's wrong
 - **Suggestion**: How to fix
 
+**Structured findings (optional):** If you found issues, include a `<findings>` block with machine-readable JSON. SHIP reviews with no issues may omit this block.
+
+<findings>
+[
+  {
+    "title": "Short description of the issue",
+    "severity": "critical | major | minor | nitpick",
+    "location": "task ID, file:line, or spec section",
+    "recommendation": "How to fix"
+  }
+]
+</findings>
+
 Be critical. Find real issues.
 
 **REQUIRED**: End your response with exactly one verdict tag:
@@ -182,6 +195,19 @@ For each issue found:
 - **Location**: Which task or section (e.g., "fn-1.3 Description" or "Epic Acceptance #2")
 - **Problem**: What's wrong
 - **Suggestion**: How to fix
+
+**Structured findings (optional):** If you found issues, include a `<findings>` block with machine-readable JSON. SHIP reviews with no issues may omit this block.
+
+<findings>
+[
+  {
+    "title": "Short description of the issue",
+    "severity": "critical | major | minor | nitpick",
+    "location": "task ID, file:line, or spec section",
+    "recommendation": "How to fix"
+  }
+]
+</findings>
 
 Be critical. Find real issues.
 
@@ -528,6 +554,19 @@ For EACH requirement from Phase 1:
 
 [For each GAP, describe what's missing and suggest fix]
 ```
+
+**Structured findings (optional):** If you found gaps, include a `<findings>` block with machine-readable JSON. SHIP reviews with no issues may omit this block.
+
+<findings>
+[
+  {
+    "title": "Short description of the issue",
+    "severity": "critical | major | minor | nitpick",
+    "location": "task ID, file:line, or spec section",
+    "recommendation": "How to fix"
+  }
+]
+</findings>
 
 ## Verdict
 

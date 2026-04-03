@@ -288,7 +288,7 @@ While tasks remain in this wave:
 
      "Spec conflict: <id>":
        → Forward to Codex for decision:
-         Run `codex exec` with prompt:
+         Run `flowctl codex exec` with prompt:
          "Spec conflict in task <id>.
          The spec says: <spec excerpt from worker message>
          But the code shows: <conflict details from worker message>
@@ -303,7 +303,7 @@ While tasks remain in this wave:
        → Parse message body for blocker info
        → If in-flight task: wait for it to complete, then notify blocked worker
        → If external: forward to Codex for decision:
-         Run `codex exec` with prompt:
+         Run `flowctl codex exec` with prompt:
          "Task <id> is blocked by: <reason from worker message>.
          Options: 1) Skip this task  2) Remove the dependency  3) Split into doable + blocked parts
          Reply with ONLY: <decision>N</decision> where N is 1, 2, or 3. Then one sentence explaining why."

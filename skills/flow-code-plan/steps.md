@@ -252,7 +252,7 @@ Default to standard unless complexity demands more or less.
    $FLOWCTL task create --epic <epic-id> --title "<Task title>" --domain <domain> --json
    # Valid domains: frontend, backend, architecture, testing, docs, ops, general
 
-   # Task with file ownership (recommended for --teams mode):
+   # Task with file ownership (recommended for parallel execution):
    $FLOWCTL task create --epic <epic-id> --title "<Task title>" --files "src/auth.ts,src/routes.ts" --json
    # Enables flowctl files --epic <id> to detect conflicts before parallel execution
    ```

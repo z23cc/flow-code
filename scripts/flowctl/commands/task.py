@@ -812,7 +812,7 @@ def cmd_task_reset(args: argparse.Namespace) -> None:
     def_data.pop("claimed_at", None)
     def_data.pop("claim_note", None)
     def_data.pop("evidence", None)
-    def_data["status"] = "todo"  # Keep in sync for backward compat
+    def_data.pop("status", None)
     def_data["updated_at"] = now_iso()
     atomic_write_json(task_json_path, def_data)
 
@@ -848,7 +848,7 @@ def cmd_task_reset(args: argparse.Namespace) -> None:
             dep_def.pop("claimed_at", None)
             dep_def.pop("claim_note", None)
             dep_def.pop("evidence", None)
-            dep_def["status"] = "todo"
+            dep_def.pop("status", None)
             dep_def["updated_at"] = now_iso()
             atomic_write_json(dep_path, dep_def)
 
@@ -922,9 +922,9 @@ def cmd_task_skip(args: argparse.Namespace) -> None:
     if status == "done":
         error_exit(f"Cannot skip already-done task {task_id}", use_json=args.json)
 
-    # Update definition
+    # Update definition (status managed by runtime only)
     def_data = load_json_or_exit(task_path, f"Task {task_id}", use_json=args.json)
-    def_data["status"] = "skipped"
+    def_data.pop("status", None)
     def_data["skipped_reason"] = args.reason or ""
     def_data["skipped_at"] = now_iso()
     def_data["updated_at"] = now_iso()
@@ -1008,9 +1008,9 @@ def cmd_task_split(args: argparse.Namespace) -> None:
         atomic_write(flow_dir / TASKS_DIR / f"{sub_id}.md", spec_content)
         created.append(sub_id)
 
-    # Mark original task as skipped with split reference
+    # Mark original task as skipped with split reference (status managed by runtime only)
     def_data = load_json_or_exit(task_path, f"Task {task_id}", use_json=args.json)
-    def_data["status"] = "skipped"
+    def_data.pop("status", None)
     def_data["skipped_reason"] = f"Split into: {', '.join(created)}"
     def_data["split_into"] = created
     def_data["updated_at"] = now_iso()

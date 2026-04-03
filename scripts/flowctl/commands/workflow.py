@@ -972,7 +972,7 @@ def cmd_restart(args: argparse.Namespace) -> None:
             for field in ("blocked_reason", "completed_at", "assignee",
                           "claimed_at", "claim_note", "evidence"):
                 def_data.pop(field, None)
-            def_data["status"] = "todo"
+            def_data.pop("status", None)
             def_data["updated_at"] = now_iso()
             atomic_write_json(tid_path, def_data)
 

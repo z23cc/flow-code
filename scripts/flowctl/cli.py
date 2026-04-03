@@ -18,6 +18,7 @@ from flowctl.commands.stack import (
 from flowctl.commands.admin import (
     cmd_init,
     cmd_detect,
+    cmd_doctor,
     cmd_status,
     cmd_ralph_pause,
     cmd_ralph_resume,
@@ -45,6 +46,7 @@ from flowctl.commands.epic import (
     cmd_epic_rm_dep,
     cmd_epic_set_backend,
     cmd_epic_close,
+    cmd_epic_reopen,
     cmd_epic_archive,
     cmd_epic_clean,
 )
@@ -335,6 +337,11 @@ def main() -> None:
     p_epic_close.add_argument("--skip-gap-check", action="store_true", help="Bypass gap registry gate (use with caution)")
     p_epic_close.add_argument("--json", action="store_true", help="JSON output")
     p_epic_close.set_defaults(func=cmd_epic_close)
+
+    p_epic_reopen = epic_sub.add_parser("reopen", help="Reopen a closed epic")
+    p_epic_reopen.add_argument("id", help="Epic ID (e.g., fn-1, fn-1-add-auth)")
+    p_epic_reopen.add_argument("--json", action="store_true", help="JSON output")
+    p_epic_reopen.set_defaults(func=cmd_epic_reopen)
 
     p_epic_archive = epic_sub.add_parser(
         "archive", help="Archive closed epic to .flow/.archive/"
@@ -699,6 +706,13 @@ def main() -> None:
     )
     p_validate.add_argument("--json", action="store_true", help="JSON output")
     p_validate.set_defaults(func=cmd_validate)
+
+    # doctor
+    p_doctor = subparsers.add_parser(
+        "doctor", help="Run comprehensive state health diagnostics"
+    )
+    p_doctor.add_argument("--json", action="store_true", help="JSON output")
+    p_doctor.set_defaults(func=cmd_doctor)
 
     # checkpoint
     p_checkpoint = subparsers.add_parser("checkpoint", help="Checkpoint commands")

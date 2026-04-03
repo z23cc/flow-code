@@ -32,6 +32,15 @@ else:
 # TUI indentation (3 spaces to match ralph.sh)
 INDENT = "   "
 
+# Context prefix from environment (iteration + task)
+_ITER = os.environ.get("RALPH_ITERATION", "")
+_TASK = os.environ.get("RALPH_TASK_ID", "")
+_PREFIX = ""
+if _ITER:
+    _PREFIX += f"[iter {_ITER}] "
+if _TASK:
+    _PREFIX += f"[{_TASK}] "
+
 # Tool icons
 ICONS = {
     "Bash": "🔧",
@@ -165,7 +174,7 @@ def process_event(event: dict, verbose: bool) -> None:
                 tool_name = block.get("name", "")
                 tool_input = block.get("input", {})
                 formatted = format_tool_use(tool_name, tool_input)
-                safe_print(f"{INDENT}{C_DIM}{formatted}{C_RESET}")
+                safe_print(f"{INDENT}{C_DIM}{_PREFIX}{formatted}{C_RESET}")
 
             elif verbose and block_type == "text":
                 text = block.get("text", "")

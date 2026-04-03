@@ -1,37 +1,33 @@
 """Review commands: check, impl-review, plan-review, completion-review."""
 
 import argparse
-import json
-import os
-import re
-import subprocess
+import shutil
+import sys
 from pathlib import Path
-from typing import Any, Optional
 
-from flowctl.core.constants import EPICS_DIR, SPECS_DIR, TASKS_DIR
+from flowctl.core.constants import SPECS_DIR, TASKS_DIR
 from flowctl.core.git import (
     gather_context_hints,
     get_changed_files,
+    get_diff_context,
     get_embedded_file_contents,
 )
 from flowctl.core.ids import is_epic_id, is_task_id
 from flowctl.core.io import (
-    atomic_write,
-    atomic_write_json,
     error_exit,
     json_output,
-    load_json,
-    load_json_or_exit,
-    now_iso,
 )
 from flowctl.core.paths import ensure_flow_exists, get_flow_dir, get_repo_root
 
 from flowctl.commands.review.codex_utils import (
-    run_codex_exec,
-    parse_codex_verdict,
-    parse_codex_thread_id,
-    resolve_codex_sandbox,
+    delete_stale_receipt,
+    get_codex_version,
     is_sandbox_failure,
+    load_receipt,
+    parse_codex_verdict,
+    resolve_codex_sandbox,
+    run_codex_exec,
+    save_receipt,
     CODEX_EFFORT_LEVELS,
 )
 from flowctl.commands.review.prompts import (
@@ -84,53 +80,8 @@ def cmd_codex_impl_review(args: argparse.Namespace) -> None:
 
         task_spec = task_spec_path.read_text(encoding="utf-8")
 
-    # Get diff summary (--stat) - use base..HEAD for committed changes only
-    diff_summary = ""
-    try:
-        diff_result = subprocess.run(
-            ["git", "diff", "--stat", f"{base_branch}..HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=get_repo_root(),
-        )
-        if diff_result.returncode == 0:
-            diff_summary = diff_result.stdout.strip()
-    except (subprocess.CalledProcessError, OSError):
-        pass
-
-    # Get actual diff content with size cap (avoid memory spike on large diffs)
-    # Use base..HEAD for committed changes only (not working tree)
-    diff_content = ""
-    max_diff_bytes = 50000
-    try:
-        proc = subprocess.Popen(
-            ["git", "diff", f"{base_branch}..HEAD"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=get_repo_root(),
-        )
-        # Read only up to max_diff_bytes
-        diff_bytes = proc.stdout.read(max_diff_bytes + 1)
-        was_truncated = len(diff_bytes) > max_diff_bytes
-        if was_truncated:
-            diff_bytes = diff_bytes[:max_diff_bytes]
-        # Consume remaining stdout in chunks (avoid allocating the entire diff)
-        while proc.stdout.read(65536):
-            pass
-        stderr_bytes = proc.stderr.read()
-        proc.stdout.close()
-        proc.stderr.close()
-        returncode = proc.wait()
-
-        if returncode != 0 and stderr_bytes:
-            # Include error info but don't fail - diff is optional context
-            diff_content = f"[git diff failed: {stderr_bytes.decode('utf-8', errors='replace').strip()}]"
-        else:
-            diff_content = diff_bytes.decode("utf-8", errors="replace").strip()
-            if was_truncated:
-                diff_content += "\n\n... [diff truncated at 50KB]"
-    except (subprocess.CalledProcessError, OSError):
-        pass
+    # Get diff summary + content via shared helper
+    diff_summary, diff_content = get_diff_context(base_branch)
 
     # Always embed changed file contents so Codex doesn't waste turns reading
     # files from disk. Without embedding, Codex exhausts its turn budget on
@@ -162,17 +113,7 @@ def cmd_codex_impl_review(args: argparse.Namespace) -> None:
 
     # Check for existing session in receipt (indicates re-review)
     receipt_path = args.receipt if hasattr(args, "receipt") and args.receipt else None
-    session_id = None
-    is_rereview = False
-    if receipt_path:
-        receipt_file = Path(receipt_path)
-        if receipt_file.exists():
-            try:
-                receipt_data = json.loads(receipt_file.read_text(encoding="utf-8"))
-                session_id = receipt_data.get("session_id")
-                is_rereview = session_id is not None
-            except (json.JSONDecodeError, Exception):
-                pass
+    session_id, is_rereview = load_receipt(receipt_path)
 
     # For re-reviews, prepend instruction to re-read changed files
     if is_rereview:
@@ -197,12 +138,7 @@ def cmd_codex_impl_review(args: argparse.Namespace) -> None:
 
     # Check for sandbox failures (clear stale receipt and exit)
     if is_sandbox_failure(exit_code, output, stderr):
-        # Clear any stale receipt to prevent false gate satisfaction
-        if receipt_path:
-            try:
-                Path(receipt_path).unlink(missing_ok=True)
-            except OSError:
-                pass  # Best effort - proceed to error_exit regardless
+        delete_stale_receipt(receipt_path)
         msg = (
             "Codex sandbox blocked operations. "
             "Try --sandbox danger-full-access (or auto) or set CODEX_SANDBOX=danger-full-access"
@@ -211,12 +147,7 @@ def cmd_codex_impl_review(args: argparse.Namespace) -> None:
 
     # Handle non-sandbox failures
     if exit_code != 0:
-        # Clear any stale receipt to prevent false gate satisfaction
-        if receipt_path:
-            try:
-                Path(receipt_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+        delete_stale_receipt(receipt_path)
         msg = (stderr or output or "codex exec failed").strip()
         error_exit(f"codex exec failed: {msg}", use_json=args.json, code=2)
 
@@ -225,12 +156,7 @@ def cmd_codex_impl_review(args: argparse.Namespace) -> None:
 
     # Fail if no verdict found (don't let UNKNOWN pass as success)
     if not verdict:
-        # Clear any stale receipt
-        if receipt_path:
-            try:
-                Path(receipt_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+        delete_stale_receipt(receipt_path)
         error_exit(
             "Codex review completed but no verdict found in output. "
             "Expected <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>",
@@ -241,29 +167,17 @@ def cmd_codex_impl_review(args: argparse.Namespace) -> None:
     # Determine review id (task_id for task reviews, "branch" for standalone)
     review_id = task_id if task_id else "branch"
 
-    # Write receipt if path provided (Ralph-compatible schema)
+    # Write receipt if path provided
     if receipt_path:
-        receipt_data = {
-            "type": "impl_review",  # Required by Ralph
-            "id": review_id,  # Required by Ralph
-            "mode": "codex",
-            "base": base_branch,
-            "verdict": verdict,
-            "session_id": thread_id,
-            "timestamp": now_iso(),
-            "review": output,  # Full review feedback for fix loop
-        }
-        # Add iteration if running under Ralph
-        ralph_iter = os.environ.get("RALPH_ITERATION")
-        if ralph_iter:
-            try:
-                receipt_data["iteration"] = int(ralph_iter)
-            except ValueError:
-                pass
-        if focus:
-            receipt_data["focus"] = focus
-        Path(receipt_path).write_text(
-            json.dumps(receipt_data, indent=2) + "\n", encoding="utf-8"
+        save_receipt(
+            receipt_path,
+            review_type="impl_review",
+            review_id=review_id,
+            verdict=verdict,
+            session_id=thread_id,
+            output=output,
+            base_branch=base_branch,
+            focus=focus,
         )
 
     # Output
@@ -377,17 +291,7 @@ def cmd_codex_plan_review(args: argparse.Namespace) -> None:
 
     # Check for existing session in receipt (indicates re-review)
     receipt_path = args.receipt if hasattr(args, "receipt") and args.receipt else None
-    session_id = None
-    is_rereview = False
-    if receipt_path:
-        receipt_file = Path(receipt_path)
-        if receipt_file.exists():
-            try:
-                receipt_data = json.loads(receipt_file.read_text(encoding="utf-8"))
-                session_id = receipt_data.get("session_id")
-                is_rereview = session_id is not None
-            except (json.JSONDecodeError, Exception):
-                pass
+    session_id, is_rereview = load_receipt(receipt_path)
 
     # For re-reviews, prepend instruction to re-read spec files
     if is_rereview:
@@ -415,12 +319,7 @@ def cmd_codex_plan_review(args: argparse.Namespace) -> None:
 
     # Check for sandbox failures (clear stale receipt and exit)
     if is_sandbox_failure(exit_code, output, stderr):
-        # Clear any stale receipt to prevent false gate satisfaction
-        if receipt_path:
-            try:
-                Path(receipt_path).unlink(missing_ok=True)
-            except OSError:
-                pass  # Best effort - proceed to error_exit regardless
+        delete_stale_receipt(receipt_path)
         msg = (
             "Codex sandbox blocked operations. "
             "Try --sandbox danger-full-access (or auto) or set CODEX_SANDBOX=danger-full-access"
@@ -429,12 +328,7 @@ def cmd_codex_plan_review(args: argparse.Namespace) -> None:
 
     # Handle non-sandbox failures
     if exit_code != 0:
-        # Clear any stale receipt to prevent false gate satisfaction
-        if receipt_path:
-            try:
-                Path(receipt_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+        delete_stale_receipt(receipt_path)
         msg = (stderr or output or "codex exec failed").strip()
         error_exit(f"codex exec failed: {msg}", use_json=args.json, code=2)
 
@@ -443,12 +337,7 @@ def cmd_codex_plan_review(args: argparse.Namespace) -> None:
 
     # Fail if no verdict found (don't let UNKNOWN pass as success)
     if not verdict:
-        # Clear any stale receipt
-        if receipt_path:
-            try:
-                Path(receipt_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+        delete_stale_receipt(receipt_path)
         error_exit(
             "Codex review completed but no verdict found in output. "
             "Expected <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>",
@@ -456,26 +345,15 @@ def cmd_codex_plan_review(args: argparse.Namespace) -> None:
             code=2,
         )
 
-    # Write receipt if path provided (Ralph-compatible schema)
+    # Write receipt if path provided
     if receipt_path:
-        receipt_data = {
-            "type": "plan_review",  # Required by Ralph
-            "id": epic_id,  # Required by Ralph
-            "mode": "codex",
-            "verdict": verdict,
-            "session_id": thread_id,
-            "timestamp": now_iso(),
-            "review": output,  # Full review feedback for fix loop
-        }
-        # Add iteration if running under Ralph
-        ralph_iter = os.environ.get("RALPH_ITERATION")
-        if ralph_iter:
-            try:
-                receipt_data["iteration"] = int(ralph_iter)
-            except ValueError:
-                pass
-        Path(receipt_path).write_text(
-            json.dumps(receipt_data, indent=2) + "\n", encoding="utf-8"
+        save_receipt(
+            receipt_path,
+            review_type="plan_review",
+            review_id=epic_id,
+            verdict=verdict,
+            session_id=thread_id,
+            output=output,
         )
 
     # Output
@@ -533,49 +411,8 @@ def cmd_codex_completion_review(args: argparse.Namespace) -> None:
     # Get base branch for diff (default to main)
     base_branch = args.base if hasattr(args, "base") and args.base else "main"
 
-    # Get diff summary
-    diff_summary = ""
-    try:
-        diff_result = subprocess.run(
-            ["git", "diff", "--stat", f"{base_branch}..HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=get_repo_root(),
-        )
-        if diff_result.returncode == 0:
-            diff_summary = diff_result.stdout.strip()
-    except (subprocess.CalledProcessError, OSError):
-        pass
-
-    # Get actual diff content with size cap
-    diff_content = ""
-    max_diff_bytes = 50000
-    try:
-        proc = subprocess.Popen(
-            ["git", "diff", f"{base_branch}..HEAD"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=get_repo_root(),
-        )
-        diff_bytes = proc.stdout.read(max_diff_bytes + 1)
-        was_truncated = len(diff_bytes) > max_diff_bytes
-        if was_truncated:
-            diff_bytes = diff_bytes[:max_diff_bytes]
-        while proc.stdout.read(65536):
-            pass
-        stderr_bytes = proc.stderr.read()
-        proc.stdout.close()
-        proc.stderr.close()
-        returncode = proc.wait()
-
-        if returncode != 0 and stderr_bytes:
-            diff_content = f"[git diff failed: {stderr_bytes.decode('utf-8', errors='replace').strip()}]"
-        else:
-            diff_content = diff_bytes.decode("utf-8", errors="replace").strip()
-            if was_truncated:
-                diff_content += "\n\n... [diff truncated at 50KB]"
-    except (subprocess.CalledProcessError, OSError):
-        pass
+    # Get diff summary + content via shared helper
+    diff_summary, diff_content = get_diff_context(base_branch)
 
     # Always embed changed file contents. See cmd_codex_impl_review comment
     # for rationale.
@@ -595,17 +432,7 @@ def cmd_codex_completion_review(args: argparse.Namespace) -> None:
 
     # Check for existing session in receipt (indicates re-review)
     receipt_path = args.receipt if hasattr(args, "receipt") and args.receipt else None
-    session_id = None
-    is_rereview = False
-    if receipt_path:
-        receipt_file = Path(receipt_path)
-        if receipt_file.exists():
-            try:
-                receipt_data = json.loads(receipt_file.read_text(encoding="utf-8"))
-                session_id = receipt_data.get("session_id")
-                is_rereview = session_id is not None
-            except (json.JSONDecodeError, Exception):
-                pass
+    session_id, is_rereview = load_receipt(receipt_path)
 
     # For re-reviews, prepend instruction to re-read changed files
     if is_rereview:
@@ -630,11 +457,7 @@ def cmd_codex_completion_review(args: argparse.Namespace) -> None:
 
     # Check for sandbox failures
     if is_sandbox_failure(exit_code, output, stderr):
-        if receipt_path:
-            try:
-                Path(receipt_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+        delete_stale_receipt(receipt_path)
         msg = (
             "Codex sandbox blocked operations. "
             "Try --sandbox danger-full-access (or auto) or set CODEX_SANDBOX=danger-full-access"
@@ -643,11 +466,7 @@ def cmd_codex_completion_review(args: argparse.Namespace) -> None:
 
     # Handle non-sandbox failures
     if exit_code != 0:
-        if receipt_path:
-            try:
-                Path(receipt_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+        delete_stale_receipt(receipt_path)
         msg = (stderr or output or "codex exec failed").strip()
         error_exit(f"codex exec failed: {msg}", use_json=args.json, code=2)
 
@@ -656,11 +475,7 @@ def cmd_codex_completion_review(args: argparse.Namespace) -> None:
 
     # Fail if no verdict found
     if not verdict:
-        if receipt_path:
-            try:
-                Path(receipt_path).unlink(missing_ok=True)
-            except OSError:
-                pass
+        delete_stale_receipt(receipt_path)
         error_exit(
             "Codex review completed but no verdict found in output. "
             "Expected <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>",
@@ -671,27 +486,16 @@ def cmd_codex_completion_review(args: argparse.Namespace) -> None:
     # Preserve session_id for continuity (avoid clobbering on resumed sessions)
     session_id_to_write = thread_id or session_id
 
-    # Write receipt if path provided (Ralph-compatible schema)
+    # Write receipt if path provided
     if receipt_path:
-        receipt_data = {
-            "type": "completion_review",  # Required by Ralph
-            "id": epic_id,  # Required by Ralph
-            "mode": "codex",
-            "base": base_branch,
-            "verdict": verdict,
-            "session_id": session_id_to_write,
-            "timestamp": now_iso(),
-            "review": output,  # Full review feedback for fix loop
-        }
-        # Add iteration if running under Ralph
-        ralph_iter = os.environ.get("RALPH_ITERATION")
-        if ralph_iter:
-            try:
-                receipt_data["iteration"] = int(ralph_iter)
-            except ValueError:
-                pass
-        Path(receipt_path).write_text(
-            json.dumps(receipt_data, indent=2) + "\n", encoding="utf-8"
+        save_receipt(
+            receipt_path,
+            review_type="completion_review",
+            review_id=epic_id,
+            verdict=verdict,
+            session_id=session_id_to_write,
+            output=output,
+            base_branch=base_branch,
         )
 
     # Output

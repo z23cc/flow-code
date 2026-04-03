@@ -40,14 +40,18 @@ def is_supported_schema(version: Any) -> bool:
 
 
 def atomic_write(path: Path, content: str) -> None:
-    """Write file atomically via temp + rename."""
+    """Write file atomically via temp + rename with fsync for durability."""
+    from flowctl.compat import _fsync
+
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
+            f.flush()
+            _fsync(f.fileno())
         os.replace(tmp_path, path)
-    except Exception:
+    except BaseException:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise

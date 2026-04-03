@@ -1,4 +1,7 @@
-"""Platform-specific compatibility: file locking (fcntl on Unix, no-op on Windows)."""
+"""Platform-specific compatibility: file locking and fsync (fcntl on Unix, no-op on Windows)."""
+
+import os
+import sys
 
 try:
     import fcntl
@@ -15,3 +18,15 @@ except ImportError:
 
     LOCK_EX = 0
     LOCK_UN = 0
+
+
+def _fsync(fd: int) -> None:
+    """Platform-aware fsync: uses F_FULLFSYNC on macOS for true hardware flush."""
+    if sys.platform == "darwin":
+        try:
+            import fcntl as _fcntl
+            _fcntl.fcntl(fd, _fcntl.F_FULLFSYNC)
+            return
+        except (ImportError, AttributeError, OSError):
+            pass  # Fall through to os.fsync
+    os.fsync(fd)

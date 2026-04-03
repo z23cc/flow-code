@@ -196,6 +196,21 @@ def cmd_epic_set_plan(args: argparse.Namespace) -> None:
     # Read content from file or stdin
     content = read_file_or_stdin(args.file, "Input file", use_json=args.json)
 
+    # Validate spec headings: reject duplicate headings
+    headings = re.findall(r"^(##\s+.+?)\s*$", content, flags=re.MULTILINE)
+    seen = {}
+    duplicates = []
+    for h in headings:
+        seen[h] = seen.get(h, 0) + 1
+    for h, count in seen.items():
+        if count > 1:
+            duplicates.append(f"Duplicate heading: {h} (found {count} times)")
+    if duplicates:
+        error_exit(
+            f"Spec validation failed: {'; '.join(duplicates)}",
+            use_json=args.json,
+        )
+
     # Write spec
     spec_path = flow_dir / SPECS_DIR / f"{args.id}.md"
     atomic_write(spec_path, content)
@@ -855,6 +870,67 @@ def cmd_epic_archive(args: argparse.Namespace) -> None:
         print(f"Archived epic {epic_id} ({len(moved)} files) \u2192 .flow/.archive/{epic_id}/")
         for f in moved:
             print(f"  {f}")
+
+
+def cmd_epic_reopen(args: argparse.Namespace) -> None:
+    """Reopen a closed epic (sets status back to open)."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    epic_id = args.id
+    if not is_epic_id(epic_id):
+        error_exit(
+            f"Invalid epic ID: {epic_id}. Expected format: fn-N or fn-N-slug "
+            f"(e.g., fn-1, fn-1-add-auth)",
+            use_json=args.json,
+        )
+
+    flow_dir = get_flow_dir()
+    epic_path = flow_dir / EPICS_DIR / f"{epic_id}.json"
+
+    if not epic_path.exists():
+        # Check if archived
+        archive_path = flow_dir / ".archive" / epic_id
+        if archive_path.exists():
+            error_exit(
+                f"Epic {epic_id} is archived. Unarchive it first before reopening.",
+                use_json=args.json,
+            )
+        error_exit(f"Epic {epic_id} not found", use_json=args.json)
+
+    epic_data = normalize_epic(
+        load_json_or_exit(epic_path, f"Epic {epic_id}", use_json=args.json)
+    )
+
+    previous_status = epic_data.get("status", "unknown")
+
+    if previous_status == "open":
+        error_exit(
+            f"Epic {epic_id} is already open (no-op protection)",
+            use_json=args.json,
+        )
+
+    # Set status back to open and reset review metadata
+    epic_data["status"] = "open"
+    epic_data["completion_review_status"] = "unknown"
+    epic_data["plan_review_status"] = "unknown"
+    epic_data.pop("plan_reviewed_at", None)
+    epic_data["updated_at"] = now_iso()
+    atomic_write_json(epic_path, epic_data)
+
+    if args.json:
+        json_output(
+            {
+                "id": epic_id,
+                "previous_status": previous_status,
+                "new_status": "open",
+                "message": f"Epic {epic_id} reopened",
+            }
+        )
+    else:
+        print(f"Epic {epic_id} reopened (was: {previous_status})")
 
 
 def cmd_epic_clean(args: argparse.Namespace) -> None:

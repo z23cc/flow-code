@@ -440,6 +440,9 @@ MEMORY_AUTO_SAVE="${MEMORY_AUTO_SAVE:-0}"
 TDD_MODE="${TDD_MODE:-0}"
 export CODEX_SANDBOX  # Ensure available to Claude worker for flowctl codex commands
 
+# Dry-run mode: run selector loop only, no Claude invocation
+DRY_RUN="${DRY_RUN:-0}"
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -456,6 +459,10 @@ while [[ $# -gt 0 ]]; do
       # Already processed in pre-scan; just consume args
       shift
       ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
     --help|-h)
       echo "Usage: ralph.sh [options]"
       echo ""
@@ -463,6 +470,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --config <path>  Use alternate config file (default: config.env)"
       echo "  --watch          Show tool calls in real-time"
       echo "  --watch verbose  Show tool calls + model responses"
+      echo "  --dry-run        Run selector loop only; no Claude invocation or state changes"
       echo "  --help, -h       Show this help"
       echo ""
       echo "Environment variables:"
@@ -604,6 +612,43 @@ RUN_ID="$(date -u +%Y%m%d-%H%M%S)-$(rand4)"
 RUN_ID_FULL="$(date -u +%Y%m%dT%H%M%SZ)-$(hostname -s 2>/dev/null || hostname)-$(sanitize_id "$(get_actor)")-$$-$(rand4)"
 RUN_DIR="$SCRIPT_DIR/runs/$RUN_ID"
 mkdir -p "$RUN_DIR"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Concurrent run lock (Python fcntl.flock — works on macOS/Linux)
+# Prevents multiple ralph.sh instances running against the same repo.
+# Bash opens fd 200 on the lock file; Python acquires LOCK_EX|LOCK_NB on it.
+# Lock is held for shell process lifetime (fd 200 stays open until exit).
+# Windows: fcntl unavailable — lock is advisory-only (allows the run).
+# ─────────────────────────────────────────────────────────────────────────────
+RALPH_LOCK_FILE="$SCRIPT_DIR/.ralph.lock"
+
+# Open fd 200 on the lock file (bash holds this fd for its lifetime)
+exec 200>"$RALPH_LOCK_FILE"
+
+# Use Python to acquire non-blocking exclusive lock on fd 200
+_lock_result="$("$PYTHON_BIN" - <<'PY'
+import sys, os
+try:
+    import fcntl
+    try:
+        fcntl.flock(200, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Write PID for diagnostics
+        os.ftruncate(200, 0)
+        os.lseek(200, 0, os.SEEK_SET)
+        os.write(200, f"{os.getppid()}\n".encode())
+        print("OK")
+    except (IOError, OSError):
+        print("LOCKED")
+except ImportError:
+    # Windows: no fcntl — advisory only, allow the run
+    print("OK")
+PY
+)"
+if [[ "$_lock_result" == "LOCKED" ]]; then
+  fail "another ralph instance is already running in this directory (lock: $RALPH_LOCK_FILE). Remove the lock file to force-clear if the previous run crashed."
+fi
+unset _lock_result
+
 ATTEMPTS_FILE="$RUN_DIR/attempts.json"
 ensure_attempts_file "$ATTEMPTS_FILE"
 BRANCHES_FILE="$RUN_DIR/branches.json"
@@ -910,38 +955,54 @@ maybe_close_epics() {
   done
 }
 
+# Read and verify receipt in a single atomic operation (no TOCTOU gap).
+# Returns JSON: {"valid": bool, "verdict": str, "error": str}
+# Caller checks validity via json_get on the output, avoiding separate
+# file-exists check + read that could race with concurrent writers.
+read_and_verify_receipt() {
+  local path="$1"
+  local kind="$2"
+  local id="$3"
+  "$PYTHON_BIN" - "$path" "$kind" "$id" <<'PY'
+import json, sys
+path, kind, rid = sys.argv[1], sys.argv[2], sys.argv[3]
+result = {"valid": False, "verdict": "", "error": ""}
+try:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+except FileNotFoundError:
+    result["error"] = "file_not_found"
+    print(json.dumps(result))
+    sys.exit(0)
+except Exception as e:
+    result["error"] = f"parse_error: {e}"
+    print(json.dumps(result))
+    sys.exit(0)
+if data.get("type") != kind:
+    result["error"] = f"type_mismatch: expected={kind} got={data.get('type')}"
+    print(json.dumps(result))
+    sys.exit(0)
+if data.get("id") != rid:
+    result["error"] = f"id_mismatch: expected={rid} got={data.get('id')}"
+    print(json.dumps(result))
+    sys.exit(0)
+result["valid"] = True
+result["verdict"] = data.get("verdict", "")
+print(json.dumps(result))
+PY
+}
+
+# Backward-compat wrapper: returns 0 if receipt is valid, 1 otherwise
 verify_receipt() {
   local path="$1"
   local kind="$2"
   local id="$3"
-  [[ -f "$path" ]] || return 1
-  "$PYTHON_BIN" - "$path" "$kind" "$id" <<'PY'
-import json, sys
-path, kind, rid = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    data = json.load(open(path, encoding="utf-8"))
-except Exception:
-    sys.exit(1)
-if data.get("type") != kind:
-    sys.exit(1)
-if data.get("id") != rid:
-    sys.exit(1)
-sys.exit(0)
-PY
-}
-
-# Read verdict field from receipt file (returns empty string if not found/error)
-read_receipt_verdict() {
-  local path="$1"
-  [[ -f "$path" ]] || return 0
-  "$PYTHON_BIN" - "$path" <<'PY'
-import json, sys
-try:
-    data = json.load(open(sys.argv[1], encoding="utf-8"))
-    print(data.get("verdict", ""))
-except Exception:
-    pass
-PY
+  local result
+  result="$(read_and_verify_receipt "$path" "$kind" "$id")"
+  local valid
+  valid="$(json_get valid "$result")"
+  [[ "$valid" == "1" ]] && return 0
+  return 1
 }
 
 # Create/switch to run branch (once at start, all epics work here)
@@ -1313,7 +1374,8 @@ ui_config
 ui_version_check
 
 # Create run branch once at start (all epics work on same branch)
-ensure_run_branch
+# Skip in dry-run mode — no branches, no state changes
+[[ "$DRY_RUN" != "1" ]] && ensure_run_branch
 
 # Freeze scope snapshot (opt-in via FREEZE_SCOPE=1)
 freeze_scope
@@ -1425,6 +1487,13 @@ while (( iter <= MAX_ITERATIONS )); do
     prompt="$(render_template "$SCRIPT_DIR/prompt_completion.md")"
   else
     fail "invalid selector status: $status"
+  fi
+
+  # Dry-run mode: print iteration info and skip Claude invocation entirely
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "iter=$iter status=$status epic=${epic_id:-} task=${task_id:-}"
+    iter=$((iter + 1))
+    continue
   fi
 
   export REVIEW_MODE
@@ -1558,16 +1627,20 @@ Violations break automation and leave the user with incomplete work. Be precise,
   fi
   receipt_verdict=""
   if [[ "$status" == "work" && ( "$WORK_REVIEW" == "rp" || "$WORK_REVIEW" == "codex" ) ]]; then
-    if ! verify_receipt "$REVIEW_RECEIPT_PATH" "impl_review" "$task_id"; then
-      echo "ralph: missing impl review receipt; forcing retry" >> "$iter_log"
-      log "missing impl receipt; forcing retry"
+    # Single atomic read+verify (no TOCTOU gap between verify and verdict read)
+    _receipt_result="$(read_and_verify_receipt "$REVIEW_RECEIPT_PATH" "impl_review" "$task_id")"
+    _receipt_valid="$(json_get valid "$_receipt_result")"
+    if [[ "$_receipt_valid" != "1" ]]; then
+      _receipt_err="$(json_get error "$_receipt_result")"
+      echo "ralph: invalid impl review receipt ($REVIEW_RECEIPT_PATH): $_receipt_err; forcing retry" >> "$iter_log"
+      log "invalid impl receipt: $_receipt_err; forcing retry"
       impl_receipt_ok="0"
       # Delete corrupted/partial receipt so next attempt starts clean
       rm -f "$REVIEW_RECEIPT_PATH" 2>/dev/null || true
       force_retry=1
     else
-      # Receipt is valid - read the verdict field
-      receipt_verdict="$(read_receipt_verdict "$REVIEW_RECEIPT_PATH")"
+      # Receipt is valid - verdict was read in the same pass (no TOCTOU)
+      receipt_verdict="$(json_get verdict "$_receipt_result")"
     fi
   fi
 

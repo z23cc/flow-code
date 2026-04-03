@@ -2,15 +2,12 @@
 
 import argparse
 import json
-import os
 import re
-import subprocess
 from pathlib import Path
 from typing import Optional
 
-from flowctl.core.git import get_changed_files, get_embedded_file_contents
+from flowctl.core.git import get_changed_files, get_diff_context, get_embedded_file_contents
 from flowctl.core.io import error_exit, json_output
-from flowctl.core.paths import get_repo_root
 
 from flowctl.commands.review.codex_utils import (
     run_codex_exec,
@@ -108,39 +105,8 @@ def cmd_codex_adversarial(args: argparse.Namespace) -> None:
     base_branch = args.base
     focus = getattr(args, "focus", None)
 
-    # Get diff
-    diff_summary = ""
-    diff_content = ""
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--stat", f"{base_branch}..HEAD"],
-            capture_output=True, text=True, cwd=get_repo_root(),
-        )
-        if result.returncode == 0:
-            diff_summary = result.stdout.strip()
-    except (subprocess.CalledProcessError, OSError):
-        pass
-
-    max_diff_bytes = 50000
-    try:
-        proc = subprocess.Popen(
-            ["git", "diff", f"{base_branch}..HEAD"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=get_repo_root(),
-        )
-        diff_bytes = proc.stdout.read(max_diff_bytes + 1)
-        was_truncated = len(diff_bytes) > max_diff_bytes
-        if was_truncated:
-            diff_bytes = diff_bytes[:max_diff_bytes]
-        while proc.stdout.read(65536):
-            pass
-        proc.stdout.close()
-        proc.stderr.close()
-        proc.wait()
-        diff_content = diff_bytes.decode("utf-8", errors="replace").strip()
-        if was_truncated:
-            diff_content += "\n\n... [diff truncated at 50KB]"
-    except (subprocess.CalledProcessError, OSError):
-        pass
+    # Get diff summary + content via shared helper
+    diff_summary, diff_content = get_diff_context(base_branch)
 
     if not diff_summary and not diff_content:
         error_exit(f"No changes found between {base_branch} and HEAD", use_json=args.json)

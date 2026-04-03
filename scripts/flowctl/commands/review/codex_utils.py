@@ -67,6 +67,92 @@ def get_codex_version() -> Optional[str]:
         return None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Receipt lifecycle helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def load_receipt(path: Optional[str]) -> tuple[Optional[str], bool]:
+    """Load a review receipt and extract session info for re-reviews.
+
+    Args:
+        path: Receipt file path (may be None).
+
+    Returns:
+        tuple: (session_id, is_rereview)
+        - session_id: Codex thread ID from previous review, or None.
+        - is_rereview: True if a valid session was found (indicates re-review).
+    """
+    if not path:
+        return None, False
+    receipt_file = Path(path)
+    if not receipt_file.exists():
+        return None, False
+    try:
+        receipt_data = json.loads(receipt_file.read_text(encoding="utf-8"))
+        session_id = receipt_data.get("session_id")
+        return session_id, session_id is not None
+    except (json.JSONDecodeError, Exception):
+        return None, False
+
+
+def save_receipt(
+    path: str,
+    *,
+    review_type: str,
+    review_id: str,
+    mode: str = "codex",
+    verdict: str,
+    session_id: Optional[str],
+    output: str,
+    base_branch: Optional[str] = None,
+    focus: Optional[str] = None,
+) -> None:
+    """Write a Ralph-compatible review receipt to *path*.
+
+    Automatically includes the current RALPH_ITERATION env var if set.
+    """
+    receipt_data: dict[str, Any] = {
+        "type": review_type,
+        "id": review_id,
+        "mode": mode,
+        "verdict": verdict,
+        "session_id": session_id,
+        "timestamp": now_iso(),
+        "review": output,
+    }
+    if base_branch is not None:
+        receipt_data["base"] = base_branch
+    if focus is not None:
+        receipt_data["focus"] = focus
+
+    # Add iteration if running under Ralph
+    ralph_iter = os.environ.get("RALPH_ITERATION")
+    if ralph_iter:
+        try:
+            receipt_data["iteration"] = int(ralph_iter)
+        except ValueError:
+            pass
+
+    Path(path).write_text(
+        json.dumps(receipt_data, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def delete_stale_receipt(path: Optional[str]) -> None:
+    """Delete a receipt file if it exists (best-effort).
+
+    Used to clear stale receipts on review failure so they don't
+    falsely satisfy downstream gates.
+    """
+    if not path:
+        return
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 CODEX_SANDBOX_MODES = {"read-only", "workspace-write", "danger-full-access", "auto"}
 
 

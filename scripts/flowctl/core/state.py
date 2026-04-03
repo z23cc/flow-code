@@ -1,6 +1,7 @@
 """State management: StateStore, task state operations."""
 
 import json
+import os
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import ContextManager, Optional
 
 from flowctl.compat import _flock, LOCK_EX, LOCK_UN
 from flowctl.core.constants import RUNTIME_FIELDS, TASKS_DIR
-from flowctl.core.ids import normalize_task
+from flowctl.core.ids import is_task_id, normalize_task
 from flowctl.core.io import (
     atomic_write,
     atomic_write_json,
@@ -134,6 +135,67 @@ def load_task_with_state(task_id: str, use_json: bool = True) -> dict:
     return normalize_task(merged)
 
 
+def load_all_tasks_with_state(epic_id: str | None = None) -> dict[str, dict]:
+    """Load all tasks with merged runtime state in a single directory scan.
+
+    Uses os.scandir for efficient single-pass directory listing, optionally
+    filtered by epic_id prefix. Returns dict keyed by task ID.
+
+    Args:
+        epic_id: If provided, only load tasks whose ID starts with this prefix.
+                 E.g., "fn-4-slug" loads "fn-4-slug.1", "fn-4-slug.2", etc.
+
+    Returns:
+        Dict of {task_id: merged_task_data}.
+    """
+    flow_dir = get_flow_dir()
+    tasks_dir = flow_dir / TASKS_DIR
+    if not tasks_dir.exists():
+        return {}
+
+    store = get_state_store()
+    result: dict[str, dict] = {}
+
+    # Single scandir pass — filter by .json suffix and optional epic prefix
+    prefix = f"{epic_id}." if epic_id else "fn-"
+    try:
+        entries = os.scandir(tasks_dir)
+    except OSError:
+        return {}
+
+    for entry in entries:
+        if not entry.name.endswith(".json"):
+            continue
+        if not entry.name.startswith(prefix):
+            continue
+
+        task_id = entry.name[:-5]  # strip .json
+        if not is_task_id(task_id):
+            continue
+
+        # Load definition
+        try:
+            with open(entry.path, encoding="utf-8") as f:
+                definition = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            continue
+
+        if "id" not in definition:
+            continue  # Skip artifact files
+
+        # Load runtime state
+        runtime = store.load_runtime(task_id)
+        if runtime is None:
+            runtime = {k: definition[k] for k in RUNTIME_FIELDS if k in definition}
+            if not runtime:
+                runtime = {"status": "todo"}
+
+        merged = {**definition, **runtime}
+        result[task_id] = normalize_task(merged)
+
+    return result
+
+
 def save_task_runtime(task_id: str, updates: dict) -> None:
     """Write runtime state only (merge with existing). Never touch definition file."""
     store = get_state_store()
@@ -168,8 +230,33 @@ def _file_locks_path() -> Path:
     return get_state_dir() / "file_locks.json"
 
 
+def _file_locks_mutex_path() -> Path:
+    """Path to the mutex file for file_locks.json read-modify-write."""
+    return get_state_dir() / "file_locks.mutex"
+
+
+@contextmanager
+def _file_locks_mutex():
+    """Acquire mutual exclusion for file_locks.json read-modify-write.
+
+    Prevents race conditions when concurrent workers both read the same state,
+    decide a file is unlocked, and both write — second overwriting first's lock.
+    """
+    mutex_path = _file_locks_mutex_path()
+    mutex_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(mutex_path, "w") as f:
+        try:
+            _flock(f, LOCK_EX)
+            yield
+        finally:
+            _flock(f, LOCK_UN)
+
+
 def _load_file_locks() -> dict:
-    """Load file lock registry. Returns {file_path: {task_id, locked_at}}."""
+    """Load file lock registry. Returns {file_path: {task_id, locked_at}}.
+
+    NOTE: Callers doing read-modify-write must wrap in _file_locks_mutex().
+    """
     path = _file_locks_path()
     if not path.exists():
         return {}
@@ -188,34 +275,42 @@ def _save_file_locks(locks: dict) -> None:
 
 
 def lock_files(task_id: str, files: list[str]) -> dict:
-    """Lock files for a task. Returns {locked: [...], already_locked: [{file, owner}]}."""
-    locks = _load_file_locks()
-    locked = []
-    already_locked = []
-    for f in files:
-        existing = locks.get(f)
-        if existing and existing["task_id"] != task_id:
-            already_locked.append({"file": f, "owner": existing["task_id"]})
-        else:
-            locks[f] = {"task_id": task_id, "locked_at": now_iso()}
-            locked.append(f)
-    _save_file_locks(locks)
+    """Lock files for a task. Returns {locked: [...], already_locked: [{file, owner}]}.
+
+    Uses fcntl.flock for mutual exclusion to prevent race conditions.
+    """
+    with _file_locks_mutex():
+        locks = _load_file_locks()
+        locked = []
+        already_locked = []
+        for f in files:
+            existing = locks.get(f)
+            if existing and existing["task_id"] != task_id:
+                already_locked.append({"file": f, "owner": existing["task_id"]})
+            else:
+                locks[f] = {"task_id": task_id, "locked_at": now_iso()}
+                locked.append(f)
+        _save_file_locks(locks)
     return {"locked": locked, "already_locked": already_locked}
 
 
 def unlock_files(task_id: str, files: list[str] | None = None) -> list[str]:
-    """Unlock files owned by task_id. If files=None, unlock all files for this task."""
-    locks = _load_file_locks()
-    unlocked = []
-    to_remove = []
-    for f, info in locks.items():
-        if info["task_id"] == task_id:
-            if files is None or f in files:
-                to_remove.append(f)
-                unlocked.append(f)
-    for f in to_remove:
-        del locks[f]
-    _save_file_locks(locks)
+    """Unlock files owned by task_id. If files=None, unlock all files for this task.
+
+    Uses fcntl.flock for mutual exclusion to prevent race conditions.
+    """
+    with _file_locks_mutex():
+        locks = _load_file_locks()
+        unlocked = []
+        to_remove = []
+        for f, info in locks.items():
+            if info["task_id"] == task_id:
+                if files is None or f in files:
+                    to_remove.append(f)
+                    unlocked.append(f)
+        for f in to_remove:
+            del locks[f]
+        _save_file_locks(locks)
     return unlocked
 
 
@@ -231,10 +326,14 @@ def list_file_locks() -> dict:
 
 
 def clear_file_locks() -> int:
-    """Clear all file locks. Returns count cleared."""
-    locks = _load_file_locks()
-    count = len(locks)
-    _save_file_locks({})
+    """Clear all file locks. Returns count cleared.
+
+    Uses fcntl.flock for mutual exclusion to prevent race conditions.
+    """
+    with _file_locks_mutex():
+        locks = _load_file_locks()
+        count = len(locks)
+        _save_file_locks({})
     return count
 
 

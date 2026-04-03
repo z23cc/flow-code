@@ -10,14 +10,30 @@ from flowctl.core.constants import FLOW_DIR
 # CLI invocations are short-lived so no expiry needed.
 _state_dir_cache: dict[str, Path] = {}
 
+# Module-level cache for get_repo_root(), keyed by cwd string.
+_repo_root_cache: dict[str, Path] = {}
+
 
 def _reset_state_dir_cache() -> None:
     """Clear the get_state_dir() memoization cache. For testing."""
     _state_dir_cache.clear()
 
 
+def _reset_repo_root_cache() -> None:
+    """Clear the get_repo_root() memoization cache. For testing."""
+    _repo_root_cache.clear()
+
+
 def get_repo_root() -> Path:
-    """Find git repo root."""
+    """Find git repo root.
+
+    Results are memoized per working directory. Call _reset_repo_root_cache()
+    to clear (e.g. in tests that change directories).
+    """
+    cache_key = os.getcwd()
+    if cache_key in _repo_root_cache:
+        return _repo_root_cache[cache_key]
+
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -25,10 +41,13 @@ def get_repo_root() -> Path:
             text=True,
             check=True,
         )
-        return Path(result.stdout.strip())
+        resolved = Path(result.stdout.strip())
     except subprocess.CalledProcessError:
         # Fallback to current directory
-        return Path.cwd()
+        resolved = Path.cwd()
+
+    _repo_root_cache[cache_key] = resolved
+    return resolved
 
 
 def get_flow_dir() -> Path:

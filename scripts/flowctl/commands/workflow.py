@@ -768,7 +768,19 @@ def cmd_done(args: argparse.Namespace) -> None:
     except ValueError as e:
         error_exit(str(e), use_json=args.json)
 
-    # All validation passed - now write (spec to tracked file, runtime to state-dir)
+    # Add duration to evidence
+    if duration_seconds is not None:
+        evidence["duration_seconds"] = duration_seconds
+
+    # All validation passed - now write.
+    # Write runtime state FIRST (authoritative source via load_task_with_state),
+    # so a crash after this point still marks the task as done.
+    runtime_done = {"status": "done", "evidence": evidence, "completed_at": now_iso()}
+    if duration_seconds is not None:
+        runtime_done["duration_seconds"] = duration_seconds
+    save_task_runtime(args.id, runtime_done)
+
+    # Then write spec (summary + evidence markdown)
     atomic_write(task_spec_path, updated_spec)
 
     # Archive review receipt if present in evidence
@@ -780,16 +792,6 @@ def cmd_done(args: argparse.Namespace) -> None:
         rtype = review_receipt.get("type", "review")
         receipt_filename = f"{rtype}-{args.id}-{mode}.json"
         atomic_write_json(reviews_dir / receipt_filename, review_receipt)
-
-    # Add duration to evidence
-    if duration_seconds is not None:
-        evidence["duration_seconds"] = duration_seconds
-
-    # Write runtime state to state-dir (not definition file)
-    runtime_done = {"status": "done", "evidence": evidence, "completed_at": now_iso()}
-    if duration_seconds is not None:
-        runtime_done["duration_seconds"] = duration_seconds
-    save_task_runtime(args.id, runtime_done)
 
     # NOTE: We no longer update epic timestamp on task done.
     # This reduces merge conflicts in multi-user scenarios.

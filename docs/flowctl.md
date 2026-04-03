@@ -7,7 +7,7 @@ CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 ## Available Commands
 
 ```
-init, detect, epic, task, dep, gap, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, invariants, guard, stack, memory, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
+init, detect, epic, task, dep, gap, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, invariants, guard, stack, memory, parse-findings, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
 ```
 
 ## Multi-User Safety
@@ -604,6 +604,62 @@ flowctl memory read --type pitfalls [--json]
 ```
 
 Types: `pitfall`, `convention`, `decision`
+
+### parse-findings
+
+Extract structured findings from review output and optionally register them as gaps.
+
+```bash
+# Extract findings from a review output file
+flowctl parse-findings --file /tmp/review-output.txt [--json]
+
+# Extract and auto-register as gaps on an epic
+flowctl parse-findings --file /tmp/review-output.txt --epic fn-1-add-auth --register --source plan-review [--json]
+
+# Read from stdin
+echo "$REVIEW_OUTPUT" | flowctl parse-findings --file - --epic fn-1 --register --source impl-review --json
+```
+
+Options:
+- `--file FILE` (required): Review text file, or `-` for stdin
+- `--epic EPIC_ID`: Required when `--register` is used
+- `--register`: Auto-call `gap add` for each critical/major finding
+- `--source SOURCE`: Gap source label (default: `manual`). Typical values: `plan-review`, `impl-review`, `epic-review`
+- `--json`: JSON output
+
+**Extraction strategy** (tiered, no external deps):
+1. Regex `<findings>...</findings>` tag
+2. Fallback: bare JSON array `[{...}]`
+3. Fallback: markdown code block `` ```json...``` ``
+4. Graceful empty: returns `[]` with warning if no findings found
+
+**Severity-to-priority mapping** (used with `--register`):
+| Severity | Priority |
+|----------|----------|
+| critical | required |
+| major | important |
+| minor | nice-to-have |
+| nitpick | nice-to-have |
+
+Output:
+```json
+{
+  "success": true,
+  "findings": [
+    {
+      "title": "Missing input validation",
+      "severity": "major",
+      "location": "src/auth.py:42",
+      "recommendation": "Add input sanitization"
+    }
+  ],
+  "count": 1,
+  "registered": 1,
+  "warnings": []
+}
+```
+
+Without `--register`, the `registered` field is omitted.
 
 ### prep-chat
 

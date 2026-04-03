@@ -1118,6 +1118,43 @@ def _parse_worker_sections(content: str) -> list[dict[str, str]]:
     return sections
 
 
+def _extract_phase_content(worker_md_content: str, include_tags: set[str]) -> dict[str, str]:
+    """Extract per-phase content from worker.md, filtered by section tags.
+
+    Returns a dict mapping phase_id -> markdown content for that phase.
+    Phases are identified by ``## Phase N:`` headings within the assembled text.
+
+    The algorithm:
+    1. Parse all section blocks (``<!-- section:tag -->`` markers).
+    2. Filter to only the tags in *include_tags*.
+    3. Concatenate the filtered sections in document order.
+    4. Split the concatenated text by ``## Phase N:`` headings.
+    5. Map each heading's phase id to its content (heading + body until next heading).
+    """
+    sections = _parse_worker_sections(worker_md_content)
+    included = [s["content"] for s in sections if s["tag"] in include_tags]
+    full_text = "\n\n".join(included)
+
+    # Split by phase headings: ## Phase <id>: <title>
+    # Captures phase id (e.g., "1", "2a", "2.5", "5b", "0")
+    phase_pattern = re.compile(r"(?=^## Phase (\d+[a-z]?(?:\.\d+)?):)", re.MULTILINE)
+
+    parts = phase_pattern.split(full_text)
+    # parts alternates: [pre-phase-text, phase_id, phase_body, phase_id, phase_body, ...]
+    # The first element is text before any ## Phase heading (preamble).
+
+    phases: dict[str, str] = {}
+    # Start at index 1 (skip preamble), step by 2 (id, body pairs)
+    i = 1
+    while i < len(parts) - 1:
+        phase_id = parts[i]
+        body = parts[i + 1].strip()
+        phases[phase_id] = body
+        i += 2
+
+    return phases
+
+
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate: words * 1.3 for English/Markdown.
 
@@ -1128,9 +1165,105 @@ def _estimate_tokens(text: str) -> int:
     return max(1, int(words * 1.3))
 
 
+def _build_bootstrap_prompt(
+    task_id: str,
+    epic_id: str,
+    flowctl_path: str,
+    *,
+    team: bool = False,
+    tdd: bool = False,
+    review: str | None = None,
+    ralph: bool = False,
+) -> str:
+    """Build a minimal ~200 token bootstrap prompt for phase-gate execution.
+
+    Instead of the full worker.md, this prompt instructs the worker to call
+    ``worker-phase next`` in a loop, executing one phase at a time.
+    """
+    # Build mode flags string for worker-phase calls
+    flags = []
+    if team:
+        flags.append("--team")
+    if tdd:
+        flags.append("--tdd")
+    if review:
+        flags.append(f"--review {review}")
+    mode_flags = " ".join(flags)
+    mode_flags_str = f" {mode_flags}" if mode_flags else ""
+
+    lines = [
+        "# Task Implementation Worker (Phase-Gate Mode)",
+        "",
+        "You implement a single flow-code task by executing phases sequentially.",
+        "",
+        "## Configuration",
+        f"- TASK_ID: {task_id}",
+        f"- EPIC_ID: {epic_id}",
+        f"- FLOWCTL: {flowctl_path}",
+        f"- REVIEW_MODE: {review or 'none'}",
+        f"- RALPH_MODE: {str(ralph).lower()}",
+        f"- TDD_MODE: {str(tdd).lower()}",
+    ]
+    if team:
+        lines.append("- TEAM_MODE: true")
+
+    lines.extend([
+        "",
+        "## Execution Loop",
+        "",
+        "Repeat until all_done is true:",
+        "",
+        "```bash",
+        f"$FLOWCTL worker-phase next --task $TASK_ID{mode_flags_str} --json",
+        "```",
+        "",
+        "1. Read the returned `content` field — it contains full phase instructions.",
+        "2. Execute the phase as described.",
+        "3. When done, mark it complete:",
+        "",
+        "```bash",
+        f"$FLOWCTL worker-phase done --task $TASK_ID --phase <PHASE_ID>{mode_flags_str} --json",
+        "```",
+        "",
+        "4. Call `worker-phase next` again for the next phase.",
+        "5. Stop when `all_done` is `true`.",
+    ])
+
+    return "\n".join(lines)
+
+
 def cmd_worker_prompt(args: argparse.Namespace) -> None:
     """Output a trimmed worker prompt based on mode flags."""
     from flowctl.core.config import get_config
+
+    # Handle --bootstrap mode: minimal ~200 token prompt
+    if getattr(args, "bootstrap", False):
+        task_id = args.task
+        epic_id = epic_id_from_task(task_id) if is_task_id(task_id) else task_id
+
+        plugin_root = _get_plugin_root()
+        flowctl_path = str(plugin_root / "scripts" / "flowctl.py")
+
+        prompt_text = _build_bootstrap_prompt(
+            task_id=task_id,
+            epic_id=epic_id,
+            flowctl_path=flowctl_path,
+            team=args.team,
+            tdd=args.tdd,
+            review=args.review,
+            ralph=getattr(args, "ralph", False),
+        )
+        estimated_tokens = _estimate_tokens(prompt_text)
+
+        if args.json:
+            json_output({
+                "prompt": prompt_text,
+                "mode": "bootstrap",
+                "estimated_tokens": estimated_tokens,
+            })
+        else:
+            print(prompt_text)
+        return
 
     worker_path = _get_plugin_root() / "agents" / "worker.md"
     if not worker_path.exists():
@@ -1181,6 +1314,7 @@ def cmd_worker_prompt(args: argparse.Namespace) -> None:
     if args.json:
         json_output({
             "prompt": prompt_text,
+            "mode": "full",
             "sections": included_tags,
             "estimated_tokens": estimated_tokens,
         })
@@ -1280,15 +1414,43 @@ def cmd_worker_phase_next(args: argparse.Namespace) -> None:
     phase_def = PHASE_DEFS.get(next_phase, (next_phase, f"Phase {next_phase}", ""))
     phase_id, title, done_condition = phase_def
 
+    # Extract phase content from worker.md
+    from flowctl.core.config import get_config
+    worker_path = _get_plugin_root() / "agents" / "worker.md"
+    phase_content = ""
+    if worker_path.exists():
+        raw = worker_path.read_text(encoding="utf-8")
+        # Strip YAML frontmatter
+        frontmatter_match = re.match(r"^---\n.*?\n---\n", raw, re.DOTALL)
+        if frontmatter_match:
+            raw = raw[frontmatter_match.end():]
+
+        # Build include tags matching _build_phase_sequence logic
+        include_tags = {"core"}
+        if args.team:
+            include_tags.add("team")
+        if args.tdd:
+            include_tags.add("tdd")
+        if args.review is not None:
+            include_tags.add("review")
+        memory_enabled = get_config("memory.enabled", False)
+        if memory_enabled:
+            include_tags.add("memory")
+
+        phase_map = _extract_phase_content(raw, include_tags)
+        phase_content = phase_map.get(next_phase, "")
+
     if args.json:
-        json_output({
+        result_data = {
             "phase": phase_id,
             "title": title,
             "done_condition": done_condition,
+            "content": phase_content,
             "completed_phases": sorted(completed, key=lambda x: seq.index(x) if x in seq else 999),
             "sequence": seq,
             "all_done": False,
-        })
+        }
+        json_output(result_data)
     else:
         print(f"Next phase: {phase_id} - {title}")
         print(f"Done when: {done_condition}")

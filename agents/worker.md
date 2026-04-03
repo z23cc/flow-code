@@ -440,6 +440,19 @@ Return a concise summary to the main conversation:
 - Tests run (if any)
 - Review verdict (if REVIEW_MODE != none)
 
+## Pre-Return Checklist (MUST complete before Phase 6)
+
+Before returning to the main conversation, verify ALL of these:
+
+```
+□ Code committed? → git log --oneline -1 (must see your commit)
+□ flowctl done called? → <FLOWCTL> show <TASK_ID> --json (status MUST be "done")
+□ If status is NOT "done" → retry: <FLOWCTL> done <TASK_ID> --summary "implemented" --evidence-json '{"tests_passed":true}'
+□ In Teams mode? → SendMessage ONLY after status confirmed "done"
+```
+
+**If any check fails, fix it before returning. Do NOT return with status != "done".**
+
 ## Rules
 
 - **Re-anchor first** - always read spec before implementing

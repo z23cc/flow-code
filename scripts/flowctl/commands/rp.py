@@ -46,7 +46,12 @@ def run_rp_cli(
             cmd, capture_output=True, text=True, check=True, timeout=timeout
         )
     except subprocess.TimeoutExpired:
-        error_exit(f"rp-cli timed out after {timeout}s", use_json=False, code=3)
+        error_exit(
+            f"rp-cli timed out after {timeout}s. "
+            "Is RepoPrompt running? If not, use --review=codex as fallback.",
+            use_json=False,
+            code=3,
+        )
     except subprocess.CalledProcessError as e:
         msg = (e.stderr or e.stdout or str(e)).strip()
         error_exit(f"rp-cli failed: {msg}", use_json=False, code=2)
@@ -443,9 +448,9 @@ def cmd_rp_setup_review(args: argparse.Namespace) -> None:
     summary = args.summary
     response_type = getattr(args, "response_type", None)
 
-    # Step 1: pick-window
+    # Step 1: pick-window (fast — 30s timeout, RP should respond instantly)
     roots = normalize_repo_root(repo_root)
-    result = run_rp_cli(["--raw-json", "-e", "windows"])
+    result = run_rp_cli(["--raw-json", "-e", "windows"], timeout=30)
     windows = parse_windows(result.stdout or "")
 
     win_id: Optional[int] = None
@@ -505,7 +510,8 @@ def cmd_rp_setup_review(args: argparse.Namespace) -> None:
         builder_expr,
     ]
     builder_cmd = [c for c in builder_cmd if c]  # Remove empty strings
-    builder_res = run_rp_cli(builder_cmd)
+    # Builder can be slow (context_builder analyzes files) — 1000s timeout
+    builder_res = run_rp_cli(builder_cmd, timeout=1000)
     output = (builder_res.stdout or "") + (
         "\n" + builder_res.stderr if builder_res.stderr else ""
     )

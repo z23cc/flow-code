@@ -224,23 +224,24 @@ def run_codex_exec(
         # Try resume first - use stdin for prompt (model already set in original session)
         cmd = [codex, "exec", "resume", session_id, "-"]
         try:
+            codex_timeout = int(os.environ.get("FLOW_CODEX_TIMEOUT", "600"))
             result = subprocess.run(
                 cmd,
                 input=prompt,
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=600,
+                timeout=codex_timeout,
             )
             output = result.stdout
             # For resumed sessions, thread_id stays the same
             return output, session_id, 0, result.stderr
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             # Resume failed - fall through to new session
-            pass
-        except subprocess.TimeoutExpired:
+            print(f"WARNING: Codex resume failed ({type(e).__name__}), starting new session", file=sys.stderr)
+        except subprocess.TimeoutExpired as e:
             # Resume failed - fall through to new session
-            pass
+            print(f"WARNING: Codex resume failed ({type(e).__name__}), starting new session", file=sys.stderr)
 
     # New session with model + high reasoning effort
     # --skip-git-repo-check: safe with read-only sandbox, allows reviews from /tmp etc (GH-33)
@@ -258,6 +259,7 @@ def run_codex_exec(
         "--json",
         "-",
     ]
+    codex_timeout = int(os.environ.get("FLOW_CODEX_TIMEOUT", "600"))
     try:
         result = subprocess.run(
             cmd,
@@ -265,13 +267,13 @@ def run_codex_exec(
             capture_output=True,
             text=True,
             check=False,  # Don't raise on non-zero exit
-            timeout=600,
+            timeout=codex_timeout,
         )
         output = result.stdout
         thread_id = parse_codex_thread_id(output)
         return output, thread_id, result.returncode, result.stderr
     except subprocess.TimeoutExpired:
-        return "", None, 2, "codex exec timed out (600s)"
+        return "", None, 2, f"codex exec timed out ({codex_timeout}s)"
 
 
 def parse_codex_thread_id(output: str) -> Optional[str]:

@@ -189,11 +189,21 @@ TeamCreate({team_name: "flow-<epic-id>", description: "Working on <epic-title>"}
 If you spawned Agent() without team_name when 2+ tasks are ready,
 you have violated the Teams protocol. Delete those agents and redo 3c-3d.
 
-**Prompt template for worker:**
+**Prompt generation for worker:**
 
-Pass config values only. Worker reads worker.md for phases. Do NOT paraphrase or add step-by-step instructions - worker.md has them.
+Use `flowctl worker-prompt` to generate a trimmed prompt for each worker. This strips unused sections (Team, TDD, Review) based on flags, reducing prompt size by ~60%.
+
+```bash
+# Build the prompt — flags match the task's execution context
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> [--team] [--tdd] [--review rp|codex])
+```
 
 **Multiple ready tasks (Teams mode):**
+
+```bash
+# Generate trimmed prompt with --team flag
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --team [--tdd] [--review rp|codex])
+```
 
 ```
 Agent({
@@ -202,8 +212,7 @@ Agent({
   description: "Implement <task-title>",
   team_name: "flow-<epic-id>",
   run_in_background: true,
-  prompt: """
-    Implement flow-code task.
+  prompt: "$WORKER_PROMPT
 
     TASK_ID: <task-id>
     EPIC_ID: <epic-id>
@@ -213,9 +222,7 @@ Agent({
     TDD_MODE: true|false
     TEAM_MODE: true
     OWNED_FILES: <comma-separated file list from flowctl files>
-
-    Follow your phases in worker.md exactly.
-  """
+  "
 })
 ```
 
@@ -223,12 +230,16 @@ Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
 
 **Single ready task (no Teams overhead):**
 
+```bash
+# Generate trimmed prompt (no --team flag)
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> [--tdd] [--review rp|codex])
+```
+
 ```
 Agent({
   subagent_type: "flow-code:worker",
   description: "Implement <task-title>",
-  prompt: """
-    Implement flow-code task.
+  prompt: "$WORKER_PROMPT
 
     TASK_ID: <task-id>
     EPIC_ID: <epic-id>
@@ -236,9 +247,7 @@ Agent({
     REVIEW_MODE: none|rp|codex
     RALPH_MODE: true|false
     TDD_MODE: true|false
-
-    Follow your phases in worker.md exactly.
-  """
+  "
 })
 ```
 

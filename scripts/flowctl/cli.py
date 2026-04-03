@@ -76,6 +76,9 @@ from flowctl.commands.workflow import (
     cmd_restart,
     cmd_state_path,
     cmd_migrate_state,
+    cmd_worker_prompt,
+    cmd_worker_phase_next,
+    cmd_worker_phase_done,
 )
 from flowctl.commands.query import (
     cmd_show,
@@ -737,6 +740,55 @@ def main() -> None:
     )
     p_migrate.add_argument("--json", action="store_true", help="JSON output")
     p_migrate.set_defaults(func=cmd_migrate_state)
+
+    # worker-prompt
+    p_wp = subparsers.add_parser(
+        "worker-prompt", help="Output trimmed worker prompt based on mode flags"
+    )
+    p_wp.add_argument("--task", required=True, help="Task ID (for context, e.g., fn-1.1)")
+    p_wp.add_argument("--team", action="store_true", help="Include Team Mode sections")
+    p_wp.add_argument("--tdd", action="store_true", help="Include TDD Phase 2a")
+    p_wp.add_argument(
+        "--review", choices=["rp", "codex"], default=None,
+        help="Include review Phase 4 (rp or codex)",
+    )
+    p_wp.add_argument("--json", action="store_true", help="JSON output")
+    p_wp.set_defaults(func=cmd_worker_prompt)
+
+    # worker-phase
+    p_wph = subparsers.add_parser(
+        "worker-phase", help="Phase-gate sequential execution for workers"
+    )
+    wph_sub = p_wph.add_subparsers(dest="phase_cmd", required=True)
+
+    # worker-phase next
+    p_wph_next = wph_sub.add_parser(
+        "next", help="Return the next uncompleted phase"
+    )
+    p_wph_next.add_argument("--task", required=True, help="Task ID (e.g., fn-1.1)")
+    p_wph_next.add_argument("--team", action="store_true", help="Include Team Mode phases")
+    p_wph_next.add_argument("--tdd", action="store_true", help="Include TDD phases")
+    p_wph_next.add_argument(
+        "--review", choices=["rp", "codex"], default=None,
+        help="Include review phase (rp or codex)",
+    )
+    p_wph_next.add_argument("--json", action="store_true", help="JSON output")
+    p_wph_next.set_defaults(func=cmd_worker_phase_next)
+
+    # worker-phase done
+    p_wph_done = wph_sub.add_parser(
+        "done", help="Mark a phase as completed"
+    )
+    p_wph_done.add_argument("--task", required=True, help="Task ID (e.g., fn-1.1)")
+    p_wph_done.add_argument("--phase", required=True, help="Phase ID to mark done (e.g., 1, 2, 2.5)")
+    p_wph_done.add_argument("--team", action="store_true", help="Include Team Mode phases")
+    p_wph_done.add_argument("--tdd", action="store_true", help="Include TDD phases")
+    p_wph_done.add_argument(
+        "--review", choices=["rp", "codex"], default=None,
+        help="Include review phase (rp or codex)",
+    )
+    p_wph_done.add_argument("--json", action="store_true", help="JSON output")
+    p_wph_done.set_defaults(func=cmd_worker_phase_done)
 
     # validate
     p_validate = subparsers.add_parser("validate", help="Validate epic or all")

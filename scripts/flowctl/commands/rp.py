@@ -53,13 +53,43 @@ def run_rp_cli(
 
 
 def normalize_repo_root(path: str) -> list[str]:
-    """Normalize repo root for window matching."""
+    """Normalize repo root for window matching.
+
+    Handles:
+    - /tmp ↔ /private/tmp symlink on macOS
+    - Git worktree → main repo resolution (worktree paths differ from main repo)
+    """
     root = os.path.realpath(path)
     roots = [root]
+
+    # macOS /tmp symlink
     if root.startswith("/private/tmp/"):
         roots.append("/tmp/" + root[len("/private/tmp/"):])
     elif root.startswith("/tmp/"):
         roots.append("/private/tmp/" + root[len("/tmp/"):])
+
+    # Git worktree → main repo resolution
+    # Worktrees live at .claude/worktrees/<name>/ but RP tracks the main repo
+    try:
+        import subprocess
+        git_common = subprocess.run(
+            ["git", "-C", root, "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if git_common.returncode == 0:
+            common_dir = git_common.stdout.strip()
+            # --git-common-dir returns the .git dir of the main repo
+            # e.g., /Users/x/project/.git → main repo is /Users/x/project
+            if common_dir and not common_dir.startswith("."):
+                main_repo = os.path.dirname(os.path.realpath(common_dir))
+                if main_repo != root:
+                    roots.append(main_repo)
+                    # Also add /tmp variants of main repo
+                    if main_repo.startswith("/private/tmp/"):
+                        roots.append("/tmp/" + main_repo[len("/private/tmp/"):])
+    except Exception:
+        pass  # Git not available or not a repo — skip
+
     return list(dict.fromkeys(roots))
 
 

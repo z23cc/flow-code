@@ -76,6 +76,15 @@ Detect input type in this order (first match wins):
 
 **Fallback: worktree isolation** (`--worktree-parallel`): Uses git worktrees instead of Teams. Only use when Teams is unavailable or user explicitly requests worktree isolation.
 
+**Red Flags — if you catch yourself thinking any of these, stop:**
+
+| Thought | Reality |
+|---------|---------|
+| "I'll just spawn background agents, simpler" | Teams mode IS the default. No shortcuts. |
+| "File boundaries are clean, no need for locks" | Lock anyway. Runtime surprises happen. |
+| "Coordination loop is overhead" | It handles spec conflicts and file access. Required. |
+| "Workers can handle it independently" | Without Teams, no file lock enforcement. |
+
 ### 3a. Find Ready Tasks
 
 **State awareness (always runs first):**
@@ -132,6 +141,17 @@ $FLOWCTL cat <task-id>
 
 ### 3c. Teams Setup & File Locking
 
+#### Teams Setup Checklist (copy and complete when 2+ tasks ready)
+
+```
+- [ ] flowctl files --epic <id> → checked conflicts
+- [ ] flowctl start <task-id> → for each task
+- [ ] flowctl lock --task <task-id> --files <files> → for each task
+- [ ] TeamCreate(team_name: "flow-<epic-id>") → team created
+- [ ] Agent(team_name: "flow-<epic-id>", ...) → workers spawned WITH team_name
+- [ ] Coordination loop entered → routing messages
+```
+
 ```bash
 # 1. Get file ownership map and check for conflicts
 $FLOWCTL files --epic <epic-id> --json
@@ -159,6 +179,14 @@ TeamCreate({team_name: "flow-<epic-id>", description: "Working on <epic-title>"}
 - **1 ready task → foreground mode.** Skip TeamCreate, spawn one worker with `TEAM_MODE: false` and `run_in_background: false`.
 
 ### 3d. Spawn Workers
+
+**STOP CHECK**: Before spawning workers, verify:
+1. Did you call TeamCreate? If not, STOP. Go back to 3c.
+2. Does every Agent() call include team_name? If not, STOP. Add it.
+3. Did you call flowctl lock for each task? If not, STOP. Go back to 3c.
+
+If you spawned Agent() without team_name when 2+ tasks are ready,
+you have violated the Teams protocol. Delete those agents and redo 3c-3d.
 
 **Prompt template for worker:**
 

@@ -76,17 +76,18 @@ class TestValidateTaskSpecHeadings:
         errors = validate_task_spec_headings(content)
         assert any("Duplicate heading: ## Acceptance" in e for e in errors)
 
-    def test_heading_inside_code_block_not_matched(self):
-        """Headings inside code blocks should still be matched (regex is line-anchored).
-
-        The current implementation uses line-anchored regex, so ## Description
-        inside a code block on its own line WILL be detected. This test documents
-        that known limitation rather than asserting it doesn't match.
-        """
+    def test_heading_inside_code_block_ignored(self):
+        """Headings inside fenced code blocks should be ignored."""
         content = VALID_SPEC + "\n```\n## Description\n```\n"
         errors = validate_task_spec_headings(content)
-        # The heading appears twice now (once real, once in code block)
-        assert any("Duplicate heading: ## Description" in e for e in errors)
+        # Fenced code blocks are stripped before checking — no duplicate
+        assert errors == []
+
+    def test_heading_inside_tagged_code_block_ignored(self):
+        """Headings inside fenced code blocks with language tags should be ignored."""
+        content = VALID_SPEC + "\n```markdown\n## Description\n## Acceptance\n```\n"
+        errors = validate_task_spec_headings(content)
+        assert errors == []
 
     def test_heading_with_trailing_whitespace(self):
         """Headings with trailing whitespace should still be recognized."""

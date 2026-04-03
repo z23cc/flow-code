@@ -132,13 +132,19 @@ def find_active_run(
 # --- Validation helpers ---
 
 
+def _strip_fenced_blocks(content: str) -> str:
+    """Remove fenced code blocks (``` ... ```) so headings inside them are ignored."""
+    return re.sub(r"^```.*?^```", "", content, flags=re.MULTILINE | re.DOTALL)
+
+
 def validate_task_spec_headings(content: str) -> list[str]:
     """Validate task spec has required headings exactly once. Returns errors."""
+    # Strip fenced code blocks so ## headings inside examples aren't counted
+    stripped = _strip_fenced_blocks(content)
     errors = []
     for heading in TASK_SPEC_HEADINGS:
-        # Use regex anchored to line start to avoid matching inside code blocks
         pattern = rf"^{re.escape(heading)}\s*$"
-        count = len(re.findall(pattern, content, flags=re.MULTILINE))
+        count = len(re.findall(pattern, stripped, flags=re.MULTILINE))
         if count == 0:
             errors.append(f"Missing required heading: {heading}")
         elif count > 1:

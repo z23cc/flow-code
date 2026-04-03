@@ -912,9 +912,11 @@ def cmd_epic_reopen(args: argparse.Namespace) -> None:
             use_json=args.json,
         )
 
-    # Set status back to open and reset completion review
+    # Set status back to open and reset review metadata
     epic_data["status"] = "open"
     epic_data["completion_review_status"] = "unknown"
+    epic_data["plan_review_status"] = "unknown"
+    epic_data.pop("plan_reviewed_at", None)
     epic_data["updated_at"] = now_iso()
     atomic_write_json(epic_path, epic_data)
 

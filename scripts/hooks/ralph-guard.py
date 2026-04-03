@@ -17,7 +17,7 @@ Supports both review backends:
 """
 
 # Version for drift detection (bump when making changes)
-RALPH_GUARD_VERSION = "0.13.0"
+RALPH_GUARD_VERSION = "0.15.0"
 
 import json
 import os
@@ -27,9 +27,19 @@ import sys
 from pathlib import Path
 
 
+def _get_state_dir() -> Path:
+    """Get state directory: RUN_DIR > TMPDIR > /tmp."""
+    run_dir = os.environ.get("RUN_DIR")
+    if run_dir:
+        p = Path(run_dir)
+        if p.is_dir():
+            return p
+    return Path(os.environ.get("TMPDIR", "/tmp"))
+
+
 def get_state_file(session_id: str) -> Path:
     """Get state file path for this session."""
-    return Path(f"/tmp/ralph-guard-{session_id}.json")
+    return _get_state_dir() / f"ralph-guard-{session_id}.json"
 
 
 def load_state(session_id: str) -> dict:
@@ -150,8 +160,10 @@ def handle_protected_file_check(data: dict) -> None:
 def handle_file_lock_check(data: dict) -> None:
     """Block Edit/Write to files locked by another task in Teams mode.
 
-    Only active when FLOW_TEAMS=1. Checks the flowctl lock registry to ensure
-    workers only edit files they own. Fails-open if flowctl is unavailable.
+    Uses acquire-or-fail via 'flowctl lock' to eliminate TOCTOU race between
+    checking lock state and acting on the result. If lock succeeds, this task
+    now owns the file. If it fails (already locked by another task), block.
+    Fails-open if flowctl is unavailable.
     """
     if os.environ.get("FLOW_TEAMS") != "1":
         return
@@ -162,6 +174,9 @@ def handle_file_lock_check(data: dict) -> None:
         return
 
     my_task_id = os.environ.get("FLOW_TASK_ID", "")
+    if not my_task_id:
+        # No task context — fail-open
+        return
 
     # Resolve to relative path for lock comparison
     try:
@@ -181,40 +196,52 @@ def handle_file_lock_check(data: dict) -> None:
         # Fail-open: flowctl unavailable
         return
 
+    # Acquire-or-fail: attempt to lock the file for this task.
+    # If already locked by this task, flowctl lock is idempotent.
+    # If locked by another task, flowctl lock fails with non-zero exit.
     try:
         result = subprocess.run(
-            ["python3", flowctl, "lock-check", "--file", rel_path, "--json"],
+            ["python3", flowctl, "lock", "--task", my_task_id, "--files", rel_path, "--json"],
             capture_output=True, text=True, timeout=5, cwd=str(get_repo_root()),
         )
-        if result.returncode != 0:
-            # Fail-open: lock-check errored
-            return
-        lock_info = json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError, json.JSONDecodeError, OSError):
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         # Fail-open: any error
         return
 
-    if not lock_info.get("locked"):
-        # File not locked — warn but allow if we have a task ID
+    if result.returncode == 0:
+        # Lock acquired (or already owned) — allow
         return
 
-    owner = lock_info.get("owner", "")
-    if my_task_id and owner == my_task_id:
-        # Locked by this task — allow
-        return
+    # Lock failed — parse stderr/stdout for owner info
+    error_text = result.stderr or result.stdout or ""
+    owner_match = re.search(r"locked by ['\"]?([^'\"\s]+)", error_text, re.I)
+    owner = owner_match.group(1) if owner_match else "another task"
 
-    # Locked by a different task — block
     output_block(
         f"BLOCKED: File '{rel_path}' is locked by task '{owner}'. "
-        f"Your task ({my_task_id or 'unknown'}) does not own this file. "
+        f"Your task ({my_task_id}) does not own this file. "
         "Request access via 'Need file access:' protocol message or work on your own files."
     )
+
+
+def _normalize_command(cmd: str) -> str:
+    """Normalize a shell command string for reliable regex matching.
+
+    Handles bypass vectors: tab insertion, empty quotes, excess whitespace.
+    """
+    # Replace tabs with spaces
+    cmd = cmd.replace("\t", " ")
+    # Remove empty quote pairs ("" and '')
+    cmd = cmd.replace('""', "").replace("''", "")
+    # Collapse multiple spaces into one
+    cmd = re.sub(r" {2,}", " ", cmd)
+    return cmd.strip()
 
 
 def handle_pre_tool_use(data: dict) -> None:
     """Handle PreToolUse event - validate commands before execution."""
     tool_input = data.get("tool_input", {})
-    command = tool_input.get("command", "")
+    command = _normalize_command(tool_input.get("command", ""))
     session_id = data.get("session_id", "unknown")
 
     # Check for chat-send commands
@@ -394,7 +421,7 @@ def handle_post_tool_use(data: dict) -> None:
     """Handle PostToolUse event - track state and provide feedback."""
     tool_input = data.get("tool_input", {})
     tool_response = data.get("tool_response", {})
-    command = tool_input.get("command", "")
+    command = _normalize_command(tool_input.get("command", ""))
     session_id = data.get("session_id", "unknown")
 
     # Get response text
@@ -647,12 +674,27 @@ def handle_subagent_stop(data: dict) -> None:
     handle_stop(data)
 
 
+_LOG_MAX_BYTES = 1_048_576  # 1 MB
+
+
 def _debug_log_path() -> Path:
-    """Get debug log path: $RUN_DIR/guard-debug.log if set, else /tmp fallback."""
+    """Get debug log path: $RUN_DIR/guard-debug.log if set, else /tmp fallback.
+
+    Rotates to .1 when file exceeds 1MB.
+    """
     run_dir = os.environ.get("RUN_DIR")
     if run_dir:
-        return Path(run_dir) / "guard-debug.log"
-    return Path("/tmp/ralph-guard-debug.log")
+        log = Path(run_dir) / "guard-debug.log"
+    else:
+        log = Path("/tmp/ralph-guard-debug.log")
+    # Rotate: if >1MB, move current to .1 (overwrite)
+    try:
+        if log.exists() and log.stat().st_size > _LOG_MAX_BYTES:
+            rotated = log.with_suffix(".log.1")
+            log.replace(rotated)
+    except OSError:
+        pass  # Best-effort rotation
+    return log
 
 
 def main():

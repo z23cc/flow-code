@@ -20,26 +20,27 @@ from flowctl.core.io import atomic_write, error_exit, read_text_or_exit
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def require_rp_cli() -> str:
+def require_rp_cli(use_json: bool = False) -> str:
     """Ensure rp-cli is available."""
     rp = shutil.which("rp-cli")
     if not rp:
-        error_exit("rp-cli not found in PATH", use_json=False, code=2)
+        error_exit("rp-cli not found in PATH", use_json=use_json, code=2)
     return rp
 
 
 def run_rp_cli(
-    args: list[str], timeout: Optional[int] = None
+    args: list[str], timeout: Optional[int] = None, use_json: bool = False
 ) -> subprocess.CompletedProcess:
     """Run rp-cli with safe error handling and timeout.
 
     Args:
         args: Command arguments to pass to rp-cli
         timeout: Max seconds to wait. Default from FLOW_RP_TIMEOUT env or 1200s (20min).
+        use_json: Whether to output errors as JSON.
     """
     if timeout is None:
         timeout = int(os.environ.get("FLOW_RP_TIMEOUT", "1200"))
-    rp = require_rp_cli()
+    rp = require_rp_cli(use_json=use_json)
     cmd = [rp] + args
     try:
         return subprocess.run(
@@ -49,12 +50,12 @@ def run_rp_cli(
         error_exit(
             f"rp-cli timed out after {timeout}s. "
             "Is RepoPrompt running? If not, use --review=codex as fallback.",
-            use_json=False,
+            use_json=use_json,
             code=3,
         )
     except subprocess.CalledProcessError as e:
         msg = (e.stderr or e.stdout or str(e)).strip()
-        error_exit(f"rp-cli failed: {msg}", use_json=False, code=2)
+        error_exit(f"rp-cli failed: {msg}", use_json=use_json, code=2)
 
 
 def normalize_repo_root(path: str) -> list[str]:
@@ -98,7 +99,7 @@ def normalize_repo_root(path: str) -> list[str]:
     return list(dict.fromkeys(roots))
 
 
-def parse_windows(raw: str) -> list[dict[str, Any]]:
+def parse_windows(raw: str, use_json: bool = False) -> list[dict[str, Any]]:
     """Parse rp-cli windows JSON."""
     try:
         data = json.loads(raw)
@@ -113,8 +114,8 @@ def parse_windows(raw: str) -> list[dict[str, Any]]:
     except json.JSONDecodeError as e:
         if "single-window mode" in raw:
             return [{"windowID": 1, "rootFolderPaths": []}]
-        error_exit(f"windows JSON parse failed: {e}", use_json=False, code=2)
-    error_exit("windows JSON has unexpected shape", use_json=False, code=2)
+        error_exit(f"windows JSON parse failed: {e}", use_json=use_json, code=2)
+    error_exit("windows JSON has unexpected shape", use_json=use_json, code=2)
 
 
 def extract_window_id(win: dict[str, Any]) -> Optional[int]:
@@ -138,10 +139,10 @@ def extract_root_paths(win: dict[str, Any]) -> list[str]:
     return []
 
 
-def parse_builder_tab(output: str) -> str:
+def parse_builder_tab(output: str, use_json: bool = False) -> str:
     match = re.search(r"Tab:\s*([A-Za-z0-9-]+)", output)
     if not match:
-        error_exit("builder output missing Tab id", use_json=False, code=2)
+        error_exit("builder output missing Tab id", use_json=use_json, code=2)
     return match.group(1)
 
 
@@ -186,7 +187,7 @@ def build_chat_payload(
 def cmd_prep_chat(args: argparse.Namespace) -> None:
     """Prepare JSON payload for rp-cli chat_send. Handles escaping safely."""
     # Read message from file
-    message = read_text_or_exit(Path(args.message_file), "Message file", use_json=False)
+    message = read_text_or_exit(Path(args.message_file), "Message file", use_json=getattr(args, 'json', False))
     json_str = build_chat_payload(
         message=message,
         mode=args.mode,
@@ -203,24 +204,26 @@ def cmd_prep_chat(args: argparse.Namespace) -> None:
 
 
 def cmd_rp_windows(args: argparse.Namespace) -> None:
-    result = run_rp_cli(["--raw-json", "-e", "windows"])
+    use_json = getattr(args, 'json', False)
+    result = run_rp_cli(["--raw-json", "-e", "windows"], use_json=use_json)
     raw = result.stdout or ""
     if args.json:
-        windows = parse_windows(raw)
+        windows = parse_windows(raw, use_json=use_json)
         print(json.dumps(windows))
     else:
         print(raw, end="")
 
 
 def cmd_rp_pick_window(args: argparse.Namespace) -> None:
+    use_json = getattr(args, 'json', False)
     repo_root = args.repo_root
     roots = normalize_repo_root(repo_root)
-    result = run_rp_cli(["--raw-json", "-e", "windows"])
-    windows = parse_windows(result.stdout or "")
+    result = run_rp_cli(["--raw-json", "-e", "windows"], use_json=use_json)
+    windows = parse_windows(result.stdout or "", use_json=use_json)
     if len(windows) == 1 and not extract_root_paths(windows[0]):
         win_id = extract_window_id(windows[0])
         if win_id is None:
-            error_exit("No window matches repo root", use_json=False, code=2)
+            error_exit("No window matches repo root", use_json=use_json, code=2)
         if args.json:
             print(json.dumps({"window": win_id}))
         else:
@@ -237,10 +240,11 @@ def cmd_rp_pick_window(args: argparse.Namespace) -> None:
                 else:
                     print(win_id)
                 return
-    error_exit("No window matches repo root", use_json=False, code=2)
+    error_exit("No window matches repo root", use_json=use_json, code=2)
 
 
 def cmd_rp_ensure_workspace(args: argparse.Namespace) -> None:
+    use_json = getattr(args, 'json', False)
     window = args.window
     repo_root = os.path.realpath(args.repo_root)
     ws_name = os.path.basename(repo_root)
@@ -252,11 +256,11 @@ def cmd_rp_ensure_workspace(args: argparse.Namespace) -> None:
         "-e",
         f"call manage_workspaces {json.dumps({'action': 'list'})}",
     ]
-    list_res = run_rp_cli(list_cmd)
+    list_res = run_rp_cli(list_cmd, use_json=use_json)
     try:
         data = json.loads(list_res.stdout)
     except json.JSONDecodeError as e:
-        error_exit(f"workspace list JSON parse failed: {e}", use_json=False, code=2)
+        error_exit(f"workspace list JSON parse failed: {e}", use_json=use_json, code=2)
 
     def extract_names(obj: Any) -> set[str]:
         names: set[str] = set()
@@ -284,7 +288,7 @@ def cmd_rp_ensure_workspace(args: argparse.Namespace) -> None:
             "-e",
             f"call manage_workspaces {json.dumps({'action': 'create', 'name': ws_name, 'folder_path': repo_root})}",
         ]
-        run_rp_cli(create_cmd)
+        run_rp_cli(create_cmd, use_json=use_json)
 
     switch_cmd = [
         "-w",
@@ -292,10 +296,11 @@ def cmd_rp_ensure_workspace(args: argparse.Namespace) -> None:
         "-e",
         f"call manage_workspaces {json.dumps({'action': 'switch', 'workspace': ws_name, 'window_id': window})}",
     ]
-    run_rp_cli(switch_cmd)
+    run_rp_cli(switch_cmd, use_json=use_json)
 
 
 def cmd_rp_builder(args: argparse.Namespace) -> None:
+    use_json = getattr(args, 'json', False)
     window = args.window
     summary = args.summary
     response_type = getattr(args, "response_type", None)
@@ -313,7 +318,7 @@ def cmd_rp_builder(args: argparse.Namespace) -> None:
         builder_expr,
     ]
     cmd = [c for c in cmd if c]  # Remove empty strings
-    res = run_rp_cli(cmd)
+    res = run_rp_cli(cmd, use_json=use_json)
     output = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
 
     # For review response-type, parse the full JSON response
@@ -341,13 +346,13 @@ def cmd_rp_builder(args: argparse.Namespace) -> None:
                 if review_response:
                     print(review_response)
         except json.JSONDecodeError:
-            tab = parse_builder_tab(output)
+            tab = parse_builder_tab(output, use_json=use_json)
             if args.json:
                 print(json.dumps({"window": window, "tab": tab, "error": "parse_failed"}))
             else:
                 print(tab)
     else:
-        tab = parse_builder_tab(output)
+        tab = parse_builder_tab(output, use_json=use_json)
         if args.json:
             print(json.dumps({"window": window, "tab": tab}))
         else:
@@ -355,13 +360,15 @@ def cmd_rp_builder(args: argparse.Namespace) -> None:
 
 
 def cmd_rp_prompt_get(args: argparse.Namespace) -> None:
+    use_json = getattr(args, 'json', False)
     cmd = ["-w", str(args.window), "-t", args.tab, "-e", "prompt get"]
-    res = run_rp_cli(cmd)
+    res = run_rp_cli(cmd, use_json=use_json)
     print(res.stdout, end="")
 
 
 def cmd_rp_prompt_set(args: argparse.Namespace) -> None:
-    message = read_text_or_exit(Path(args.message_file), "Message file", use_json=False)
+    use_json = getattr(args, 'json', False)
+    message = read_text_or_exit(Path(args.message_file), "Message file", use_json=use_json)
     payload = json.dumps({"op": "set", "text": message})
     cmd = [
         "-w",
@@ -371,27 +378,30 @@ def cmd_rp_prompt_set(args: argparse.Namespace) -> None:
         "-e",
         f"call prompt {payload}",
     ]
-    res = run_rp_cli(cmd)
+    res = run_rp_cli(cmd, use_json=use_json)
     print(res.stdout, end="")
 
 
 def cmd_rp_select_get(args: argparse.Namespace) -> None:
+    use_json = getattr(args, 'json', False)
     cmd = ["-w", str(args.window), "-t", args.tab, "-e", "select get"]
-    res = run_rp_cli(cmd)
+    res = run_rp_cli(cmd, use_json=use_json)
     print(res.stdout, end="")
 
 
 def cmd_rp_select_add(args: argparse.Namespace) -> None:
+    use_json = getattr(args, 'json', False)
     if not args.paths:
-        error_exit("select-add requires at least one path", use_json=False, code=2)
+        error_exit("select-add requires at least one path", use_json=use_json, code=2)
     quoted = " ".join(shlex.quote(p) for p in args.paths)
     cmd = ["-w", str(args.window), "-t", args.tab, "-e", f"select add {quoted}"]
-    res = run_rp_cli(cmd)
+    res = run_rp_cli(cmd, use_json=use_json)
     print(res.stdout, end="")
 
 
 def cmd_rp_chat_send(args: argparse.Namespace) -> None:
-    message = read_text_or_exit(Path(args.message_file), "Message file", use_json=False)
+    use_json = getattr(args, 'json', False)
+    message = read_text_or_exit(Path(args.message_file), "Message file", use_json=use_json)
     chat_id_arg = getattr(args, "chat_id", None)
     mode = getattr(args, "mode", "chat") or "chat"
     payload = build_chat_payload(
@@ -410,7 +420,7 @@ def cmd_rp_chat_send(args: argparse.Namespace) -> None:
         "-e",
         f"call chat_send {payload}",
     ]
-    res = run_rp_cli(cmd)
+    res = run_rp_cli(cmd, use_json=use_json)
     output = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
     chat_id = parse_chat_id(output)
     if args.json:
@@ -420,6 +430,7 @@ def cmd_rp_chat_send(args: argparse.Namespace) -> None:
 
 
 def cmd_rp_prompt_export(args: argparse.Namespace) -> None:
+    use_json = getattr(args, 'json', False)
     cmd = [
         "-w",
         str(args.window),
@@ -428,7 +439,7 @@ def cmd_rp_prompt_export(args: argparse.Namespace) -> None:
         "-e",
         f"prompt export {shlex.quote(args.out)}",
     ]
-    res = run_rp_cli(cmd)
+    res = run_rp_cli(cmd, use_json=use_json)
     print(res.stdout, end="")
 
 
@@ -444,14 +455,15 @@ def cmd_rp_setup_review(args: argparse.Namespace) -> None:
 
     Requires RepoPrompt 1.6.0+ for --response-type review.
     """
+    use_json = getattr(args, 'json', False)
     repo_root = os.path.realpath(args.repo_root)
     summary = args.summary
     response_type = getattr(args, "response_type", None)
 
     # Step 1: pick-window (fast — 30s timeout, RP should respond instantly)
     roots = normalize_repo_root(repo_root)
-    result = run_rp_cli(["--raw-json", "-e", "windows"], timeout=30)
-    windows = parse_windows(result.stdout or "")
+    result = run_rp_cli(["--raw-json", "-e", "windows"], timeout=30, use_json=use_json)
+    windows = parse_windows(result.stdout or "", use_json=use_json)
 
     win_id: Optional[int] = None
 
@@ -477,7 +489,7 @@ def cmd_rp_setup_review(args: argparse.Namespace) -> None:
             # Auto-create window via workspace create --new-window (RP 1.5.68+)
             ws_name = os.path.basename(repo_root)
             create_cmd = f"workspace create {shlex.quote(ws_name)} --new-window --folder-path {shlex.quote(repo_root)}"
-            create_res = run_rp_cli(["--raw-json", "-e", create_cmd])
+            create_res = run_rp_cli(["--raw-json", "-e", create_cmd], use_json=use_json)
             try:
                 data = json.loads(create_res.stdout or "{}")
                 win_id = data.get("window_id")
@@ -486,11 +498,11 @@ def cmd_rp_setup_review(args: argparse.Namespace) -> None:
             if not win_id:
                 error_exit(
                     f"Failed to create RP window: {create_res.stderr or create_res.stdout}",
-                    use_json=False,
+                    use_json=use_json,
                     code=2,
                 )
         else:
-            error_exit("No RepoPrompt window matches repo root", use_json=False, code=2)
+            error_exit("No RepoPrompt window matches repo root", use_json=use_json, code=2)
 
     # Write state file for ralph-guard verification
     repo_hash = hashlib.sha256(repo_root.encode()).hexdigest()[:16]
@@ -511,7 +523,7 @@ def cmd_rp_setup_review(args: argparse.Namespace) -> None:
     ]
     builder_cmd = [c for c in builder_cmd if c]  # Remove empty strings
     # Builder can be slow (context_builder analyzes files) — 1000s timeout
-    builder_res = run_rp_cli(builder_cmd, timeout=1000)
+    builder_res = run_rp_cli(builder_cmd, timeout=1000, use_json=use_json)
     output = (builder_res.stdout or "") + (
         "\n" + builder_res.stderr if builder_res.stderr else ""
     )
@@ -525,7 +537,7 @@ def cmd_rp_setup_review(args: argparse.Namespace) -> None:
             review_response = data.get("review", {}).get("response", "")
 
             if not tab:
-                error_exit("Builder did not return a tab id", use_json=False, code=2)
+                error_exit("Builder did not return a tab id", use_json=use_json, code=2)
 
             if args.json:
                 print(
@@ -546,11 +558,11 @@ def cmd_rp_setup_review(args: argparse.Namespace) -> None:
                 if review_response:
                     print(review_response)
         except json.JSONDecodeError:
-            error_exit("Failed to parse builder review response", use_json=False, code=2)
+            error_exit("Failed to parse builder review response", use_json=use_json, code=2)
     else:
-        tab = parse_builder_tab(output)
+        tab = parse_builder_tab(output, use_json=use_json)
         if not tab:
-            error_exit("Builder did not return a tab id", use_json=False, code=2)
+            error_exit("Builder did not return a tab id", use_json=use_json, code=2)
 
         if args.json:
             print(json.dumps({"window": win_id, "tab": tab, "repo_root": repo_root}))

@@ -39,6 +39,7 @@ from flowctl.core.paths import (
 from flowctl.core.state import (
     get_state_store,
     load_task_definition,
+    load_all_tasks_with_state,
     load_task_with_state,
     reset_task_runtime,
     save_task_runtime,
@@ -283,16 +284,8 @@ def cmd_next(args: argparse.Namespace) -> None:
                 use_json=args.json,
             )
 
-        tasks: dict[str, dict] = {}
-        for task_file in tasks_dir.glob(f"{epic_id}.*.json"):
-            task_id = task_file.stem
-            if not is_task_id(task_id):
-                continue  # Skip non-task files (e.g., fn-1.2-review.json)
-            # Load task with merged runtime state
-            task_data = load_task_with_state(task_id, use_json=args.json)
-            if "id" not in task_data:
-                continue  # Skip artifact files (GH-21)
-            tasks[task_data["id"]] = task_data
+        # Batch-load all tasks for this epic in a single directory scan
+        tasks = load_all_tasks_with_state(epic_id)
 
         # Resume in_progress tasks owned by current actor
         in_progress = [
@@ -768,7 +761,19 @@ def cmd_done(args: argparse.Namespace) -> None:
     except ValueError as e:
         error_exit(str(e), use_json=args.json)
 
-    # All validation passed - now write (spec to tracked file, runtime to state-dir)
+    # Add duration to evidence
+    if duration_seconds is not None:
+        evidence["duration_seconds"] = duration_seconds
+
+    # All validation passed - now write.
+    # Write runtime state FIRST (authoritative source via load_task_with_state),
+    # so a crash after this point still marks the task as done.
+    runtime_done = {"status": "done", "evidence": evidence, "completed_at": now_iso()}
+    if duration_seconds is not None:
+        runtime_done["duration_seconds"] = duration_seconds
+    save_task_runtime(args.id, runtime_done)
+
+    # Then write spec (summary + evidence markdown)
     atomic_write(task_spec_path, updated_spec)
 
     # Archive review receipt if present in evidence
@@ -780,16 +785,6 @@ def cmd_done(args: argparse.Namespace) -> None:
         rtype = review_receipt.get("type", "review")
         receipt_filename = f"{rtype}-{args.id}-{mode}.json"
         atomic_write_json(reviews_dir / receipt_filename, review_receipt)
-
-    # Add duration to evidence
-    if duration_seconds is not None:
-        evidence["duration_seconds"] = duration_seconds
-
-    # Write runtime state to state-dir (not definition file)
-    runtime_done = {"status": "done", "evidence": evidence, "completed_at": now_iso()}
-    if duration_seconds is not None:
-        runtime_done["duration_seconds"] = duration_seconds
-    save_task_runtime(args.id, runtime_done)
 
     # NOTE: We no longer update epic timestamp on task done.
     # This reduces merge conflicts in multi-user scenarios.
@@ -970,7 +965,7 @@ def cmd_restart(args: argparse.Namespace) -> None:
             for field in ("blocked_reason", "completed_at", "assignee",
                           "claimed_at", "claim_note", "evidence"):
                 def_data.pop(field, None)
-            def_data["status"] = "todo"
+            def_data.pop("status", None)
             def_data["updated_at"] = now_iso()
             atomic_write_json(tid_path, def_data)
 

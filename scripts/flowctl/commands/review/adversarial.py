@@ -26,7 +26,7 @@ def _load_adversarial_prompt(focus_block: str, diff_summary: str,
     """Load adversarial review prompt from prompts/adversarial-review.md."""
     prompt_path = _get_plugin_root() / "prompts" / "adversarial-review.md"
     template = prompt_path.read_text()
-    return template.replace(
+    result = template.replace(
         "{{focus_block}}", focus_block,
     ).replace(
         "{{diff_summary}}", diff_summary,
@@ -35,6 +35,13 @@ def _load_adversarial_prompt(focus_block: str, diff_summary: str,
     ).replace(
         "{{embedded_files}}", embedded_files,
     )
+    # Warn on unconsumed placeholders
+    remaining = re.findall(r"\{\{(\w+)\}\}", result)
+    if remaining:
+        import sys
+        print(f"Warning: unconsumed placeholders in adversarial prompt: {remaining}",
+              file=sys.stderr)
+    return result
 
 
 def parse_adversarial_output(output: str) -> Optional[dict]:

@@ -276,8 +276,19 @@ def cmd_codex_plan_review(args: argparse.Namespace) -> None:
     base_branch = args.base if hasattr(args, "base") and args.base else "main"
     context_hints = gather_context_hints(base_branch)
 
-    # Only forbid disk reads when ALL files were fully embedded.
-    files_embedded = not embed_stats.get("budget_skipped") and not embed_stats.get("truncated")
+    # Resolve sandbox mode early — needed for files_embedded decision below
+    try:
+        sandbox = resolve_codex_sandbox(getattr(args, "sandbox", "auto"))
+    except ValueError as e:
+        error_exit(str(e), use_json=args.json, code=2)
+
+    # When sandbox prevents disk reads (anything other than "none"), Codex
+    # can't read files itself — tell it all context is embedded regardless of
+    # truncation.  Only use the budget-based check for no-sandbox mode.
+    if sandbox != "none":
+        files_embedded = True
+    else:
+        files_embedded = not embed_stats.get("budget_skipped") and not embed_stats.get("truncated")
     prompt = build_review_prompt(
         "plan", epic_spec, context_hints, task_specs=task_specs, embedded_files=embedded_content,
         files_embedded=files_embedded
@@ -305,13 +316,7 @@ def cmd_codex_plan_review(args: argparse.Namespace) -> None:
         rereview_preamble = build_rereview_preamble(spec_files, "plan", files_embedded)
         prompt = rereview_preamble + prompt
 
-    # Resolve sandbox mode (never pass 'auto' to Codex CLI)
-    try:
-        sandbox = resolve_codex_sandbox(getattr(args, "sandbox", "auto"))
-    except ValueError as e:
-        error_exit(str(e), use_json=args.json, code=2)
-
-    # Run codex
+    # Run codex (sandbox already resolved above)
     effort = getattr(args, "effort", "high")
     output, thread_id, exit_code, stderr = run_codex_exec(
         prompt, session_id=session_id, sandbox=sandbox, effort=effort

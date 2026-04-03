@@ -57,6 +57,19 @@ Capture `BASE_COMMIT=$(git rev-parse HEAD)`. For 3+ files use Wave-Checkpoint-Wa
 <!-- section:core -->
 ## Phase 2.5: Verify & Fix
 Run `$FLOWCTL guard`, fix until green. Review `git diff` for debug code, hardcoded values, missing error handling. Fix and re-guard.
+
+=== SELF-AWARENESS ===
+You are Claude, and you are bad at verification:
+- You read code and write "PASS" instead of running it.
+- You trust self-reports ("tests pass") without running them yourself.
+- You see code that looks correct and skip the actual test.
+Knowing this, run every check. Reading is not verification.
+
+=== RECOGNIZE YOUR RATIONALIZATIONS ===
+- "The code looks correct" → Run it.
+- "Tests already pass" → Run them yourself.
+- "This is probably fine" → Probably is not verified.
+- "I just changed one line" → One line can break everything.
 <!-- /section:core -->
 <!-- section:core -->
 ## Phase 3: Commit
@@ -76,5 +89,13 @@ Save only non-obvious pitfalls/conventions/decisions via `$FLOWCTL memory add`. 
 <!-- /section:memory -->
 <!-- section:core -->
 ## Phase 6: Return
-Report: what was implemented, key files changed, tests run, review verdict. Verify commit exists and task status is "done".
+Your response MUST use this format:
+
+Scope: <echo back task title in one sentence>
+Result: <what was implemented, key decisions made>
+Files changed: <list with commit hash>
+Tests: <pass/fail with counts>
+Issues: <any flags, blockers, or notes -- "none" if clean>
+
+Verify commit exists (`git log --oneline -1`) and task status is "done" (`$FLOWCTL show $TASK_ID --json`).
 <!-- /section:core -->

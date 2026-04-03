@@ -6,6 +6,15 @@ from pathlib import Path
 
 from flowctl.core.constants import FLOW_DIR
 
+# Module-level cache for get_state_dir(), keyed by cwd string.
+# CLI invocations are short-lived so no expiry needed.
+_state_dir_cache: dict[str, Path] = {}
+
+
+def _reset_state_dir_cache() -> None:
+    """Clear the get_state_dir() memoization cache. For testing."""
+    _state_dir_cache.clear()
+
 
 def get_repo_root() -> Path:
     """Find git repo root."""
@@ -35,14 +44,23 @@ def ensure_flow_exists() -> bool:
 def get_state_dir() -> Path:
     """Get state directory for runtime task state.
 
+    Results are memoized per working directory. Call _reset_state_dir_cache()
+    to clear (e.g. in tests that change directories).
+
     Resolution order:
     1. FLOW_STATE_DIR env var (explicit override for orchestrators)
     2. git common-dir (shared across all worktrees automatically)
     3. Fallback to .flow/state for non-git repos
     """
+    cache_key = os.getcwd()
+    if cache_key in _state_dir_cache:
+        return _state_dir_cache[cache_key]
+
     # 1. Explicit override
     if state_dir := os.environ.get("FLOW_STATE_DIR"):
-        return Path(state_dir).resolve()
+        resolved = Path(state_dir).resolve()
+        _state_dir_cache[cache_key] = resolved
+        return resolved
 
     # 2. Git common-dir (shared across worktrees)
     try:
@@ -53,9 +71,13 @@ def get_state_dir() -> Path:
             check=True,
         )
         common = result.stdout.strip()
-        return Path(common) / "flow-state"
+        resolved = Path(common) / "flow-state"
+        _state_dir_cache[cache_key] = resolved
+        return resolved
     except subprocess.CalledProcessError:
         pass
 
     # 3. Fallback for non-git repos
-    return get_flow_dir() / "state"
+    resolved = get_flow_dir() / "state"
+    _state_dir_cache[cache_key] = resolved
+    return resolved

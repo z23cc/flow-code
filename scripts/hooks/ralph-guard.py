@@ -378,7 +378,8 @@ def handle_post_tool_use(data: dict) -> None:
     # - "$FLOWCTL" done <task>
     if " done " in command and ("flowctl" in command or "FLOWCTL" in command):
         # Debug logging
-        with Path("/tmp/ralph-guard-debug.log").open("a") as f:
+        debug_file = _debug_log_path()
+        with debug_file.open("a") as f:
             f.write(f"  -> flowctl done detected in: {command[:100]}...\n")
 
         # Extract task ID from command - look for "done" followed by task ID
@@ -386,7 +387,7 @@ def handle_post_tool_use(data: dict) -> None:
         done_match = re.search(r"\bdone\s+([a-zA-Z0-9][a-zA-Z0-9._-]*)", command)
         if done_match:
             task_id = done_match.group(1)
-            with Path("/tmp/ralph-guard-debug.log").open("a") as f:
+            with debug_file.open("a") as f:
                 f.write(
                     f"  -> Extracted task_id: {task_id}, response has 'status': {'status' in response_text.lower()}\n"
                 )
@@ -405,7 +406,7 @@ def handle_post_tool_use(data: dict) -> None:
                 done_set.add(task_id)
                 state["flowctl_done_called"] = done_set
                 save_state(session_id, state)
-                with Path("/tmp/ralph-guard-debug.log").open("a") as f:
+                with debug_file.open("a") as f:
                     f.write(
                         f"  -> Added {task_id} to flowctl_done_called: {done_set}\n"
                     )
@@ -582,9 +583,17 @@ def handle_subagent_stop(data: dict) -> None:
     handle_stop(data)
 
 
+def _debug_log_path() -> Path:
+    """Get debug log path: $RUN_DIR/guard-debug.log if set, else /tmp fallback."""
+    run_dir = os.environ.get("RUN_DIR")
+    if run_dir:
+        return Path(run_dir) / "guard-debug.log"
+    return Path("/tmp/ralph-guard-debug.log")
+
+
 def main():
     # Debug logging - always write to see if hook is being called
-    debug_file = Path("/tmp/ralph-guard-debug.log")
+    debug_file = _debug_log_path()
     with debug_file.open("a") as f:
         f.write(f"[{os.environ.get('FLOW_RALPH', 'unset')}] Hook called\n")
 

@@ -1,8 +1,6 @@
 """Cross-cutting query commands: show, epics, files, tasks, list, cat."""
 
 import argparse
-import re
-from pathlib import Path
 
 from flowctl.core.constants import (
     EPICS_DIR,
@@ -23,6 +21,7 @@ from flowctl.core.io import (
 )
 from flowctl.core.paths import ensure_flow_exists, get_flow_dir
 from flowctl.core.state import (
+    load_all_tasks_with_state,
     load_task_with_state,
     lock_files,
     unlock_files,
@@ -132,19 +131,10 @@ def cmd_epics(args: argparse.Namespace) -> None:
                     epic_file, f"Epic {epic_file.stem}", use_json=args.json
                 )
             )
-            # Count tasks (with merged runtime state)
-            tasks_dir = flow_dir / TASKS_DIR
-            task_count = 0
-            done_count = 0
-            if tasks_dir.exists():
-                for task_file in tasks_dir.glob(f"{epic_data['id']}.*.json"):
-                    task_id = task_file.stem
-                    if not is_task_id(task_id):
-                        continue  # Skip non-task files (e.g., fn-1.2-review.json)
-                    task_data = load_task_with_state(task_id, use_json=args.json)
-                    task_count += 1
-                    if task_data.get("status") == "done":
-                        done_count += 1
+            # Count tasks via batch loading (single directory scan per epic)
+            epic_tasks = load_all_tasks_with_state(epic_id=epic_data['id'])
+            task_count = len(epic_tasks)
+            done_count = sum(1 for t in epic_tasks.values() if t.get("status") == "done")
 
             epics.append(
                 {
@@ -252,37 +242,30 @@ def cmd_tasks(args: argparse.Namespace) -> None:
             ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
         )
 
-    flow_dir = get_flow_dir()
-    tasks_dir = flow_dir / TASKS_DIR
+    # Batch load all tasks in a single directory scan
+    all_loaded = load_all_tasks_with_state(epic_id=args.epic if args.epic else None)
 
     tasks = []
-    if tasks_dir.exists():
-        pattern = f"{args.epic}.*.json" if args.epic else "fn-*.json"
-        for task_file in sorted(tasks_dir.glob(pattern)):
-            task_id = task_file.stem
-            if not is_task_id(task_id):
-                continue  # Skip non-task files (e.g., fn-1.2-review.json)
-            # Load task with merged runtime state
-            task_data = load_task_with_state(task_id, use_json=args.json)
-            if "id" not in task_data:
-                continue  # Skip artifact files (GH-21)
-            # Filter by status if requested
-            if args.status and task_data["status"] != args.status:
-                continue
-            # Filter by domain if requested
-            if hasattr(args, "domain") and args.domain and task_data.get("domain") != args.domain:
-                continue
-            tasks.append(
-                {
-                    "id": task_data["id"],
-                    "epic": task_data["epic"],
-                    "title": task_data["title"],
-                    "status": task_data["status"],
-                    "priority": task_data.get("priority"),
-                    "domain": task_data.get("domain"),
-                    "depends_on": task_data.get("depends_on", task_data.get("deps", [])),
-                }
-            )
+    for task_id, task_data in all_loaded.items():
+        if "id" not in task_data:
+            continue  # Skip artifact files (GH-21)
+        # Filter by status if requested
+        if args.status and task_data["status"] != args.status:
+            continue
+        # Filter by domain if requested
+        if hasattr(args, "domain") and args.domain and task_data.get("domain") != args.domain:
+            continue
+        tasks.append(
+            {
+                "id": task_data["id"],
+                "epic": task_data["epic"],
+                "title": task_data["title"],
+                "status": task_data["status"],
+                "priority": task_data.get("priority"),
+                "domain": task_data.get("domain"),
+                "depends_on": task_data.get("depends_on", task_data.get("deps", [])),
+            }
+        )
 
     # Sort tasks by epic number then task number
     def task_sort_key(t):
@@ -321,7 +304,6 @@ def cmd_list(args: argparse.Namespace) -> None:
 
     flow_dir = get_flow_dir()
     epics_dir = flow_dir / EPICS_DIR
-    tasks_dir = flow_dir / TASKS_DIR
 
     # Load all epics
     epics = []
@@ -341,31 +323,27 @@ def cmd_list(args: argparse.Namespace) -> None:
 
     epics.sort(key=epic_sort_key)
 
-    # Load all tasks grouped by epic (with merged runtime state)
+    # Batch load all tasks in a single directory scan (with merged runtime state)
+    all_loaded = load_all_tasks_with_state()
     tasks_by_epic = {}
     all_tasks = []
-    if tasks_dir.exists():
-        for task_file in sorted(tasks_dir.glob("fn-*.json")):
-            task_id = task_file.stem
-            if not is_task_id(task_id):
-                continue  # Skip non-task files (e.g., fn-1.2-review.json)
-            task_data = load_task_with_state(task_id, use_json=args.json)
-            if "id" not in task_data or "epic" not in task_data:
-                continue  # Skip artifact files (GH-21)
-            epic_id = task_data["epic"]
-            if epic_id not in tasks_by_epic:
-                tasks_by_epic[epic_id] = []
-            tasks_by_epic[epic_id].append(task_data)
-            all_tasks.append(
-                {
-                    "id": task_data["id"],
-                    "epic": task_data["epic"],
-                    "title": task_data["title"],
-                    "status": task_data["status"],
-                    "priority": task_data.get("priority"),
-                    "depends_on": task_data.get("depends_on", task_data.get("deps", [])),
-                }
-            )
+    for task_id, task_data in all_loaded.items():
+        if "id" not in task_data or "epic" not in task_data:
+            continue  # Skip artifact files (GH-21)
+        epic_id = task_data["epic"]
+        if epic_id not in tasks_by_epic:
+            tasks_by_epic[epic_id] = []
+        tasks_by_epic[epic_id].append(task_data)
+        all_tasks.append(
+            {
+                "id": task_data["id"],
+                "epic": task_data["epic"],
+                "title": task_data["title"],
+                "status": task_data["status"],
+                "priority": task_data.get("priority"),
+                "depends_on": task_data.get("depends_on", task_data.get("deps", [])),
+            }
+        )
 
     # Sort tasks within each epic
     for epic_id in tasks_by_epic:

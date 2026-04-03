@@ -39,6 +39,7 @@ from flowctl.core.paths import (
 from flowctl.core.state import (
     get_state_store,
     load_task_definition,
+    load_all_tasks_with_state,
     load_task_with_state,
     reset_task_runtime,
     save_task_runtime,
@@ -283,16 +284,8 @@ def cmd_next(args: argparse.Namespace) -> None:
                 use_json=args.json,
             )
 
-        tasks: dict[str, dict] = {}
-        for task_file in tasks_dir.glob(f"{epic_id}.*.json"):
-            task_id = task_file.stem
-            if not is_task_id(task_id):
-                continue  # Skip non-task files (e.g., fn-1.2-review.json)
-            # Load task with merged runtime state
-            task_data = load_task_with_state(task_id, use_json=args.json)
-            if "id" not in task_data:
-                continue  # Skip artifact files (GH-21)
-            tasks[task_data["id"]] = task_data
+        # Batch-load all tasks for this epic in a single directory scan
+        tasks = load_all_tasks_with_state(epic_id)
 
         # Resume in_progress tasks owned by current actor
         in_progress = [

@@ -166,7 +166,24 @@ def find_dependents(task_id: str, same_epic: bool = False) -> list[str]:
         return []
 
     epic_id = epic_id_from_task(task_id) if same_epic else None
-    dependents: set[str] = set()  # Use set to avoid duplicates
+
+    # Load all task files once into memory (fixes O(N^2) re-globbing)
+    all_tasks: dict[str, list[str]] = {}  # tid -> deps list
+    for task_file in tasks_dir.glob("fn-*.json"):
+        if not is_task_id(task_file.stem):
+            continue
+        try:
+            task_data = load_json(task_file)
+            tid = task_data.get("id", task_file.stem)
+            if same_epic and epic_id_from_task(tid) != epic_id:
+                continue
+            deps = task_data.get("depends_on", task_data.get("deps", []))
+            all_tasks[tid] = deps
+        except Exception:
+            pass
+
+    # BFS over in-memory dict
+    dependents: set[str] = set()
     to_check = [task_id]
     checked = set()
 
@@ -176,24 +193,12 @@ def find_dependents(task_id: str, same_epic: bool = False) -> list[str]:
             continue
         checked.add(checking)
 
-        for task_file in tasks_dir.glob("fn-*.json"):
-            if not is_task_id(task_file.stem):
-                continue  # Skip non-task files (e.g., fn-1.2-review.json)
-            try:
-                task_data = load_json(task_file)
-                tid = task_data.get("id", task_file.stem)
-                if tid in checked or tid in dependents:
-                    continue
-                # Skip if same_epic filter and different epic
-                if same_epic and epic_id_from_task(tid) != epic_id:
-                    continue
-                # Support both legacy "deps" and current "depends_on"
-                deps = task_data.get("depends_on", task_data.get("deps", []))
-                if checking in deps:
-                    dependents.add(tid)
-                    to_check.append(tid)
-            except Exception:
-                pass
+        for tid, deps in all_tasks.items():
+            if tid in checked or tid in dependents:
+                continue
+            if checking in deps:
+                dependents.add(tid)
+                to_check.append(tid)
 
     return sorted(dependents)
 

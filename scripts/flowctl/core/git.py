@@ -366,6 +366,72 @@ def find_references(
         return []
 
 
+def _batch_find_references(
+    symbols: list[str], exclude_files: list[str]
+) -> dict[str, list[tuple[str, int]]]:
+    """Find references for multiple symbols in a single git grep call.
+
+    Returns dict mapping symbol -> [(path, line_number), ...].
+    Batches symbols into chunks of ~50 to avoid command-line length issues.
+    """
+    if not symbols:
+        return {}
+
+    repo_root = get_repo_root()
+    exclude_set = set(exclude_files)
+    results: dict[str, list[tuple[str, int]]] = {s: [] for s in symbols}
+
+    file_globs = [
+        "*.py", "*.js", "*.ts", "*.tsx", "*.jsx", "*.mjs",
+        "*.go", "*.rs",
+        "*.c", "*.h", "*.cpp", "*.hpp", "*.cc", "*.cxx",
+        "*.java", "*.cs",
+    ]
+
+    # Batch into chunks of 50 symbols
+    chunk_size = 50
+    for i in range(0, len(symbols), chunk_size):
+        chunk = symbols[i : i + chunk_size]
+
+        # Build -e sym1 -e sym2 ... args for git grep
+        grep_args = ["git", "grep", "-n", "-w"]
+        for sym in chunk:
+            grep_args.extend(["-e", sym])
+        grep_args.append("--")
+        grep_args.extend(file_globs)
+
+        try:
+            result = subprocess.run(
+                grep_args,
+                capture_output=True,
+                text=True,
+                cwd=repo_root,
+            )
+            for line in result.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                parts = line.split(":", 2)
+                if len(parts) < 2:
+                    continue
+                file_path = parts[0]
+                if file_path in exclude_set:
+                    continue
+                try:
+                    line_num = int(parts[1])
+                except ValueError:
+                    continue
+                # Match line content against symbols in this chunk
+                line_text = parts[2] if len(parts) > 2 else ""
+                for sym in chunk:
+                    if re.search(r"\b" + re.escape(sym) + r"\b", line_text):
+                        results[sym].append((file_path, line_num))
+                        break
+        except subprocess.CalledProcessError:
+            pass
+
+    return results
+
+
 def gather_context_hints(base_branch: str, max_hints: int = 15) -> str:
     """Gather context hints for code review.
 
@@ -373,6 +439,8 @@ def gather_context_hints(base_branch: str, max_hints: int = 15) -> str:
     Consider these related files:
     - src/auth.ts:15 - references validateToken
     - src/types.ts:42 - references User
+
+    Uses batched git grep (<=5 calls) instead of per-symbol subprocess calls.
     """
     changed_files = get_changed_files(base_branch)
     if not changed_files:
@@ -382,23 +450,34 @@ def gather_context_hints(base_branch: str, max_hints: int = 15) -> str:
         changed_files = changed_files[:50]
 
     repo_root = get_repo_root()
-    hints = []
-    seen_files = set(changed_files)
 
+    # Collect all symbols from all changed files
+    all_symbols: list[str] = []
+    symbol_source: dict[str, str] = {}  # symbol -> source file (for dedup)
     for changed_file in changed_files:
         file_path = repo_root / changed_file
         symbols = extract_symbols_from_file(file_path)
+        for sym in symbols[:10]:
+            if sym not in symbol_source:
+                all_symbols.append(sym)
+                symbol_source[sym] = changed_file
 
-        for symbol in symbols[:10]:
-            refs = find_references(symbol, changed_files, max_results=2)
-            for ref_path, ref_line in refs:
-                if ref_path not in seen_files:
-                    hints.append(f"- {ref_path}:{ref_line} - references {symbol}")
-                    seen_files.add(ref_path)
-                    if len(hints) >= max_hints:
-                        break
-            if len(hints) >= max_hints:
-                break
+    # Cap at 250 symbols (5 batches of 50)
+    all_symbols = all_symbols[:250]
+
+    # Batch git grep for all symbols at once
+    refs_by_symbol = _batch_find_references(all_symbols, changed_files)
+
+    hints = []
+    seen_files = set(changed_files)
+
+    for sym in all_symbols:
+        for ref_path, ref_line in refs_by_symbol.get(sym, [])[:2]:
+            if ref_path not in seen_files:
+                hints.append(f"- {ref_path}:{ref_line} - references {sym}")
+                seen_files.add(ref_path)
+                if len(hints) >= max_hints:
+                    break
         if len(hints) >= max_hints:
             break
 

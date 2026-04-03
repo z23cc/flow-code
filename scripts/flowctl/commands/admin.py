@@ -1,10 +1,13 @@
-"""Admin commands: init, detect, status, ralph control, config, review-backend, validate."""
+"""Admin commands: init, detect, status, ralph control, config, review-backend, validate, doctor."""
 
 import argparse
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +28,7 @@ from flowctl.core.config import (
     deep_merge,
     get_config,
     get_default_config,
+    load_flow_config,
     set_config,
 )
 from flowctl.core.ids import is_epic_id, is_task_id, normalize_epic
@@ -36,8 +40,8 @@ from flowctl.core.io import (
     load_json,
     load_json_or_exit,
 )
-from flowctl.core.paths import ensure_flow_exists, get_flow_dir, get_repo_root
-from flowctl.core.state import load_task_with_state
+from flowctl.core.paths import ensure_flow_exists, get_flow_dir, get_repo_root, get_state_dir
+from flowctl.core.state import get_state_store, load_task_with_state
 from flowctl.commands.stack import detect_stack
 
 
@@ -948,4 +952,228 @@ def cmd_validate(args: argparse.Namespace) -> None:
 
     # Exit with non-zero if validation failed
     if not valid:
+        sys.exit(1)
+
+
+# --- Doctor command ---
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Run comprehensive state health diagnostics (superset of validate --all)."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    flow_dir = get_flow_dir()
+    checks: list[dict] = []
+
+    def add_check(name: str, status: str, message: str) -> None:
+        checks.append({"name": name, "status": status, "message": message})
+
+    # --- Check 1: Run validate --all internally ---
+    import io as _io
+    import contextlib
+
+    fake_args = argparse.Namespace(epic=None, all=True, json=True)
+    validate_output = _io.StringIO()
+    validate_passed = True
+    try:
+        with contextlib.redirect_stdout(validate_output):
+            cmd_validate(fake_args)
+    except SystemExit as e:
+        if e.code != 0:
+            validate_passed = False
+
+    if validate_passed:
+        add_check("validate", "pass", "All epics and tasks validated successfully")
+    else:
+        # Parse the validate output for details
+        try:
+            vdata = json.loads(validate_output.getvalue())
+            err_count = vdata.get("total_errors", 0)
+            add_check(
+                "validate", "fail",
+                f"Validation found {err_count} error(s). Run 'flowctl validate --all' for details"
+            )
+        except (json.JSONDecodeError, ValueError):
+            add_check("validate", "fail", "Validation failed (could not parse output)")
+
+    # --- Check 2: State-dir accessibility ---
+    try:
+        state_dir = get_state_dir()
+        state_dir.mkdir(parents=True, exist_ok=True)
+        # Test write access
+        test_file = state_dir / ".doctor-probe"
+        test_file.write_text("probe", encoding="utf-8")
+        test_file.unlink()
+        add_check("state_dir_access", "pass", f"State dir accessible: {state_dir}")
+    except (OSError, PermissionError) as e:
+        add_check("state_dir_access", "fail", f"State dir not accessible: {e}")
+
+    # --- Check 3: Orphaned state files ---
+    try:
+        store = get_state_store()
+        runtime_ids = store.list_runtime_files()
+        tasks_dir = flow_dir / TASKS_DIR
+        orphaned = []
+        for rid in runtime_ids:
+            task_def_path = tasks_dir / f"{rid}.json"
+            if not task_def_path.exists():
+                orphaned.append(rid)
+        if orphaned:
+            add_check(
+                "orphaned_state", "warn",
+                f"{len(orphaned)} orphaned state file(s): {', '.join(orphaned[:5])}"
+                + (f" (+{len(orphaned) - 5} more)" if len(orphaned) > 5 else "")
+            )
+        else:
+            add_check("orphaned_state", "pass", "No orphaned state files")
+    except Exception as e:
+        add_check("orphaned_state", "warn", f"Could not check orphaned state: {e}")
+
+    # --- Check 4: Stale in_progress tasks (>7 days) ---
+    try:
+        stale = []
+        tasks_dir = flow_dir / TASKS_DIR
+        if tasks_dir.exists():
+            for task_file in tasks_dir.glob("fn-*.json"):
+                task_id = task_file.stem
+                if not is_task_id(task_id):
+                    continue
+                try:
+                    task_data = load_task_with_state(task_id, use_json=True)
+                except SystemExit:
+                    continue
+                if task_data.get("status") != "in_progress":
+                    continue
+                updated = task_data.get("updated_at") or task_data.get("claimed_at")
+                if updated:
+                    try:
+                        # Parse ISO timestamp
+                        ts = updated.replace("Z", "+00:00")
+                        task_time = datetime.fromisoformat(ts)
+                        now = datetime.utcnow().replace(
+                            tzinfo=task_time.tzinfo
+                        )
+                        age_days = (now - task_time).days
+                        if age_days > 7:
+                            stale.append(f"{task_id} ({age_days}d)")
+                    except (ValueError, TypeError):
+                        pass
+        if stale:
+            add_check(
+                "stale_tasks", "warn",
+                f"{len(stale)} task(s) in_progress for >7 days: {', '.join(stale[:5])}"
+                + (f" (+{len(stale) - 5} more)" if len(stale) > 5 else "")
+            )
+        else:
+            add_check("stale_tasks", "pass", "No stale in_progress tasks")
+    except Exception as e:
+        add_check("stale_tasks", "warn", f"Could not check stale tasks: {e}")
+
+    # --- Check 5: Lock file accumulation ---
+    try:
+        state_dir = get_state_dir()
+        locks_dir = state_dir / "locks"
+        lock_count = 0
+        if locks_dir.exists():
+            lock_count = sum(1 for _ in locks_dir.glob("*.lock"))
+        if lock_count > 50:
+            add_check(
+                "lock_files", "warn",
+                f"{lock_count} lock files in state dir (consider cleanup)"
+            )
+        else:
+            add_check(
+                "lock_files", "pass",
+                f"{lock_count} lock file(s) in state dir"
+            )
+    except Exception as e:
+        add_check("lock_files", "warn", f"Could not check lock files: {e}")
+
+    # --- Check 6: Config validity ---
+    try:
+        config_path = flow_dir / CONFIG_FILE
+        if config_path.exists():
+            raw_text = config_path.read_text(encoding="utf-8")
+            parsed = json.loads(raw_text)
+            if not isinstance(parsed, dict):
+                add_check("config", "fail", "config.json is not a JSON object")
+            else:
+                # Check for known top-level keys
+                known_keys = set(get_default_config().keys())
+                unknown = set(parsed.keys()) - known_keys
+                if unknown:
+                    add_check(
+                        "config", "warn",
+                        f"Unknown config keys: {', '.join(sorted(unknown))}"
+                    )
+                else:
+                    add_check("config", "pass", "config.json valid with known keys")
+        else:
+            add_check("config", "warn", "config.json missing (run 'flowctl init')")
+    except json.JSONDecodeError as e:
+        add_check("config", "fail", f"config.json invalid JSON: {e}")
+    except Exception as e:
+        add_check("config", "warn", f"Could not check config: {e}")
+
+    # --- Check 7: git-common-dir reachability ---
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir", "--path-format=absolute"],
+            capture_output=True, text=True, check=True,
+        )
+        common_dir = Path(result.stdout.strip())
+        if common_dir.exists():
+            add_check(
+                "git_common_dir", "pass",
+                f"git common-dir reachable: {common_dir}"
+            )
+        else:
+            add_check(
+                "git_common_dir", "warn",
+                f"git common-dir path does not exist: {common_dir}"
+            )
+    except subprocess.CalledProcessError:
+        add_check(
+            "git_common_dir", "warn",
+            "Not in a git repository (git common-dir unavailable)"
+        )
+    except FileNotFoundError:
+        add_check(
+            "git_common_dir", "warn",
+            "git not found on PATH"
+        )
+
+    # --- Build summary ---
+    summary = {"pass": 0, "warn": 0, "fail": 0}
+    for c in checks:
+        summary[c["status"]] += 1
+
+    overall_healthy = summary["fail"] == 0
+
+    if args.json:
+        json_output(
+            {
+                "checks": checks,
+                "summary": summary,
+                "healthy": overall_healthy,
+            },
+            success=overall_healthy,
+        )
+    else:
+        print("Doctor diagnostics:")
+        for c in checks:
+            icon = {"pass": "OK", "warn": "WARN", "fail": "FAIL"}[c["status"]]
+            print(f"  [{icon}] {c['name']}: {c['message']}")
+        print()
+        print(
+            f"Summary: {summary['pass']} pass, "
+            f"{summary['warn']} warn, {summary['fail']} fail"
+        )
+        if not overall_healthy:
+            print("Health check FAILED — resolve fail items above.")
+
+    if not overall_healthy:
         sys.exit(1)

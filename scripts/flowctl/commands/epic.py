@@ -872,6 +872,65 @@ def cmd_epic_archive(args: argparse.Namespace) -> None:
             print(f"  {f}")
 
 
+def cmd_epic_reopen(args: argparse.Namespace) -> None:
+    """Reopen a closed epic (sets status back to open)."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    epic_id = args.id
+    if not is_epic_id(epic_id):
+        error_exit(
+            f"Invalid epic ID: {epic_id}. Expected format: fn-N or fn-N-slug "
+            f"(e.g., fn-1, fn-1-add-auth)",
+            use_json=args.json,
+        )
+
+    flow_dir = get_flow_dir()
+    epic_path = flow_dir / EPICS_DIR / f"{epic_id}.json"
+
+    if not epic_path.exists():
+        # Check if archived
+        archive_path = flow_dir / ".archive" / epic_id
+        if archive_path.exists():
+            error_exit(
+                f"Epic {epic_id} is archived. Unarchive it first before reopening.",
+                use_json=args.json,
+            )
+        error_exit(f"Epic {epic_id} not found", use_json=args.json)
+
+    epic_data = normalize_epic(
+        load_json_or_exit(epic_path, f"Epic {epic_id}", use_json=args.json)
+    )
+
+    previous_status = epic_data.get("status", "unknown")
+
+    if previous_status == "open":
+        error_exit(
+            f"Epic {epic_id} is already open (no-op protection)",
+            use_json=args.json,
+        )
+
+    # Set status back to open and reset completion review
+    epic_data["status"] = "open"
+    epic_data["completion_review_status"] = "unknown"
+    epic_data["updated_at"] = now_iso()
+    atomic_write_json(epic_path, epic_data)
+
+    if args.json:
+        json_output(
+            {
+                "id": epic_id,
+                "previous_status": previous_status,
+                "new_status": "open",
+                "message": f"Epic {epic_id} reopened",
+            }
+        )
+    else:
+        print(f"Epic {epic_id} reopened (was: {previous_status})")
+
+
 def cmd_epic_clean(args: argparse.Namespace) -> None:
     """Archive all closed epics at once."""
     if not ensure_flow_exists():

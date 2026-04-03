@@ -32,31 +32,7 @@ Use **T-shirt sizes** based on observable metrics — not token estimates (model
 
 **M is the target size** — fits one context window (~80-100k tokens), makes meaningful progress.
 
-**Anchor examples** (calibrate against these):
-- **S**: Fix a bug, add config, simple UI tweak → combine if sequential
-- **M**: New API endpoint with tests, new component with state → ideal
-- **L**: New subsystem, architectural change → split into M tasks
-
-**Combine rule**: Sequential S tasks touching related code → combine into one M task.
-
-**If too large, split it:**
-- ❌ Bad: "Implement Google OAuth" (L — new subsystem)
-- ✅ Good:
-  - "Google OAuth backend (config + passport + routes)" (M)
-  - "Add Google sign-in button" (S)
-
-**If too granular (7+ tasks), combine:**
-- ❌ Over-split: 4 sequential S tasks for backend setup
-- ✅ Better: 1 M task covering the sequential work
-
-**Minimize file overlap for parallel work:**
-
-When splitting tasks, design for minimal file overlap. Tasks touching disjoint files can be worked in parallel without merge conflicts.
-
-- ❌ Bad: Task A and B both modify `src/auth.ts`
-- ✅ Good: Task A modifies `src/auth.ts`, Task B modifies `src/routes.ts`
-
-List expected files in each task's `**Files:**` field. If multiple tasks must touch the same file, mark dependencies explicitly with `flowctl dep add`.
+**Rules**: Combine sequential S tasks into one M. Split L tasks into M tasks. If 7+ tasks, look for over-splitting. Minimize file overlap between tasks for parallel work — list expected files in `**Files:**`, use `flowctl dep add` when tasks must share files.
 
 ## Step 0: Initialize .flow
 
@@ -72,44 +48,14 @@ $FLOWCTL init --json
 
 ## Step 0.5: Clarity Check (auto — no human input)
 
-Before research, check if the request is clear enough to plan directly.
+**Clear?** (specific behavior, bug with repro, existing pattern, has acceptance criteria) → skip to Step 1.
 
-**Clear request indicators** (skip to Step 1):
-- Specific feature with defined behavior ("add /api/health/ endpoint returning JSON status")
-- Bug fix with reproduction steps
-- References existing patterns to follow
-- Has acceptance criteria or spec file
+**Ambiguous?** (vague goal, multiple valid approaches, missing who/what/why, unclear scope) → mini brainstorm:
 
-**Ambiguous request indicators** (run mini brainstorm):
-- Vague goal ("improve UX", "make it faster", "refactor auth")
-- Multiple valid approaches with no obvious best choice
-- Missing who/what/why ("add payment support" — subscription? one-time? both?)
-- Scope unclear ("redesign the dashboard" — full rewrite? incremental?)
-
-**If ambiguous → Mini brainstorm (AI decides, no human input):**
-
-1. **Pressure test** (3 questions, answer them yourself from context):
-   - What specific user problem does this solve?
-   - What happens if we do nothing?
-   - Is there a simpler framing that delivers 80% of the value?
-
-2. **Generate 2-3 approaches** (one sentence each):
-   - Approach A: [minimal/safe]
-   - Approach B: [balanced]
-   - Approach C: [comprehensive]
-
-3. **Pick the best approach** based on:
-   - Blast radius (smaller is safer)
-   - Value delivered per effort
-   - Alignment with existing codebase patterns (from repo-scout later, but estimate now)
-   
-4. **Output one line** and continue to Step 1:
-   ```
-   Clarified: "<original request>" → "<specific plan target>"
-   Approach: <A|B|C> — <one sentence why>
-   ```
-
-**Total cost**: ~10 seconds for the clarity check. ~30 seconds if mini brainstorm runs. Zero for clear requests.
+1. Pressure test: What user problem? What if we do nothing? Simpler 80% framing?
+2. Generate 2-3 approaches (minimal / balanced / comprehensive)
+3. Pick best by: blast radius, value/effort, codebase alignment
+4. Output: `Clarified: "<original>" → "<specific target>" | Approach: <A|B|C> — <why>`
 
 ## Step 1: Fast research (parallel)
 
@@ -134,27 +80,13 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 - Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
-**Scout selection: AI decides per-request.** For each scout, a specific question tells you if it's worth running.
+**Scout selection: AI decides per-request.**
 
 ### Scout decision guide
 
-| Scout | ~Cost | Include when... | Skip when... |
-|-------|-------|----------------|-------------|
-| `repo-scout` | 10s | **Always** — unless using context-scout instead | Using context-scout |
-| `context-scout` | 30s | Change touches multiple modules or unfamiliar code. Requires rp-cli | Single-file change in well-known area. rp-cli unavailable |
-| `practice-scout` | 20s | Involves security, auth, payments, concurrency, new patterns, or anything you're not 100% sure about best practices | Straightforward CRUD, config change, or well-trodden pattern you've done many times in this codebase |
-| `docs-scout` | 20s | Uses an API/library you haven't used recently, or a framework feature that may have changed | Uses only project-internal code, no external APIs |
-| `github-scout` | 20s | Novel pattern with no existing example in this codebase. Requires scouts.github | Pattern already exists in this repo (repo-scout will find it) |
-| `memory-scout` | 5s | **Always if memory.enabled** — near-zero cost, catches known pitfalls | memory.enabled is false |
-| `epic-scout` | 10s | Project has 2+ open epics that might overlap | This is the only active epic |
-| `docs-gap-scout` | 10s | Change adds/changes user-facing behavior, public APIs, or CLI commands | Internal refactor, backend-only change invisible to users |
-
-### Constraints
-
-- **Minimum 1**: repo-scout or context-scout (must understand existing code)
-- **Maximum 7**: coordination overhead dominates beyond this
-- **Parallel only**: run ALL selected scouts in ONE Agent/Task call, never sequentially
-- **When in doubt, include**: a wasted 10s scout is cheaper than a plan missing context
+- **Always**: `repo-scout` (or `context-scout` if multi-module/unfamiliar code + rp-cli available). `memory-scout` if memory.enabled.
+- **Add when needed**: `practice-scout` for security/auth/payments/concurrency. `docs-scout` for external APIs/libraries. `github-scout` for novel patterns (requires scouts.github). `epic-scout` if 2+ open epics. `docs-gap-scout` if user-facing changes.
+- **Constraints**: min 1 (repo or context), max 7. Run ALL selected scouts in ONE parallel Agent/Task call.
 
 Must capture:
 - File paths + line refs
@@ -201,30 +133,13 @@ Before diving into gaps, identify who's affected:
 - **Developers** — New APIs, changed interfaces, migration needed?
 - **Operations** — New config, monitoring, deployment changes?
 
-This shapes what the plan needs to cover. A pure backend refactor needs different detail than a user-facing feature.
+This shapes what the plan needs to cover.
 
 ## Step 3: Flow gap check
 
-Run the gap analyst subagent:
-- Task flow-code:flow-gap-analyst(<request>, research_findings)
+Run gap analyst subagent: `flow-code:flow-gap-analyst(<request>, research_findings)`. Fold gaps into the plan.
 
-Fold gaps + questions into the plan.
-
-**After epic is created (Step 5):** Register each gap found by the analyst into the gap registry:
-
-```bash
-# For each gap identified by flow-gap-analyst:
-$FLOWCTL gap add --epic <epic-id> --capability "<gap description>" \
-  --priority required|important|nice-to-have \
-  --source flow-gap-analyst --json
-```
-
-Map analyst output to priority:
-- "Priority Questions (MUST answer before coding)" → `required`
-- "Edge Cases" with high impact → `important`
-- "Nice-to-Clarify (can defer)" → `nice-to-have`
-
-This makes gaps machine-trackable. `epic-review` and `epic close` will verify all required/important gaps are resolved.
+**After epic is created (Step 5):** Register gaps via `$FLOWCTL gap add --epic <id> --capability "<desc>" --priority required|important|nice-to-have --source flow-gap-analyst --json`. Priority mapping: "MUST answer" → required, high-impact edge cases → important, deferrable → nice-to-have.
 
 ## Step 4: Pick depth
 
@@ -404,41 +319,7 @@ Fix any errors before proceeding.
 
 ### Step 6b: Auto-Extract Acceptance Checklist
 
-After validation passes, auto-generate a machine-readable checklist from acceptance criteria:
-
-```bash
-# Extract acceptance criteria from epic spec and all task specs into checklist.json
-$FLOWCTL cat <epic-id> > /tmp/epic-spec.md
-```
-
-Parse the epic spec and all task specs for `## Acceptance` sections. Extract each `- [ ]` bullet point.
-
-Write a structured checklist to `.flow/checklists/<epic-id>.json`:
-
-```bash
-mkdir -p .flow/checklists
-cat > .flow/checklists/<epic-id>.json <<'EOF'
-{
-  "epic_id": "<epic-id>",
-  "generated_at": "<ISO timestamp>",
-  "items": [
-    {"id": "epic.1", "source": "<epic-id>", "criterion": "First acceptance criterion from epic spec", "status": "pending"},
-    {"id": "epic.2", "source": "<epic-id>", "criterion": "Second acceptance criterion from epic spec", "status": "pending"},
-    {"id": "<task-id>.1", "source": "<task-id>", "criterion": "First acceptance criterion from task spec", "status": "pending"},
-    {"id": "<task-id>.2", "source": "<task-id>", "criterion": "Second acceptance criterion from task spec", "status": "pending"}
-  ]
-}
-EOF
-```
-
-Rules:
-- Each `- [ ]` line becomes one checklist item
-- `source` tracks which spec (epic or task) it came from
-- `status` starts as `pending`, set to `pass`/`fail` during review
-- If no acceptance criteria found, skip (don't create empty checklist)
-- Commit the checklist with the plan: `git add .flow/checklists/`
-
-This checklist is consumed by `/flow-code:epic-review` for structured verification.
+After validation, generate `.flow/checklists/<epic-id>.json` by parsing `## Acceptance` sections from epic + task specs. Each `- [ ]` line becomes a checklist item with `source` (epic or task ID) and `status: "pending"`. Skip if no acceptance criteria found. Commit with the plan (`git add .flow/checklists/`). Consumed by `/flow-code:epic-review`.
 
 ## Step 7: Review (if chosen at start)
 
@@ -463,37 +344,13 @@ If review was decided in Context Analysis:
 
 ## Step 8: Execute or Offer next steps
 
-**Default: auto-execute immediately.** Do NOT show a menu or wait for user input unless `--plan-only` was specified.
+**If `--plan-only`**: print `Plan created: <epic-id> (N tasks) | Next: /flow-code:work <epic-id>` and stop.
 
-```bash
-TASK_COUNT=$($FLOWCTL tasks --epic <epic-id> --json | python3 -c "import json,sys; print(json.load(sys.stdin)['count'])")
-```
+**Otherwise (default — auto-execute immediately, no menu):**
 
-**If `--plan-only` was specified:**
-```
-Plan created: <epic-id> (N tasks)
-Next: /flow-code:work <epic-id>
-```
-Stop here. Do NOT auto-execute.
-
-**Otherwise (default — auto-execute):**
-
-Persist the intent to execute so interrupted handoffs are detected:
 ```bash
 $FLOWCTL epic set-auto-execute <epic-id> --pending --json
 ```
 
-Show one-line summary, then invoke work immediately:
-```
-Epic <epic-id>: "<title>" (N tasks) — executing...
-```
-
-- **≤ 10 tasks**: Invoke `/flow-code:work <epic-id> --no-review` directly in this session.
-- **> 10 tasks**: Print recommendation:
-  ```
-  Epic has N tasks — recommend using Ralph for fresh context per task:
-    /flow-code:ralph-init
-  Or: /flow-code:work <epic-id>
-  ```
-
-**CRITICAL: Do NOT show an options menu. Do NOT wait for user selection. The default behavior is to proceed to work immediately.**
+- **≤ 10 tasks**: Invoke `/flow-code:work <epic-id> --no-review` directly.
+- **> 10 tasks**: Recommend Ralph (`/flow-code:ralph-init`) or `/flow-code:work <epic-id>`.

@@ -463,10 +463,106 @@ def cmd_detect(args: argparse.Namespace) -> None:
             print(".flow/ does not exist")
 
 
+def _find_interrupted_epics(flow_dir: Path) -> list[dict]:
+    """Find open epics with undone tasks (interrupted work).
+
+    An epic is "interrupted" if it is open AND has todo or in_progress tasks.
+    Returns a list of dicts with epic info and suggested resume command.
+    """
+    interrupted = []
+    epics_dir = flow_dir / EPICS_DIR
+    tasks_dir = flow_dir / TASKS_DIR
+
+    if not epics_dir.exists():
+        return interrupted
+
+    for epic_file in epics_dir.glob("fn-*.json"):
+        try:
+            epic_data = load_json(epic_file)
+        except Exception:
+            continue
+
+        if epic_data.get("status", "open") != "open":
+            continue
+
+        epic_id = epic_data.get("id", epic_file.stem)
+        title = epic_data.get("title", "")
+
+        # Count tasks for this epic
+        counts = {"todo": 0, "in_progress": 0, "done": 0, "blocked": 0, "skipped": 0}
+        if tasks_dir.exists():
+            for task_file in tasks_dir.glob("fn-*.json"):
+                tid = task_file.stem
+                if not is_task_id(tid):
+                    continue
+                try:
+                    task_data = load_task_with_state(tid, use_json=True)
+                except Exception:
+                    continue
+                if task_data.get("epic") != epic_id:
+                    continue
+                status = task_data.get("status", "todo")
+                if status in counts:
+                    counts[status] += 1
+
+        total = sum(counts.values())
+        if total == 0:
+            continue
+
+        # Interrupted = has any undone work (todo or in_progress)
+        if counts["todo"] > 0 or counts["in_progress"] > 0:
+            interrupted.append({
+                "id": epic_id,
+                "title": title,
+                "total": total,
+                "done": counts["done"],
+                "todo": counts["todo"],
+                "in_progress": counts["in_progress"],
+                "blocked": counts["blocked"],
+                "skipped": counts["skipped"],
+                "suggested": f"/flow-code:work {epic_id}",
+            })
+
+    return interrupted
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     """Show .flow state and active Ralph runs."""
     flow_dir = get_flow_dir()
     flow_exists = flow_dir.exists()
+
+    # Handle --interrupted flag
+    if getattr(args, "interrupted", False):
+        if not flow_exists:
+            if args.json:
+                json_output({"success": True, "interrupted": []})
+            else:
+                print("No interrupted work (.flow/ not found)")
+            return
+
+        interrupted = _find_interrupted_epics(flow_dir)
+        if args.json:
+            json_output({"success": True, "interrupted": interrupted})
+        else:
+            if not interrupted:
+                print("No interrupted work found.")
+            else:
+                print(f"Found {len(interrupted)} interrupted epic(s):\n")
+                for ep in interrupted:
+                    progress = f"{ep['done']}/{ep['total']} done"
+                    remaining = []
+                    if ep["todo"] > 0:
+                        remaining.append(f"{ep['todo']} todo")
+                    if ep["in_progress"] > 0:
+                        remaining.append(f"{ep['in_progress']} in_progress")
+                    if ep["blocked"] > 0:
+                        remaining.append(f"{ep['blocked']} blocked")
+                    remaining_str = ", ".join(remaining)
+                    print(f"  {ep['id']}: {ep['title']}")
+                    print(f"    Progress: {progress} ({remaining_str})")
+                    print(f"    Resume:   {ep['suggested']}")
+                    print()
+        return
 
     # Count epics and tasks by status
     epic_counts = {"open": 0, "done": 0}

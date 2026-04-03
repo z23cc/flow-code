@@ -144,6 +144,7 @@ def main() -> None:
     # status
     p_status = subparsers.add_parser("status", help="Show .flow state and active runs")
     p_status.add_argument("--json", action="store_true", help="JSON output")
+    p_status.add_argument("--interrupted", action="store_true", help="Detect interrupted epics with undone tasks")
     p_status.set_defaults(func=cmd_status)
 
     # config

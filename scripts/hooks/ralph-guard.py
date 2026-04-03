@@ -147,6 +147,70 @@ def handle_protected_file_check(data: dict) -> None:
             )
 
 
+def handle_file_lock_check(data: dict) -> None:
+    """Block Edit/Write to files locked by another task in Teams mode.
+
+    Only active when FLOW_TEAMS=1. Checks the flowctl lock registry to ensure
+    workers only edit files they own. Fails-open if flowctl is unavailable.
+    """
+    if os.environ.get("FLOW_TEAMS") != "1":
+        return
+
+    tool_input = data.get("tool_input", {})
+    file_path = tool_input.get("file_path", "")
+    if not file_path:
+        return
+
+    my_task_id = os.environ.get("FLOW_TASK_ID", "")
+
+    # Resolve to relative path for lock comparison
+    try:
+        repo_root = get_repo_root()
+        rel_path = os.path.relpath(file_path, repo_root)
+    except (ValueError, OSError):
+        rel_path = file_path
+
+    # Find flowctl
+    flowctl = os.environ.get("FLOWCTL")
+    if not flowctl:
+        plugin_root = os.environ.get("DROID_PLUGIN_ROOT") or os.environ.get("CLAUDE_PLUGIN_ROOT", "")
+        if plugin_root:
+            flowctl = os.path.join(plugin_root, "scripts", "flowctl.py")
+
+    if not flowctl or not os.path.exists(flowctl):
+        # Fail-open: flowctl unavailable
+        return
+
+    try:
+        result = subprocess.run(
+            ["python3", flowctl, "lock-check", "--file", rel_path, "--json"],
+            capture_output=True, text=True, timeout=5, cwd=str(get_repo_root()),
+        )
+        if result.returncode != 0:
+            # Fail-open: lock-check errored
+            return
+        lock_info = json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, json.JSONDecodeError, OSError):
+        # Fail-open: any error
+        return
+
+    if not lock_info.get("locked"):
+        # File not locked — warn but allow if we have a task ID
+        return
+
+    owner = lock_info.get("owner", "")
+    if my_task_id and owner == my_task_id:
+        # Locked by this task — allow
+        return
+
+    # Locked by a different task — block
+    output_block(
+        f"BLOCKED: File '{rel_path}' is locked by task '{owner}'. "
+        f"Your task ({my_task_id or 'unknown'}) does not own this file. "
+        "Request access via 'Need file access:' protocol message or work on your own files."
+    )
+
+
 def handle_pre_tool_use(data: dict) -> None:
     """Handle PreToolUse event - validate commands before execution."""
     tool_input = data.get("tool_input", {})
@@ -617,9 +681,10 @@ def main():
     with debug_file.open("a") as f:
         f.write(f"  -> Event: {event}, Tool: {tool_name}\n")
 
-    # Block Edit/Write to protected files (prevent self-modification)
+    # Block Edit/Write to protected files and enforce file locks
     if event == "PreToolUse" and tool_name in ("Edit", "Write"):
         handle_protected_file_check(data)
+        handle_file_lock_check(data)
         sys.exit(0)
 
     # Only process Bash tool calls for Pre/Post

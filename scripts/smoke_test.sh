@@ -1930,6 +1930,39 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Test: worker-phase next returns non-empty content field
+wph_content_len="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(len(json.load(sys.stdin).get("content","")))')"
+if [[ "$wph_content_len" -gt 0 ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase next: content field is non-empty ($wph_content_len chars)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase next: content field is empty"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: worker-phase next returns different content for different phases
+wph_content_p1="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("content","")[:50])')"
+wph_content_p2="$(echo "$wph_next2" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("content","")[:50])')"
+if [[ "$wph_content_p1" != "$wph_content_p2" ]] && [[ -n "$wph_content_p2" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase next: content changes between phases"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase next: expected different content for phase 1 vs 2"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: worker-prompt --bootstrap outputs <300 tokens
+wp_boot_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --bootstrap --json)"
+wp_boot_tokens="$(echo "$wp_boot_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["estimated_tokens"])')"
+wp_boot_mode="$(echo "$wp_boot_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["mode"])')"
+if [[ "$wp_boot_mode" == "bootstrap" ]] && [[ "$wp_boot_tokens" -lt 300 ]]; then
+  echo -e "${GREEN}✓${NC} worker-prompt --bootstrap: mode=bootstrap, ${wp_boot_tokens} tokens (<300)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-prompt --bootstrap: expected mode=bootstrap and <300 tokens, got mode=$wp_boot_mode tokens=$wp_boot_tokens"
+  FAIL=$((FAIL + 1))
+fi
+
 # Test: complete all default phases → all_done
 for phase in 2 2.5 3 5 6; do
   scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --json >/dev/null

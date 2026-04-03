@@ -142,7 +142,7 @@ $FLOWCTL cat <task-id>
 
 ### 3c. Teams Setup & File Locking
 
-#### Teams Setup Checklist (copy and complete when 2+ tasks ready)
+#### Teams Setup Checklist (copy and complete for each wave)
 
 ```
 - [ ] flowctl files --epic <id> → checked conflicts
@@ -176,8 +176,7 @@ TeamCreate({team_name: "flow-<epic-id>", description: "Working on <epic-title>"}
 ```
 
 **Decision:**
-- **2+ ready tasks with no file conflicts → Teams mode (mandatory).** Create team, spawn all workers in parallel with `run_in_background: true`.
-- **1 ready task → foreground mode.** Skip TeamCreate, spawn one worker with `TEAM_MODE: false` and `run_in_background: false`.
+- **Ready tasks with no file conflicts → Teams mode (always).** Create team, spawn all workers with `run_in_background: true`. Even a single task uses Teams mode for consistency.
 
 ### 3d. Spawn Workers
 
@@ -195,14 +194,15 @@ Use `flowctl worker-prompt --bootstrap` to generate a minimal bootstrap prompt f
 
 ```bash
 # Build the bootstrap prompt — flags match the task's execution context
-WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--team] [--tdd] [--review rp|codex])
+# Teams mode is the default; use --no-team for worktree isolation only
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--tdd] [--review rp|codex])
 ```
 
-**Multiple ready tasks (Teams mode):**
+**Spawn workers (Teams mode — always):**
 
 ```bash
-# Generate bootstrap prompt with --team flag
-WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap --team [--tdd] [--review rp|codex])
+# Generate bootstrap prompt (Teams is default, no --team flag needed)
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--tdd] [--review rp|codex])
 ```
 
 ```
@@ -228,36 +228,9 @@ Agent({
 
 Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
 
-**Single ready task (no Teams overhead):**
-
-```bash
-# Generate bootstrap prompt (no --team flag)
-WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--tdd] [--review rp|codex])
-```
-
-```
-Agent({
-  subagent_type: "flow-code:worker",
-  description: "Implement <task-title>",
-  prompt: "$WORKER_PROMPT
-
-    TASK_ID: <task-id>
-    EPIC_ID: <epic-id>
-    FLOWCTL: /path/to/flowctl
-    REVIEW_MODE: none|rp|codex
-    RALPH_MODE: true|false
-    TDD_MODE: true|false
-  "
-})
-```
-
-No `team_name`, no `TEAM_MODE`, no `OWNED_FILES`. Worker runs in foreground.
-
 **Worker returns**: Summary of implementation, files changed, test results, review verdict.
 
-### 3e. Lead Coordination Loop (Teams mode — multiple workers)
-
-**Skip if only 1 worker (foreground mode).**
+### 3e. Lead Coordination Loop (Teams mode)
 
 The main conversation acts as team lead. Worker↔lead communication uses **plain text** SendMessage with structured `summary` prefixes for routing.
 
@@ -363,7 +336,6 @@ While tasks remain in this wave:
 
 ### 3f. Wave Cleanup
 
-**Teams mode (multiple workers):**
 ```
 # 1. Shutdown all workers (native schema type)
 For each active worker:
@@ -374,11 +346,6 @@ $FLOWCTL unlock --all --json
 
 # 3. Delete team
 TeamDelete()
-```
-
-**Single worker mode:** Just unlock files:
-```bash
-$FLOWCTL unlock --all --json
 ```
 
 No merge-back needed — all work is on the same branch with file ownership preventing conflicts.
@@ -548,7 +515,7 @@ Context optimization. Each task gets fresh context:
 
 **Ralph mode**: Worker inherits `bypassPermissions` from parent. FLOW_RALPH=1 and REVIEW_RECEIPT_PATH are passed through.
 
-**Interactive mode**: Permission prompts pass through to user. Worker runs in foreground (blocking).
+**Interactive mode**: Permission prompts pass through to user. Worker runs synchronously (blocking).
 
 ---
 
@@ -685,9 +652,9 @@ Confirm before ship:
 Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
   ├─ 3a: read state + progress summary, restart stale tasks, find ready tasks
   ├─ 3b: readiness check
-  ├─ 3c: lock files + create team (if >1 task)
-  ├─ 3d: spawn workers (parallel if >1, foreground if 1)
-  ├─ 3e: lead coordination loop (if Teams)
+  ├─ 3c: lock files + create team
+  ├─ 3d: spawn workers (Teams mode, always)
+  ├─ 3e: lead coordination loop
   ├─ 3f: cleanup (shutdown workers, unlock, delete team)
   ├─ 3g: verify done + wave checkpoint
   ├─ 3g½: interactive pause (if --interactive)

@@ -23,9 +23,8 @@ $FLOWCTL <command>
 - You MUST stage with `git add -A` (never list files). This ensures `.flow/` and `scripts/ralph/` (if present) are included.
 - Do NOT claim completion until `flowctl show <task>` reports `status: done`.
 - Do NOT invoke `/flow-code:impl-review` until tests/Quick commands are green.
-- When 2+ tasks are ready with no file conflicts, you MUST use Teams mode
+- All task execution uses Teams mode by default
   (TeamCreate + team_name + flowctl lock + coordination loop).
-- Do NOT spawn independent background agents without team_name.
 
 **Role**: execution lead, plan fidelity first.
 **Goal**: complete every task in order with tests.

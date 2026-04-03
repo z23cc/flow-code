@@ -49,7 +49,7 @@ PHASE_DEFS = {
 }
 
 # Phase sequences by mode
-PHASE_SEQ_DEFAULT = ["1", "2", "2.5", "3", "5", "6"]
-PHASE_SEQ_TEAM    = ["0", "1", "2", "2.5", "3", "5", "6"]
+# Teams is the default — Phase 0 (Verify Configuration) always included.
+PHASE_SEQ_DEFAULT = ["0", "1", "2", "2.5", "3", "5", "6"]
 PHASE_SEQ_TDD     = ["1", "2a", "2", "2.5", "3", "5", "6"]
 PHASE_SEQ_REVIEW  = ["1", "2", "2.5", "3", "4", "5", "6"]

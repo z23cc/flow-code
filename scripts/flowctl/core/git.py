@@ -408,6 +408,75 @@ def gather_context_hints(base_branch: str, max_hints: int = 15) -> str:
     return "Consider these related files:\n" + "\n".join(hints)
 
 
+def get_diff_context(
+    base_branch: str, max_bytes: int = 50000
+) -> tuple[str, str]:
+    """Get diff summary and content between base_branch and HEAD.
+
+    Returns:
+        tuple: (diff_summary, diff_content)
+        - diff_summary: output of ``git diff --stat base_branch..HEAD``
+        - diff_content: raw diff truncated to *max_bytes*; a
+          ``[...truncated at N bytes]`` suffix is appended when truncated.
+
+    Both values default to ``""`` on any git error so callers never need
+    to handle exceptions.
+    """
+    repo_root = get_repo_root()
+
+    # 1. Diff summary (--stat)
+    diff_summary = ""
+    try:
+        stat_result = subprocess.run(
+            ["git", "diff", "--stat", f"{base_branch}..HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+        if stat_result.returncode == 0:
+            diff_summary = stat_result.stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        pass
+
+    # 2. Diff content with byte-cap (avoid memory spike on large diffs)
+    diff_content = ""
+    try:
+        proc = subprocess.Popen(
+            ["git", "diff", f"{base_branch}..HEAD"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=repo_root,
+        )
+        diff_bytes = proc.stdout.read(max_bytes + 1)
+        was_truncated = len(diff_bytes) > max_bytes
+        if was_truncated:
+            diff_bytes = diff_bytes[:max_bytes]
+        # Drain remaining stdout to avoid blocking the subprocess
+        while proc.stdout.read(65536):
+            pass
+        stderr_bytes = proc.stderr.read()
+        proc.stdout.close()
+        proc.stderr.close()
+        returncode = proc.wait()
+
+        if returncode != 0 and stderr_bytes:
+            diff_content = (
+                f"[git diff failed: "
+                f"{stderr_bytes.decode('utf-8', errors='replace').strip()}]"
+            )
+        else:
+            diff_content = diff_bytes.decode("utf-8", errors="replace").strip()
+            if was_truncated:
+                diff_content += (
+                    f"\n\n... [diff truncated at "
+                    f"{max_bytes // 1000}KB]"
+                )
+    except (subprocess.CalledProcessError, OSError):
+        pass
+
+    return diff_summary, diff_content
+
+
 def get_actor() -> str:
     """Determine current actor for soft-claim semantics.
 

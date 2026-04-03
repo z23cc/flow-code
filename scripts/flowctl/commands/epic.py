@@ -196,6 +196,21 @@ def cmd_epic_set_plan(args: argparse.Namespace) -> None:
     # Read content from file or stdin
     content = read_file_or_stdin(args.file, "Input file", use_json=args.json)
 
+    # Validate spec headings: reject duplicate headings
+    headings = re.findall(r"^(##\s+.+?)\s*$", content, flags=re.MULTILINE)
+    seen = {}
+    duplicates = []
+    for h in headings:
+        seen[h] = seen.get(h, 0) + 1
+    for h, count in seen.items():
+        if count > 1:
+            duplicates.append(f"Duplicate heading: {h} (found {count} times)")
+    if duplicates:
+        error_exit(
+            f"Spec validation failed: {'; '.join(duplicates)}",
+            use_json=args.json,
+        )
+
     # Write spec
     spec_path = flow_dir / SPECS_DIR / f"{args.id}.md"
     atomic_write(spec_path, content)

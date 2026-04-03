@@ -168,8 +168,33 @@ def _file_locks_path() -> Path:
     return get_state_dir() / "file_locks.json"
 
 
+def _file_locks_mutex_path() -> Path:
+    """Path to the mutex file for file_locks.json read-modify-write."""
+    return get_state_dir() / "file_locks.mutex"
+
+
+@contextmanager
+def _file_locks_mutex():
+    """Acquire mutual exclusion for file_locks.json read-modify-write.
+
+    Prevents race conditions when concurrent workers both read the same state,
+    decide a file is unlocked, and both write — second overwriting first's lock.
+    """
+    mutex_path = _file_locks_mutex_path()
+    mutex_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(mutex_path, "w") as f:
+        try:
+            _flock(f, LOCK_EX)
+            yield
+        finally:
+            _flock(f, LOCK_UN)
+
+
 def _load_file_locks() -> dict:
-    """Load file lock registry. Returns {file_path: {task_id, locked_at}}."""
+    """Load file lock registry. Returns {file_path: {task_id, locked_at}}.
+
+    NOTE: Callers doing read-modify-write must wrap in _file_locks_mutex().
+    """
     path = _file_locks_path()
     if not path.exists():
         return {}
@@ -188,34 +213,42 @@ def _save_file_locks(locks: dict) -> None:
 
 
 def lock_files(task_id: str, files: list[str]) -> dict:
-    """Lock files for a task. Returns {locked: [...], already_locked: [{file, owner}]}."""
-    locks = _load_file_locks()
-    locked = []
-    already_locked = []
-    for f in files:
-        existing = locks.get(f)
-        if existing and existing["task_id"] != task_id:
-            already_locked.append({"file": f, "owner": existing["task_id"]})
-        else:
-            locks[f] = {"task_id": task_id, "locked_at": now_iso()}
-            locked.append(f)
-    _save_file_locks(locks)
+    """Lock files for a task. Returns {locked: [...], already_locked: [{file, owner}]}.
+
+    Uses fcntl.flock for mutual exclusion to prevent race conditions.
+    """
+    with _file_locks_mutex():
+        locks = _load_file_locks()
+        locked = []
+        already_locked = []
+        for f in files:
+            existing = locks.get(f)
+            if existing and existing["task_id"] != task_id:
+                already_locked.append({"file": f, "owner": existing["task_id"]})
+            else:
+                locks[f] = {"task_id": task_id, "locked_at": now_iso()}
+                locked.append(f)
+        _save_file_locks(locks)
     return {"locked": locked, "already_locked": already_locked}
 
 
 def unlock_files(task_id: str, files: list[str] | None = None) -> list[str]:
-    """Unlock files owned by task_id. If files=None, unlock all files for this task."""
-    locks = _load_file_locks()
-    unlocked = []
-    to_remove = []
-    for f, info in locks.items():
-        if info["task_id"] == task_id:
-            if files is None or f in files:
-                to_remove.append(f)
-                unlocked.append(f)
-    for f in to_remove:
-        del locks[f]
-    _save_file_locks(locks)
+    """Unlock files owned by task_id. If files=None, unlock all files for this task.
+
+    Uses fcntl.flock for mutual exclusion to prevent race conditions.
+    """
+    with _file_locks_mutex():
+        locks = _load_file_locks()
+        unlocked = []
+        to_remove = []
+        for f, info in locks.items():
+            if info["task_id"] == task_id:
+                if files is None or f in files:
+                    to_remove.append(f)
+                    unlocked.append(f)
+        for f in to_remove:
+            del locks[f]
+        _save_file_locks(locks)
     return unlocked
 
 
@@ -231,10 +264,14 @@ def list_file_locks() -> dict:
 
 
 def clear_file_locks() -> int:
-    """Clear all file locks. Returns count cleared."""
-    locks = _load_file_locks()
-    count = len(locks)
-    _save_file_locks({})
+    """Clear all file locks. Returns count cleared.
+
+    Uses fcntl.flock for mutual exclusion to prevent race conditions.
+    """
+    with _file_locks_mutex():
+        locks = _load_file_locks()
+        count = len(locks)
+        _save_file_locks({})
     return count
 
 

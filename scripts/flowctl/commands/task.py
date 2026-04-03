@@ -676,6 +676,14 @@ def cmd_task_set_spec(args: argparse.Namespace) -> None:
     # Full file replacement mode (like epic set-plan)
     if has_file:
         content = read_file_or_stdin(args.file, "Spec file", use_json=args.json)
+        # Validate spec headings before writing
+        from flowctl.commands.admin import validate_task_spec_headings
+        heading_errors = validate_task_spec_headings(content)
+        if heading_errors:
+            error_exit(
+                f"Spec validation failed: {'; '.join(heading_errors)}",
+                use_json=args.json,
+            )
         atomic_write(task_spec_path, content)
         task_data["updated_at"] = now_iso()
         atomic_write_json(task_json_path, task_data)
@@ -712,6 +720,15 @@ def cmd_task_set_spec(args: argparse.Namespace) -> None:
             sections_updated.append("## Acceptance")
         except ValueError as e:
             error_exit(str(e), use_json=args.json)
+
+    # Validate final spec headings before writing
+    from flowctl.commands.admin import validate_task_spec_headings
+    heading_errors = validate_task_spec_headings(updated_spec)
+    if heading_errors:
+        error_exit(
+            f"Spec validation failed after patching: {'; '.join(heading_errors)}",
+            use_json=args.json,
+        )
 
     # Single atomic write for spec, single for JSON
     atomic_write(task_spec_path, updated_spec)

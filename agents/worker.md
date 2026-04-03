@@ -25,6 +25,20 @@ You implement a single flow-code task. Your prompt contains configuration values
 ## Environment
 
 The worker may run in the main working directory or an isolated git worktree (via Agent tool `isolation: "worktree"`). **No behavior changes needed** — git operations and flowctl work identically in worktrees. flowctl state is shared across worktrees automatically.
+
+## Execution Mode
+
+Your phases are managed by flowctl. To get your current phase:
+```bash
+$FLOWCTL worker-phase next --task $TASK_ID --json
+```
+
+After completing each phase:
+```bash
+$FLOWCTL worker-phase done --task $TASK_ID --phase <N> --json
+```
+
+Do NOT skip phases. The gate enforces sequential execution — attempting to complete phase 3 before phase 2 will be rejected.
 <!-- /section:core -->
 
 <!-- section:team -->

@@ -1856,6 +1856,94 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+echo -e "${YELLOW}--- worker-prompt ---${NC}"
+
+# We need agents/worker.md accessible from the test's CLAUDE_PLUGIN_ROOT
+# Copy the agents directory so worker-prompt can find worker.md
+cp -r "$PLUGIN_ROOT/agents" "$TEST_DIR/repo/agents"
+
+# Disable memory so default prompt is core-only (memory auto-includes if enabled)
+scripts/flowctl.py config set memory.enabled false --json >/dev/null
+
+# Test: worker-prompt default output (core-only, check sections and token count)
+wp_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --json)"
+wp_sections="$(echo "$wp_json" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); print(",".join(sorted(d["sections"])))')"
+wp_tokens="$(echo "$wp_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["estimated_tokens"])')"
+if [[ "$wp_sections" == "core" ]] && [[ "$wp_tokens" -gt 0 ]]; then
+  echo -e "${GREEN}✓${NC} worker-prompt default: core-only, ${wp_tokens} tokens"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-prompt default: expected sections=core, got $wp_sections (tokens: $wp_tokens)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: worker-prompt --team includes team sections
+wp_team_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --team --json)"
+wp_team_sections="$(echo "$wp_team_json" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); print(",".join(sorted(d["sections"])))')"
+if [[ "$wp_team_sections" == *"team"* ]] && [[ "$wp_team_sections" == *"core"* ]]; then
+  echo -e "${GREEN}✓${NC} worker-prompt --team: includes team sections ($wp_team_sections)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-prompt --team: expected core,team in sections, got $wp_team_sections"
+  FAIL=$((FAIL + 1))
+fi
+
+echo -e "${YELLOW}--- worker-phase ---${NC}"
+
+# Create a fresh epic+task for phase testing
+EPIC_PH_JSON="$(scripts/flowctl.py epic create --title "Phase test" --json)"
+EPIC_PH="$(echo "$EPIC_PH_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+scripts/flowctl.py task create --epic "$EPIC_PH" --title "Phase task" --json >/dev/null
+scripts/flowctl.py start "${EPIC_PH}.1" --json >/dev/null
+
+# Test: worker-phase next returns phase 1 initially
+wph_next="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"
+wph_phase="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
+wph_done="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["all_done"])')"
+if [[ "$wph_phase" == "1" ]] && [[ "$wph_done" == "False" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase next: initial phase is 1"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase next: expected phase=1 all_done=False, got phase=$wph_phase all_done=$wph_done"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: worker-phase done phase 1 → next returns phase 2
+scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase 1 --json >/dev/null
+wph_next2="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"
+wph_phase2="$(echo "$wph_next2" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
+if [[ "$wph_phase2" == "2" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase done→next: advances to phase 2"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase done→next: expected phase=2, got $wph_phase2"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: worker-phase skip detection — try to complete phase 3 before phase 2
+wph_skip_err="$(scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase 3 --json 2>&1 || true)"
+if echo "$wph_skip_err" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); assert d.get("error") or not d.get("success")' 2>/dev/null; then
+  echo -e "${GREEN}✓${NC} worker-phase skip detection: rejects out-of-order phase"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase skip detection: expected error for out-of-order, got: $wph_skip_err"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: complete all default phases → all_done
+for phase in 2 2.5 3 5 6; do
+  scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --json >/dev/null
+done
+wph_final="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"
+wph_all_done="$(echo "$wph_final" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["all_done"])')"
+if [[ "$wph_all_done" == "True" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase lifecycle: all phases complete"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase lifecycle: expected all_done=True, got $wph_all_done"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo -e "${YELLOW}=== Results ===${NC}"
 echo -e "Passed: ${GREEN}$PASS${NC}"

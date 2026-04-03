@@ -1,4 +1,4 @@
-"""Workflow state transition commands: ready, next, queue, start, done, block, restart, state-path, migrate-state, worker-prompt."""
+"""Workflow state transition commands: ready, next, queue, start, done, block, restart, state-path, migrate-state, worker-prompt, worker-phase."""
 
 import argparse
 import json
@@ -9,6 +9,11 @@ from typing import Any
 
 from flowctl.core.constants import (
     EPICS_DIR,
+    PHASE_DEFS,
+    PHASE_SEQ_DEFAULT,
+    PHASE_SEQ_REVIEW,
+    PHASE_SEQ_TDD,
+    PHASE_SEQ_TEAM,
     RUNTIME_FIELDS,
     TASKS_DIR,
 )
@@ -1181,3 +1186,207 @@ def cmd_worker_prompt(args: argparse.Namespace) -> None:
         })
     else:
         print(prompt_text)
+
+
+# ---------------------------------------------------------------------------
+# worker-phase: phase-gate sequential execution
+# ---------------------------------------------------------------------------
+
+def _build_phase_sequence(team: bool = False, tdd: bool = False, review: bool = False) -> list[str]:
+    """Build the phase sequence based on mode flags.
+
+    Modes combine additively: --team --tdd --review produces
+    the union of all applicable phases in canonical order.
+    """
+    if not team and not tdd and not review:
+        return list(PHASE_SEQ_DEFAULT)
+
+    # Start from the full canonical order for merging
+    canonical = ["0", "1", "2a", "2", "2.5", "3", "4", "5", "5b", "6"]
+
+    # Collect all phases from applicable sequences
+    phases: set[str] = set(PHASE_SEQ_DEFAULT)
+    if team:
+        phases |= set(PHASE_SEQ_TEAM)
+    if tdd:
+        phases |= set(PHASE_SEQ_TDD)
+    if review:
+        phases |= set(PHASE_SEQ_REVIEW)
+
+    # Return in canonical order
+    return [p for p in canonical if p in phases]
+
+
+def _load_phase_progress(task_id: str) -> dict:
+    """Load phase_progress from runtime state, initializing if absent."""
+    store = get_state_store()
+    runtime = store.load_runtime(task_id)
+    if runtime and "phase_progress" in runtime:
+        return runtime["phase_progress"]
+    return {"current_phase": None, "completed_phases": [], "started_at": None}
+
+
+def _save_phase_progress(task_id: str, progress: dict) -> None:
+    """Persist phase_progress to runtime state."""
+    save_task_runtime(task_id, {"phase_progress": progress})
+
+
+def cmd_worker_phase_next(args: argparse.Namespace) -> None:
+    """Return the next uncompleted phase for a task."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    task_id = args.task
+    if not is_task_id(task_id):
+        error_exit(
+            f"Invalid task ID: {task_id}. Expected format: fn-N.M or fn-N-slug.M",
+            use_json=args.json,
+        )
+
+    # Build sequence from flags
+    seq = _build_phase_sequence(
+        team=args.team,
+        tdd=args.tdd,
+        review=args.review is not None,
+    )
+
+    # Load current progress
+    progress = _load_phase_progress(task_id)
+    completed = set(progress.get("completed_phases", []))
+
+    # Find first uncompleted phase
+    next_phase = None
+    for phase_id in seq:
+        if phase_id not in completed:
+            next_phase = phase_id
+            break
+
+    if next_phase is None:
+        # All phases done
+        if args.json:
+            json_output({"phase": None, "all_done": True, "sequence": seq})
+        else:
+            print("All phases completed.")
+        return
+
+    # Initialize progress if this is the first call
+    if progress["started_at"] is None:
+        progress["started_at"] = now_iso()
+        progress["current_phase"] = next_phase
+        _save_phase_progress(task_id, progress)
+
+    phase_def = PHASE_DEFS.get(next_phase, (next_phase, f"Phase {next_phase}", ""))
+    phase_id, title, done_condition = phase_def
+
+    if args.json:
+        json_output({
+            "phase": phase_id,
+            "title": title,
+            "done_condition": done_condition,
+            "completed_phases": sorted(completed, key=lambda x: seq.index(x) if x in seq else 999),
+            "sequence": seq,
+            "all_done": False,
+        })
+    else:
+        print(f"Next phase: {phase_id} - {title}")
+        print(f"Done when: {done_condition}")
+        if completed:
+            print(f"Completed: {', '.join(sorted(completed))}")
+
+
+def cmd_worker_phase_done(args: argparse.Namespace) -> None:
+    """Mark a phase as done and advance to the next."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    task_id = args.task
+    if not is_task_id(task_id):
+        error_exit(
+            f"Invalid task ID: {task_id}. Expected format: fn-N.M or fn-N-slug.M",
+            use_json=args.json,
+        )
+
+    phase = args.phase
+
+    # Build sequence from flags
+    seq = _build_phase_sequence(
+        team=args.team,
+        tdd=args.tdd,
+        review=args.review is not None,
+    )
+
+    # Validate phase exists in sequence
+    if phase not in seq:
+        error_exit(
+            f"Phase '{phase}' is not in the current sequence: {', '.join(seq)}. "
+            f"Check your mode flags (--team, --tdd, --review).",
+            use_json=args.json,
+        )
+
+    # Load current progress
+    progress = _load_phase_progress(task_id)
+    completed = progress.get("completed_phases", [])
+    completed_set = set(completed)
+
+    # Find expected next phase (first uncompleted)
+    expected = None
+    for pid in seq:
+        if pid not in completed_set:
+            expected = pid
+            break
+
+    if expected is None:
+        error_exit(
+            "All phases are already completed. Nothing to mark done.",
+            use_json=args.json,
+        )
+
+    # Validate sequential execution — cannot skip phases
+    if phase != expected:
+        error_exit(
+            f"Expected phase {expected}, got phase {phase}. Cannot skip phases.",
+            use_json=args.json,
+        )
+
+    # Mark phase as completed
+    completed.append(phase)
+    completed_set.add(phase)
+
+    # Advance current_phase to next uncompleted
+    next_phase = None
+    for pid in seq:
+        if pid not in completed_set:
+            next_phase = pid
+            break
+
+    progress["completed_phases"] = completed
+    progress["current_phase"] = next_phase
+    _save_phase_progress(task_id, progress)
+
+    all_done = next_phase is None
+
+    if args.json:
+        result: dict[str, Any] = {
+            "completed_phase": phase,
+            "completed_phases": completed,
+            "all_done": all_done,
+        }
+        if next_phase:
+            phase_def = PHASE_DEFS.get(next_phase, (next_phase, f"Phase {next_phase}", ""))
+            result["next_phase"] = {
+                "phase": phase_def[0],
+                "title": phase_def[1],
+                "done_condition": phase_def[2],
+            }
+        json_output(result)
+    else:
+        print(f"Phase {phase} marked done.")
+        if next_phase:
+            phase_def = PHASE_DEFS.get(next_phase, (next_phase, f"Phase {next_phase}", ""))
+            print(f"Next: {phase_def[0]} - {phase_def[1]}")
+        else:
+            print("All phases completed.")

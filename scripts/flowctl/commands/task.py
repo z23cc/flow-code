@@ -676,12 +676,14 @@ def cmd_task_set_spec(args: argparse.Namespace) -> None:
     # Full file replacement mode (like epic set-plan)
     if has_file:
         content = read_file_or_stdin(args.file, "Spec file", use_json=args.json)
-        # Validate spec headings before writing
+        # Validate spec headings before writing: reject duplicates
         from flowctl.commands.admin import validate_task_spec_headings
         heading_errors = validate_task_spec_headings(content)
-        if heading_errors:
+        # Only reject on duplicate headings, not missing ones
+        dup_errors = [e for e in heading_errors if e.startswith("Duplicate")]
+        if dup_errors:
             error_exit(
-                f"Spec validation failed: {'; '.join(heading_errors)}",
+                f"Spec validation failed: {'; '.join(dup_errors)}",
                 use_json=args.json,
             )
         atomic_write(task_spec_path, content)
@@ -721,12 +723,14 @@ def cmd_task_set_spec(args: argparse.Namespace) -> None:
         except ValueError as e:
             error_exit(str(e), use_json=args.json)
 
-    # Validate final spec headings before writing
+    # Validate final spec headings before writing: reject duplicates
     from flowctl.commands.admin import validate_task_spec_headings
     heading_errors = validate_task_spec_headings(updated_spec)
-    if heading_errors:
+    # Only reject on duplicate headings, not missing ones
+    dup_errors = [e for e in heading_errors if e.startswith("Duplicate")]
+    if dup_errors:
         error_exit(
-            f"Spec validation failed after patching: {'; '.join(heading_errors)}",
+            f"Spec validation failed after patching: {'; '.join(dup_errors)}",
             use_json=args.json,
         )
 

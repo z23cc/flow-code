@@ -1,4 +1,4 @@
-"""Workflow state transition commands: ready, next, queue, start, done, block, restart, state-path, migrate-state."""
+"""Workflow state transition commands: ready, next, queue, start, done, block, restart, state-path, migrate-state, worker-prompt."""
 
 import argparse
 import json
@@ -1079,3 +1079,105 @@ def cmd_migrate_state(args: argparse.Namespace) -> None:
         print(f"Skipped: {len(skipped)} tasks (already migrated or no state)")
         if args.clean:
             print("Definition files cleaned (runtime fields removed)")
+
+
+# ---------------------------------------------------------------------------
+# worker-prompt: conditional prompt trimming
+# ---------------------------------------------------------------------------
+
+def _get_plugin_root() -> Path:
+    """Get the flow-code plugin root directory.
+
+    This file lives at scripts/flowctl/commands/workflow.py,
+    so plugin root is 4 levels up.
+    """
+    return Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _parse_worker_sections(content: str) -> list[dict[str, str]]:
+    """Parse worker.md into tagged sections using HTML comment markers.
+
+    Returns a list of dicts: {"tag": "core"|"team"|"tdd"|"review"|"memory", "content": "..."}
+    Content between sections (frontmatter, blank lines between markers) is discarded.
+    """
+    sections: list[dict[str, str]] = []
+    pattern = re.compile(
+        r"<!-- section:(\w+) -->\n(.*?)<!-- /section:\1 -->",
+        re.DOTALL,
+    )
+    for m in pattern.finditer(content):
+        tag = m.group(1)
+        body = m.group(2).strip()
+        if body:
+            sections.append({"tag": tag, "content": body})
+    return sections
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: words * 1.3 for English/Markdown.
+
+    This approximates typical BPE tokenization where most English words
+    map to 1-2 tokens, plus punctuation and formatting tokens.
+    """
+    words = len(text.split())
+    return max(1, int(words * 1.3))
+
+
+def cmd_worker_prompt(args: argparse.Namespace) -> None:
+    """Output a trimmed worker prompt based on mode flags."""
+    from flowctl.core.config import get_config
+
+    worker_path = _get_plugin_root() / "agents" / "worker.md"
+    if not worker_path.exists():
+        error_exit(
+            f"agents/worker.md not found at {worker_path}", use_json=args.json
+        )
+
+    raw = worker_path.read_text(encoding="utf-8")
+
+    # Strip YAML frontmatter (between --- markers)
+    frontmatter_match = re.match(r"^---\n.*?\n---\n", raw, re.DOTALL)
+    if frontmatter_match:
+        raw = raw[frontmatter_match.end():]
+
+    sections = _parse_worker_sections(raw)
+    if not sections:
+        error_exit(
+            "No section markers found in worker.md. Expected <!-- section:tag --> markers.",
+            use_json=args.json,
+        )
+
+    # Determine which tags to include
+    include_tags = {"core"}
+
+    if args.team:
+        include_tags.add("team")
+
+    if args.tdd:
+        include_tags.add("tdd")
+
+    if args.review:
+        include_tags.add("review")
+
+    # Auto-include memory if config says it's enabled
+    memory_enabled = get_config("memory.enabled", False)
+    if memory_enabled:
+        include_tags.add("memory")
+
+    # Filter sections
+    included = [s for s in sections if s["tag"] in include_tags]
+    included_tags = sorted({s["tag"] for s in included})
+
+    # Assemble output
+    prompt_parts = [s["content"] for s in included]
+    prompt_text = "\n\n".join(prompt_parts)
+    estimated_tokens = _estimate_tokens(prompt_text)
+
+    if args.json:
+        json_output({
+            "prompt": prompt_text,
+            "sections": included_tags,
+            "estimated_tokens": estimated_tokens,
+        })
+    else:
+        print(prompt_text)

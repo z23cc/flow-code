@@ -76,6 +76,7 @@ from flowctl.commands.workflow import (
     cmd_restart,
     cmd_state_path,
     cmd_migrate_state,
+    cmd_worker_prompt,
 )
 from flowctl.commands.query import (
     cmd_show,
@@ -737,6 +738,20 @@ def main() -> None:
     )
     p_migrate.add_argument("--json", action="store_true", help="JSON output")
     p_migrate.set_defaults(func=cmd_migrate_state)
+
+    # worker-prompt
+    p_wp = subparsers.add_parser(
+        "worker-prompt", help="Output trimmed worker prompt based on mode flags"
+    )
+    p_wp.add_argument("--task", required=True, help="Task ID (for context, e.g., fn-1.1)")
+    p_wp.add_argument("--team", action="store_true", help="Include Team Mode sections")
+    p_wp.add_argument("--tdd", action="store_true", help="Include TDD Phase 2a")
+    p_wp.add_argument(
+        "--review", choices=["rp", "codex"], default=None,
+        help="Include review Phase 4 (rp or codex)",
+    )
+    p_wp.add_argument("--json", action="store_true", help="JSON output")
+    p_wp.set_defaults(func=cmd_worker_prompt)
 
     # validate
     p_validate = subparsers.add_parser("validate", help="Validate epic or all")

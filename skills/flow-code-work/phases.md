@@ -71,20 +71,11 @@ Detect input type in this order (first match wins):
 
 ## Phase 3: Task Loop
 
-**Default mode is Teams** — workers run as Agent Team teammates with shared directory and file locking.
+**Default mode is worktree isolation** — each worker gets an isolated git worktree. Stronger isolation, simpler (no TeamCreate/SendMessage/coordination overhead).
 
-**CRITICAL: When multiple tasks are ready with no file conflicts, they MUST run in parallel via Teams mode. Do NOT execute them sequentially "for quality" or "one at a time." Teams mode with file locking IS the quality mechanism. Sequential execution wastes time and provides no additional safety.**
+**CRITICAL: When multiple tasks are ready, they MUST run in parallel. Do NOT execute them sequentially "for quality" or "one at a time." Parallel execution with isolation IS the quality mechanism. Sequential execution wastes time and provides no additional safety.**
 
-**Fallback: worktree isolation** (`--worktree-parallel`): Uses git worktrees instead of Teams. Only use when Teams is unavailable or user explicitly requests worktree isolation.
-
-**Red Flags — if you catch yourself thinking any of these, stop:**
-
-| Thought | Reality |
-|---------|---------|
-| "I'll just spawn background agents, simpler" | Teams mode IS the default. No shortcuts. |
-| "File boundaries are clean, no need for locks" | Lock anyway. Runtime surprises happen. |
-| "Coordination loop is overhead" | It handles spec conflicts and file access. Required. |
-| "Workers can handle it independently" | Without Teams, no file lock enforcement. |
+**Teams mode** (`--teams`): Uses Agent Teams with shared directory and file locking. Only use when user explicitly passes `--teams`.
 
 ### 3a. Find Ready Tasks
 
@@ -140,69 +131,31 @@ $FLOWCTL cat <task-id>
 - Use AskUserQuestion: "Task `<id>` spec is missing [field]. Add it before starting?"
 - Do NOT spawn a worker with an incomplete spec — workers guess when specs are vague
 
-### 3c. Teams Setup & File Locking
-
-#### Teams Setup Checklist (copy and complete for each wave)
-
-```
-- [ ] flowctl files --epic <id> → checked conflicts
-- [ ] flowctl start <task-id> → for each task
-- [ ] flowctl lock --task <task-id> --files <files> → for each task
-- [ ] TeamCreate(team_name: "flow-<epic-id>") → team created
-- [ ] Agent(team_name: "flow-<epic-id>", ...) → workers spawned WITH team_name
-- [ ] Coordination loop entered → routing messages
-```
+### 3c. Start Tasks & Spawn Workers
 
 ```bash
-# 1. Get file ownership map and check for conflicts
-$FLOWCTL files --epic <epic-id> --json
-```
-
-Check the `conflicts` field. If files overlap between ready tasks, those tasks **cannot run in the same wave** — demote one to the next batch.
-
-```bash
-# 2. Start tasks and lock files for each (atomic — prevents concurrent edits)
+# 1. Start each task
 $FLOWCTL start <task-id-1> --json
-$FLOWCTL lock --task <task-id-1> --files "file1,file2" --json
-
 $FLOWCTL start <task-id-2> --json
-$FLOWCTL lock --task <task-id-2> --files "file3,file4" --json
-# Check conflict_count in response — if >0, a file is already locked by another task
 ```
-
-```
-# 3. Create the team
-TeamCreate({team_name: "flow-<epic-id>", description: "Working on <epic-title>"})
-```
-
-**Decision:**
-- **Ready tasks with no file conflicts → Teams mode (always).** Create team, spawn all workers with `run_in_background: true`. Even a single task uses Teams mode for consistency.
-
-### 3d. Spawn Workers
-
-**STOP CHECK**: Before spawning workers, verify:
-1. Did you call TeamCreate? If not, STOP. Go back to 3c.
-2. Does every Agent() call include team_name? If not, STOP. Add it.
-3. Did you call flowctl lock for each task? If not, STOP. Go back to 3c.
-
-If you spawned Agent() without team_name when 2+ tasks are ready,
-you have violated the Teams protocol. Delete those agents and redo 3c-3d.
 
 **Prompt generation for worker:**
 
 Use `flowctl worker-prompt --bootstrap` to generate a minimal bootstrap prompt for each worker. This outputs a ~200 token prompt that instructs the worker to call `worker-phase next` in a loop, fetching full phase instructions on demand.
 
 ```bash
-# Build the bootstrap prompt — flags match the task's execution context
-# Teams mode is the default; use --no-team for worktree isolation only
+# Build the bootstrap prompt — worktree isolation is the default
 WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--tdd] [--review rp|codex])
 ```
 
-**Spawn workers (Teams mode — always):**
+### 3d. Spawn Workers (Worktree Isolation — Default)
 
-```bash
-# Generate bootstrap prompt (Teams is default, no --team flag needed)
-WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--tdd] [--review rp|codex])
+Each worker gets an isolated git worktree. No TeamCreate, no SendMessage, no coordination loop needed.
+
+```
+[Agent tool call 1: worker for fn-1.1, isolation: "worktree"]
+[Agent tool call 2: worker for fn-1.2, isolation: "worktree"]
+[Agent tool call 3: worker for fn-1.3, isolation: "worktree"]
 ```
 
 ```
@@ -210,7 +163,7 @@ Agent({
   subagent_type: "flow-code:worker",
   name: "worker-<task-id>",
   description: "Implement <task-title>",
-  team_name: "flow-<epic-id>",
+  isolation: "worktree",
   run_in_background: true,
   prompt: "$WORKER_PROMPT
 
@@ -220,135 +173,40 @@ Agent({
     REVIEW_MODE: none|rp|codex
     RALPH_MODE: true|false
     TDD_MODE: true|false
-    TEAM_MODE: true
-    OWNED_FILES: <comma-separated file list from flowctl files>
   "
 })
 ```
 
-Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
+All run concurrently in isolated worktrees. flowctl state is shared across worktrees automatically (uses git-common-dir). Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
 
 **Worker returns**: Summary of implementation, files changed, test results, review verdict.
 
-### 3e. Lead Coordination Loop (Teams mode)
+### 3e. Wait for Workers & Merge Back
 
-The main conversation acts as team lead. Worker↔lead communication uses **plain text** SendMessage with structured `summary` prefixes for routing.
+Wait for all workers to complete.
 
-> **Why plain text?** Claude Code's SendMessage `message` field only accepts strings or 3 native types (`shutdown_request`, `shutdown_response`, `plan_approval_response`). Custom JSON objects are rejected by schema validation. Plain text with consistent summary prefixes is reliable and parseable.
+**Merge-back** (after all workers return):
 
-**Worker → Lead message types (detect by summary prefix):**
-
-| Summary prefix | Meaning | Action |
-|----------------|---------|--------|
-| `"Task complete: <id>"` | Worker finished task | Verify via `$FLOWCTL show <id> --json`, assign next task |
-| `"Spec conflict: <id>"` | Spec wrong/contradicts codebase | Forward to Codex for decision (modify spec / keep spec / skip) |
-| `"Blocked: <id>"` | Dependency or external blocker | In-flight: wait; External: forward to Codex (skip / remove dep / split) |
-| `"Need file access: <file>"` | Worker needs unowned file | Check owner, grant or deny |
-| `"Need mutation: <id>"` | Task needs structural change | Apply mutation (split/skip/dep change), notify worker |
-
-**Lead → Worker message types:**
-
-| Action | Summary prefix | Message format |
-|--------|---------------|----------------|
-| Assign new task | `"New task: <id>"` | Plain text with TASK_ID, OWNED_FILES, FLOWCTL path, and instruction to re-anchor |
-| Grant file access | `"Access granted: <file>"` | `"Access granted for <file>. You may now edit it."` |
-| Deny file access | `"Access denied: <file>"` | `"Access denied for <file>. Reason: <why>. Find an alternative approach."` |
-| Shutdown | `"Shutdown"` | Native `{"type": "shutdown_request"}` object (schema-supported) |
-
-**Coordination loop:**
-
-```
-While tasks remain in this wave:
-  1. Route incoming worker messages by summary prefix:
-
-     "Task complete: <id>":
-       → Verify: $FLOWCTL show <id> --json
-       → If status is NOT "done" (worker failed to call flowctl done):
-         → Auto-fix: $FLOWCTL done <id> --summary "completed by worker" --evidence-json '{"tests_passed":true}'
-         → Re-verify: $FLOWCTL show <id> --json (must be "done" now)
-       → Unlock completed task's files: $FLOWCTL unlock --task <id> --json
-       → Check for next ready task (see step 2)
-
-     "Spec conflict: <id>":
-       → Forward to Codex for decision:
-         Run `flowctl codex exec` with prompt:
-         "Spec conflict in task <id>.
-         The spec says: <spec excerpt from worker message>
-         But the code shows: <conflict details from worker message>
-         Options: 1) Modify spec to match reality  2) The code is wrong, spec is correct  3) Skip this task
-         Reply with ONLY: <decision>N</decision> where N is 1, 2, or 3. Then one sentence explaining why."
-       → Parse `<decision>N</decision>` tag from Codex response:
-         1: $FLOWCTL task set-spec <id> --file <updated-spec> → restart worker
-         2: notify worker to continue with original spec
-         3: $FLOWCTL task skip <id> --reason "<codex reasoning>" → unlock files
-
-     "Blocked: <id>":
-       → Parse message body for blocker info
-       → If in-flight task: wait for it to complete, then notify blocked worker
-       → If external: forward to Codex for decision:
-         Run `flowctl codex exec` with prompt:
-         "Task <id> is blocked by: <reason from worker message>.
-         Options: 1) Skip this task  2) Remove the dependency  3) Split into doable + blocked parts
-         Reply with ONLY: <decision>N</decision> where N is 1, 2, or 3. Then one sentence explaining why."
-       → Parse `<decision>N</decision>` tag from Codex response:
-         1: $FLOWCTL task skip <id> --reason "<codex reasoning>" → unlock files
-         2: $FLOWCTL dep rm <id> <blocking-dep-id> → notify worker to continue
-         3: $FLOWCTL task split <id> --titles "Doable part|Blocked part" --chain → unlock, re-run ready
-
-     "Need file access: <file>":
-       → Check lock status: $FLOWCTL lock-check --file <file> --json
-       → If not locked or owner task is done:
-         → $FLOWCTL lock --task <requesting-task-id> --files <file> --json
-         → SendMessage(to: "worker-<task-id>", summary: "Access granted: <file>",
-             message: "Access granted for <file>. You may now edit it.")
-       → If locked by active task:
-         → SendMessage(to: "worker-<task-id>", summary: "Access denied: <file>",
-             message: "Access denied for <file>. Locked by <owner-task-id>. Find an alternative approach.")
-
-     "Need mutation: <id>":
-       → Parse message body for mutation type (split / skip / dep_change)
-       → Apply mutation:
-         split:  $FLOWCTL task split <id> --titles "Part1|Part2|Part3" --chain --json
-         skip:   $FLOWCTL task skip <id> --reason "<reason>" --json
-         dep_rm: $FLOWCTL dep rm <id> <dep-id> --json
-       → Unlock original task files: $FLOWCTL unlock --task <id> --json
-       → Notify worker of result:
-         SendMessage(to: "worker-<task-id>", summary: "Mutation applied: <id>",
-           message: "Mutation applied. <details of what changed>. Check ready tasks for your next assignment.")
-       → Run $FLOWCTL ready to find newly unblocked tasks
-
-  2. When a worker completes and goes idle:
-     → Run $FLOWCTL ready --epic <epic-id> --json
-     → If new tasks available and no file conflicts with active workers:
-       → $FLOWCTL start <new-task-id> --json
-       → $FLOWCTL lock --task <new-task-id> --files <comma-separated files> --json
-       → SendMessage(to: "worker-<task-id>", summary: "New task: <new-task-id>",
-           message: "New task assigned.\n\nTASK_ID: <new-task-id>\nOWNED_FILES: <comma-separated files>\n\nRead spec: $FLOWCTL cat <new-task-id>\nFollow your worker phases to implement it.")
-     → If no tasks, let worker idle until wave completes
-
-  3. When all workers in wave are done:
-     → Proceed to 3f (cleanup)
+```bash
+WORKTREE_SH="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-worktree-kit/scripts/worktree.sh"
 ```
 
-**Do NOT micromanage** — only intervene on protocol messages from workers. Workers handle their own phases autonomously.
+For each worker that returned a branch name (in spawn order):
 
-**Idle detection**: Claude Code automatically sends `idle_notification` via the built-in Stop hook when a teammate finishes its turn. Use this as a secondary signal that a worker is ready for reassignment.
+```bash
+bash "$WORKTREE_SH" merge-back <worker-branch>
+git branch -d <worker-branch> 2>/dev/null || true
+```
+
+**Conflict handling**: If `merge-back` fails:
+1. The merge is automatically aborted (working tree stays clean)
+2. Log which worker branch conflicted
+3. **Stop the merge sequence** — do NOT merge remaining branches
+4. Report to the user: conflicting branch name + suggestion to resolve manually
 
 ### 3f. Wave Cleanup
 
-```
-# 1. Shutdown all workers (native schema type)
-For each active worker:
-  SendMessage(to: "worker-<task-id>", message: {"type": "shutdown_request"})
-
-# 2. Unlock all file locks for this wave
-$FLOWCTL unlock --all --json
-
-# 3. Delete team
-TeamDelete()
-```
-
-No merge-back needed — all work is on the same branch with file ownership preventing conflicts.
+No special cleanup needed for worktree mode — worktrees are cleaned up automatically by the worktree kit.
 
 ### 3g. Verify Completion & Checkpoint
 
@@ -519,40 +377,84 @@ Context optimization. Each task gets fresh context:
 
 ---
 
-### Worktree Parallel Fallback (`--worktree-parallel`)
+### Teams Mode (`--teams`)
 
-**Only use when Teams is unavailable or user explicitly passes `--worktree-parallel`.**
+**Only use when user explicitly passes `--teams`.** Teams mode uses Agent Teams with shared directory and file locking instead of worktree isolation.
 
-Instead of Teams coordination, each worker gets an isolated git worktree:
+#### Teams Setup Checklist (copy and complete for each wave)
 
 ```
-[Agent tool call 1: worker for fn-1.1, isolation: "worktree"]
-[Agent tool call 2: worker for fn-1.2, isolation: "worktree"]
-[Agent tool call 3: worker for fn-1.3, isolation: "worktree"]
+- [ ] flowctl files --epic <id> → checked conflicts
+- [ ] flowctl start <task-id> → for each task
+- [ ] flowctl lock --task <task-id> --files <files> → for each task
+- [ ] TeamCreate(team_name: "flow-<epic-id>") → team created
+- [ ] Agent(team_name: "flow-<epic-id>", ...) → workers spawned WITH team_name
+- [ ] Coordination loop entered → routing messages
 ```
-
-All run concurrently in isolated worktrees. flowctl state is shared across worktrees automatically (uses git-common-dir). Wait for all workers to complete.
-
-**Merge-back** (after all workers return):
 
 ```bash
-WORKTREE_SH="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-worktree-kit/scripts/worktree.sh"
+# 1. Get file ownership map and check for conflicts
+$FLOWCTL files --epic <epic-id> --json
 ```
 
-For each worker that returned a branch name (in spawn order):
+Check the `conflicts` field. If files overlap between ready tasks, those tasks **cannot run in the same wave** — demote one to the next batch.
 
 ```bash
-bash "$WORKTREE_SH" merge-back <worker-branch>
-git branch -d <worker-branch> 2>/dev/null || true
+# 2. Start tasks and lock files for each (atomic — prevents concurrent edits)
+$FLOWCTL start <task-id-1> --json
+$FLOWCTL lock --task <task-id-1> --files "file1,file2" --json
+
+$FLOWCTL start <task-id-2> --json
+$FLOWCTL lock --task <task-id-2> --files "file3,file4" --json
 ```
 
-**Conflict handling**: If `merge-back` fails:
-1. The merge is automatically aborted (working tree stays clean)
-2. Log which worker branch conflicted
-3. **Stop the merge sequence** — do NOT merge remaining branches
-4. Report to the user: conflicting branch name + suggestion to resolve manually
+```
+# 3. Create the team
+TeamCreate({team_name: "flow-<epic-id>", description: "Working on <epic-title>"})
+```
 
-After merge-back, proceed to 3g (Verify Completion).
+**Spawn workers (Teams mode):**
+
+```bash
+# Generate bootstrap prompt with --team flag
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap --team [--tdd] [--review rp|codex])
+```
+
+```
+Agent({
+  subagent_type: "flow-code:worker",
+  name: "worker-<task-id>",
+  description: "Implement <task-title>",
+  team_name: "flow-<epic-id>",
+  run_in_background: true,
+  prompt: "$WORKER_PROMPT
+
+    TASK_ID: <task-id>
+    EPIC_ID: <epic-id>
+    FLOWCTL: /path/to/flowctl
+    REVIEW_MODE: none|rp|codex
+    RALPH_MODE: true|false
+    TDD_MODE: true|false
+    TEAM_MODE: true
+    OWNED_FILES: <comma-separated file list from flowctl files>
+  "
+})
+```
+
+**Lead Coordination Loop**: The main conversation acts as team lead, routing worker messages by summary prefix (`"Task complete:"`, `"Spec conflict:"`, `"Blocked:"`, `"Need file access:"`, `"Need mutation:"`). Workers handle their own phases autonomously — only intervene on protocol messages.
+
+**Teams Wave Cleanup:**
+```
+# 1. Shutdown all workers
+For each active worker:
+  SendMessage(to: "worker-<task-id>", message: {"type": "shutdown_request"})
+
+# 2. Unlock all file locks for this wave
+$FLOWCTL unlock --all --json
+
+# 3. Delete team
+TeamDelete()
+```
 
 ---
 
@@ -647,15 +549,15 @@ Confirm before ship:
 
 ## Example flow
 
-**Default mode (Teams — auto-parallel):**
+**Default mode (worktree isolation — auto-parallel):**
 ```
 Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
   ├─ 3a: read state + progress summary, restart stale tasks, find ready tasks
   ├─ 3b: readiness check
-  ├─ 3c: lock files + create team
-  ├─ 3d: spawn workers (Teams mode, always)
-  ├─ 3e: lead coordination loop
-  ├─ 3f: cleanup (shutdown workers, unlock, delete team)
+  ├─ 3c: start tasks
+  ├─ 3d: spawn workers (worktree isolation, default)
+  ├─ 3e: wait for workers + merge back
+  ├─ 3f: cleanup
   ├─ 3g: verify done + wave checkpoint
   ├─ 3g½: interactive pause (if --interactive)
   ├─ 3h: plan-sync (if enabled + downstream tasks exist)

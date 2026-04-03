@@ -1182,8 +1182,6 @@ def _build_bootstrap_prompt(
     """
     # Build mode flags string for worker-phase calls
     flags = []
-    if team:
-        flags.append("--team")
     if tdd:
         flags.append("--tdd")
     if review:

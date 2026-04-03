@@ -1,7 +1,7 @@
 ---
 name: plan-sync
 description: Synchronizes downstream task specs after implementation. Spawned by flow-code-work after each task completes. Do not invoke directly.
-disallowedTools: Task, Write, Bash
+disallowedTools: Task
 model: opus
 color: "#8B5CF6"
 permissionMode: bypassPermissions

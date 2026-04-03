@@ -7,7 +7,7 @@ CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 ## Available Commands
 
 ```
-init, detect, epic, task, dep, gap, show, epics, tasks, list, cat, ready, next, start, done, block, validate, config, invariants, guard, stack, memory, parse-findings, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state
+init, detect, epic, task, dep, gap, show, epics, files, lock, unlock, lock-check, tasks, list, cat, ready, queue, next, start, done, restart, block, validate, config, invariants, guard, stack, review-backend, memory, parse-findings, prep-chat, rp, codex, checkpoint, status, state-path, migrate-state, worker-prompt, worker-phase, doctor, ralph
 ```
 
 ## Multi-User Safety
@@ -826,6 +826,45 @@ Completion review receipt:
 **Windows users:** Codex CLI's `read-only` sandbox blocks ALL shell commands on Windows (including reads). Use `--sandbox auto` or `--sandbox danger-full-access` for Windows compatibility.
 
 **Note:** After plugin update, re-run `/flow-code:setup` or `/flow-code:ralph-init` to get sandbox fixes.
+
+### worker-prompt
+
+Generate a trimmed worker prompt based on mode flags. Used by orchestration to bootstrap worker agents with minimal tokens.
+
+```bash
+# Full worker prompt (trimmed by mode flags)
+flowctl worker-prompt --task fn-1.1 [--tdd] [--review rp|codex] [--json]
+
+# Bootstrap mode: minimal ~200 token prompt for phase-gate execution
+flowctl worker-prompt --task fn-1.1 --bootstrap [--tdd] [--review rp|codex] [--json]
+```
+
+Options:
+- `--task ID` (required): Task ID for context
+- `--bootstrap`: Output minimal ~200 token prompt that instructs the worker to call `worker-phase next` in a loop
+- `--tdd`: Include TDD Phase 2a in the prompt
+- `--review rp|codex`: Include review Phase 4
+- `--team`: Include Teams mode instructions (default in phase-gate)
+- `--json`: JSON output with `prompt` and `estimated_tokens` fields
+
+### worker-phase
+
+Phase-gate sequential execution for workers. Workers call `next` to get the current phase instructions, execute them, then call `done` to advance.
+
+```bash
+# Get next uncompleted phase
+flowctl worker-phase next --task fn-1.1 [--tdd] [--review rp|codex] --json
+
+# Mark phase complete
+flowctl worker-phase done --task fn-1.1 --phase <PHASE_ID> [--tdd] [--review rp|codex] --json
+```
+
+**Default phase sequence**: `0 → 1 → 2 → 2.5 → 3 → 5 → 6`
+- With `--tdd`: adds Phase 2a (test-first)
+- With `--review`: adds Phase 4 (impl-review)
+- Canonical order: `0, 1, 2a, 2, 2.5, 3, 4, 5, 5b, 6`
+
+Phase progress is stored per-task in runtime state. `next` returns `{"phase": "<id>", "content": "...", "all_done": false}`. When all phases are complete, returns `{"phase": null, "all_done": true}`.
 
 ### checkpoint
 

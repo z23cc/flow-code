@@ -511,6 +511,13 @@ def _find_interrupted_epics(flow_dir: Path) -> list[dict]:
 
         # Interrupted = has any undone work (todo or in_progress)
         if counts["todo"] > 0 or counts["in_progress"] > 0:
+            # Determine reason: if auto_execute_pending is set, plan completed
+            # but work never started; otherwise it's partially complete
+            auto_exec_pending = epic_data.get("auto_execute_pending", False)
+            if auto_exec_pending and counts["done"] == 0 and counts["in_progress"] == 0:
+                reason = "planned_not_started"
+            else:
+                reason = "partially_complete"
             interrupted.append({
                 "id": epic_id,
                 "title": title,
@@ -520,6 +527,7 @@ def _find_interrupted_epics(flow_dir: Path) -> list[dict]:
                 "in_progress": counts["in_progress"],
                 "blocked": counts["blocked"],
                 "skipped": counts["skipped"],
+                "reason": reason,
                 "suggested": f"/flow-code:work {epic_id}",
             })
 

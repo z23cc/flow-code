@@ -478,6 +478,11 @@ Stop here. Do NOT auto-execute.
 
 **Otherwise (default — auto-execute):**
 
+Persist the intent to execute so interrupted handoffs are detected:
+```bash
+$FLOWCTL epic set-auto-execute <epic-id> --pending --json
+```
+
 Show one-line summary, then invoke work immediately:
 ```
 Epic <epic-id>: "<title>" (N tasks) — executing...

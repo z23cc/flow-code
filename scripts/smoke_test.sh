@@ -1791,6 +1791,71 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── epic set-auto-execute ──
+echo -e "\n${YELLOW}=== epic set-auto-execute ===${NC}"
+
+# Create an epic with tasks for auto-execute testing
+EPIC_AE_JSON="$(scripts/flowctl.py epic create --title "Auto execute test" --json)"
+EPIC_AE="$(echo "$EPIC_AE_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+scripts/flowctl.py task create --epic "$EPIC_AE" --title "AE task 1" --json > /dev/null
+scripts/flowctl.py task create --epic "$EPIC_AE" --title "AE task 2" --json > /dev/null
+
+# Set pending marker
+ae_pending="$(scripts/flowctl.py epic set-auto-execute "$EPIC_AE" --pending --json)"
+ae_pending_val="$(echo "$ae_pending" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["auto_execute_pending"])')"
+if [[ "$ae_pending_val" == "True" ]]; then
+  echo -e "${GREEN}✓${NC} set-auto-execute --pending sets marker"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} set-auto-execute --pending: expected True, got $ae_pending_val"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify --interrupted shows it with reason "planned_not_started"
+ae_int_json="$(scripts/flowctl.py status --interrupted --json)"
+ae_reason="$(echo "$ae_int_json" | "$PYTHON_BIN" -c '
+import json, sys
+data = json.load(sys.stdin)
+epics = data.get("interrupted", [])
+matching = [e for e in epics if e["id"] == "'"$EPIC_AE"'"]
+print(matching[0].get("reason", "") if matching else "")
+')"
+if [[ "$ae_reason" == "planned_not_started" ]]; then
+  echo -e "${GREEN}✓${NC} --interrupted shows planned_not_started reason for pending epic"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} --interrupted wrong reason (expected planned_not_started, got: $ae_reason)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Clear marker with --done
+ae_done="$(scripts/flowctl.py epic set-auto-execute "$EPIC_AE" --done --json)"
+ae_done_val="$(echo "$ae_done" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["auto_execute_pending"])')"
+if [[ "$ae_done_val" == "False" ]]; then
+  echo -e "${GREEN}✓${NC} set-auto-execute --done clears marker"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} set-auto-execute --done: expected False, got $ae_done_val"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify --interrupted now shows "partially_complete" reason (marker cleared)
+ae_int2_json="$(scripts/flowctl.py status --interrupted --json)"
+ae_reason2="$(echo "$ae_int2_json" | "$PYTHON_BIN" -c '
+import json, sys
+data = json.load(sys.stdin)
+epics = data.get("interrupted", [])
+matching = [e for e in epics if e["id"] == "'"$EPIC_AE"'"]
+print(matching[0].get("reason", "") if matching else "")
+')"
+if [[ "$ae_reason2" == "partially_complete" ]]; then
+  echo -e "${GREEN}✓${NC} --interrupted shows partially_complete after marker cleared"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} --interrupted wrong reason after clear (expected partially_complete, got: $ae_reason2)"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo -e "${YELLOW}=== Results ===${NC}"
 echo -e "Passed: ${GREEN}$PASS${NC}"

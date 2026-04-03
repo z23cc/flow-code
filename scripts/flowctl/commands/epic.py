@@ -933,6 +933,57 @@ def cmd_epic_reopen(args: argparse.Namespace) -> None:
         print(f"Epic {epic_id} reopened (was: {previous_status})")
 
 
+def cmd_epic_set_auto_execute(args: argparse.Namespace) -> None:
+    """Set or clear auto_execute_pending marker on an epic."""
+    if not ensure_flow_exists():
+        error_exit(
+            ".flow/ does not exist. Run 'flowctl init' first.", use_json=args.json
+        )
+
+    if not is_epic_id(args.id):
+        error_exit(
+            f"Invalid epic ID: {args.id}. Expected format: fn-N or fn-N-slug (e.g., fn-1, fn-1-add-auth)",
+            use_json=args.json,
+        )
+
+    flow_dir = get_flow_dir()
+    epic_path = flow_dir / EPICS_DIR / f"{args.id}.json"
+
+    if not epic_path.exists():
+        error_exit(f"Epic {args.id} not found", use_json=args.json)
+
+    epic_data = normalize_epic(
+        load_json_or_exit(epic_path, f"Epic {args.id}", use_json=args.json)
+    )
+
+    if args.pending:
+        epic_data["auto_execute_pending"] = True
+        epic_data["auto_execute_set_at"] = now_iso()
+        action = "pending"
+    elif args.done:
+        epic_data["auto_execute_pending"] = False
+        action = "done"
+    else:
+        error_exit(
+            "Either --pending or --done must be specified", use_json=args.json
+        )
+
+    epic_data["updated_at"] = now_iso()
+    atomic_write_json(epic_path, epic_data)
+
+    if args.json:
+        json_output(
+            {
+                "id": args.id,
+                "auto_execute_pending": epic_data["auto_execute_pending"],
+                "auto_execute_set_at": epic_data.get("auto_execute_set_at"),
+                "message": f"Epic {args.id} auto_execute set to {action}",
+            }
+        )
+    else:
+        print(f"Epic {args.id} auto_execute set to {action}")
+
+
 def cmd_epic_clean(args: argparse.Namespace) -> None:
     """Archive all closed epics at once."""
     if not ensure_flow_exists():

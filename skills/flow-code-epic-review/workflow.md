@@ -130,7 +130,14 @@ $FLOWCTL codex completion-review "$EPIC_ID" --receipt "$RECEIPT_PATH"
 ### Step 3: Handle Verdict
 
 If `VERDICT=NEEDS_WORK`:
-1. Parse issues from output
+1. Parse issues from output and register as gaps:
+   ```bash
+   # Save review output to temp file, then register findings as gaps
+   echo "$REVIEW_OUTPUT" > /tmp/review-response.txt
+   FINDINGS_RESULT="$($FLOWCTL parse-findings --file /tmp/review-response.txt --epic "$EPIC_ID" --register --source epic-review --json)"
+   REGISTERED="$(echo "$FINDINGS_RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("registered",0))' 2>/dev/null || echo 0)"
+   echo "Registered $REGISTERED findings as gaps"
+   ```
 2. Fix code and run tests
 3. Commit fixes
 4. Re-run step 2 (receipt enables session continuity)
@@ -380,7 +387,14 @@ fi
 
 If verdict is NEEDS_WORK:
 
-1. **Parse issues** - Extract ALL gaps (missing requirements, partial implementations)
+1. **Parse issues** - Extract ALL gaps (missing requirements, partial implementations). Register findings as gaps:
+   ```bash
+   # Save review response to temp file, then register findings as gaps
+   echo "$REVIEW_RESPONSE" > /tmp/review-response.txt
+   FINDINGS_RESULT="$($FLOWCTL parse-findings --file /tmp/review-response.txt --epic "$EPIC_ID" --register --source epic-review --json)"
+   REGISTERED="$(echo "$FINDINGS_RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("registered",0))' 2>/dev/null || echo 0)"
+   echo "Registered $REGISTERED findings as gaps"
+   ```
 2. **Fix the code** - Implement missing functionality
 3. **Run tests/lints** - Verify fixes don't break anything
 4. **Commit fixes** (MANDATORY before re-review):

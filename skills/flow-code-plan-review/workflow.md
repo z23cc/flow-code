@@ -74,7 +74,14 @@ $FLOWCTL epic set-plan-review-status "$EPIC_ID" --status needs_work --json
 ### Step 3: Handle Verdict
 
 If `VERDICT=NEEDS_WORK`:
-1. Parse issues from output
+1. Parse issues from output and register as gaps:
+   ```bash
+   # Save review output to temp file, then register findings as gaps
+   echo "$REVIEW_OUTPUT" > /tmp/review-response.txt
+   FINDINGS_RESULT="$($FLOWCTL parse-findings --file /tmp/review-response.txt --epic "$EPIC_ID" --register --source plan-review --json)"
+   REGISTERED="$(echo "$FINDINGS_RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("registered",0))' 2>/dev/null || echo 0)"
+   echo "Registered $REGISTERED findings as gaps"
+   ```
 2. Fix plan via `$FLOWCTL epic set-plan`
 3. Re-run step 1 (receipt enables session continuity)
 4. Repeat until SHIP
@@ -291,7 +298,14 @@ If no verdict tag, output `<promise>RETRY</promise>` and stop.
 
 If verdict is NEEDS_WORK:
 
-1. **Parse issues** - Extract ALL issues by severity (Critical → Major → Minor)
+1. **Parse issues** - Extract ALL issues by severity (Critical → Major → Minor). Register findings as gaps:
+   ```bash
+   # Save review response to temp file, then register findings as gaps
+   echo "$REVIEW_RESPONSE" > /tmp/review-response.txt
+   FINDINGS_RESULT="$($FLOWCTL parse-findings --file /tmp/review-response.txt --epic "$EPIC_ID" --register --source plan-review --json)"
+   REGISTERED="$(echo "$FINDINGS_RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("registered",0))' 2>/dev/null || echo 0)"
+   echo "Registered $REGISTERED findings as gaps"
+   ```
 2. **Fix the epic spec** - Address each issue.
 3. **Update epic spec in flowctl** (MANDATORY before re-review):
    ```bash

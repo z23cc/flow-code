@@ -13,7 +13,6 @@ from flowctl.core.constants import (
     PHASE_SEQ_DEFAULT,
     PHASE_SEQ_REVIEW,
     PHASE_SEQ_TDD,
-    PHASE_SEQ_TEAM,
     RUNTIME_FIELDS,
     TASKS_DIR,
 )
@@ -1170,7 +1169,7 @@ def _build_bootstrap_prompt(
     epic_id: str,
     flowctl_path: str,
     *,
-    team: bool = False,
+    no_team: bool = False,
     tdd: bool = False,
     review: str | None = None,
     ralph: bool = False,
@@ -1179,11 +1178,12 @@ def _build_bootstrap_prompt(
 
     Instead of the full worker.md, this prompt instructs the worker to call
     ``worker-phase next`` in a loop, executing one phase at a time.
+    Teams mode is the default; pass ``no_team=True`` for worktree isolation.
     """
     # Build mode flags string for worker-phase calls
     flags = []
-    if team:
-        flags.append("--team")
+    if no_team:
+        flags.append("--no-team")
     if tdd:
         flags.append("--tdd")
     if review:
@@ -1204,7 +1204,7 @@ def _build_bootstrap_prompt(
         f"- RALPH_MODE: {str(ralph).lower()}",
         f"- TDD_MODE: {str(tdd).lower()}",
     ]
-    if team:
+    if not no_team:
         lines.append("- TEAM_MODE: true")
 
     lines.extend([
@@ -1248,7 +1248,7 @@ def cmd_worker_prompt(args: argparse.Namespace) -> None:
             task_id=task_id,
             epic_id=epic_id,
             flowctl_path=flowctl_path,
-            team=args.team,
+            no_team=getattr(args, "no_team", False),
             tdd=args.tdd,
             review=args.review,
             ralph=getattr(args, "ralph", False),
@@ -1286,10 +1286,11 @@ def cmd_worker_prompt(args: argparse.Namespace) -> None:
         )
 
     # Determine which tags to include
-    include_tags = {"core"}
+    # Teams mode is the default — always include "team" unless --no-team
+    include_tags = {"core", "team"}
 
-    if args.team:
-        include_tags.add("team")
+    if getattr(args, "no_team", False):
+        include_tags.discard("team")
 
     if args.tdd:
         include_tags.add("tdd")
@@ -1326,13 +1327,13 @@ def cmd_worker_prompt(args: argparse.Namespace) -> None:
 # worker-phase: phase-gate sequential execution
 # ---------------------------------------------------------------------------
 
-def _build_phase_sequence(team: bool = False, tdd: bool = False, review: bool = False) -> list[str]:
+def _build_phase_sequence(tdd: bool = False, review: bool = False) -> list[str]:
     """Build the phase sequence based on mode flags.
 
-    Modes combine additively: --team --tdd --review produces
-    the union of all applicable phases in canonical order.
+    Teams mode is the default — Phase 0 is always included in PHASE_SEQ_DEFAULT.
+    Modes combine additively: --tdd --review adds their phases to the default.
     """
-    if not team and not tdd and not review:
+    if not tdd and not review:
         return list(PHASE_SEQ_DEFAULT)
 
     # Start from the full canonical order for merging
@@ -1340,8 +1341,6 @@ def _build_phase_sequence(team: bool = False, tdd: bool = False, review: bool = 
 
     # Collect all phases from applicable sequences
     phases: set[str] = set(PHASE_SEQ_DEFAULT)
-    if team:
-        phases |= set(PHASE_SEQ_TEAM)
     if tdd:
         phases |= set(PHASE_SEQ_TDD)
     if review:
@@ -1381,7 +1380,6 @@ def cmd_worker_phase_next(args: argparse.Namespace) -> None:
 
     # Build sequence from flags
     seq = _build_phase_sequence(
-        team=args.team,
         tdd=args.tdd,
         review=args.review is not None,
     )
@@ -1425,10 +1423,10 @@ def cmd_worker_phase_next(args: argparse.Namespace) -> None:
         if frontmatter_match:
             raw = raw[frontmatter_match.end():]
 
-        # Build include tags matching _build_phase_sequence logic
-        include_tags = {"core"}
-        if args.team:
-            include_tags.add("team")
+        # Build include tags — Teams mode is the default (always include "team")
+        include_tags = {"core", "team"}
+        if getattr(args, "no_team", False):
+            include_tags.discard("team")
         if args.tdd:
             include_tags.add("tdd")
         if args.review is not None:
@@ -1476,7 +1474,6 @@ def cmd_worker_phase_done(args: argparse.Namespace) -> None:
 
     # Build sequence from flags
     seq = _build_phase_sequence(
-        team=args.team,
         tdd=args.tdd,
         review=args.review is not None,
     )
@@ -1485,7 +1482,7 @@ def cmd_worker_phase_done(args: argparse.Namespace) -> None:
     if phase not in seq:
         error_exit(
             f"Phase '{phase}' is not in the current sequence: {', '.join(seq)}. "
-            f"Check your mode flags (--team, --tdd, --review).",
+            f"Check your mode flags (--tdd, --review).",
             use_json=args.json,
         )
 

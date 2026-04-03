@@ -1865,26 +1865,26 @@ cp -r "$PLUGIN_ROOT/agents" "$TEST_DIR/repo/agents"
 # Disable memory so default prompt is core-only (memory auto-includes if enabled)
 scripts/flowctl.py config set memory.enabled false --json >/dev/null
 
-# Test: worker-prompt default output (core-only, check sections and token count)
+# Test: worker-prompt default output (core+team by default — Teams is always-on)
 wp_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --json)"
 wp_sections="$(echo "$wp_json" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); print(",".join(sorted(d["sections"])))')"
 wp_tokens="$(echo "$wp_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["estimated_tokens"])')"
-if [[ "$wp_sections" == "core" ]] && [[ "$wp_tokens" -gt 0 ]]; then
-  echo -e "${GREEN}✓${NC} worker-prompt default: core-only, ${wp_tokens} tokens"
+if [[ "$wp_sections" == "core,team" ]] && [[ "$wp_tokens" -gt 0 ]]; then
+  echo -e "${GREEN}✓${NC} worker-prompt default: core+team (Teams always-on), ${wp_tokens} tokens"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} worker-prompt default: expected sections=core, got $wp_sections (tokens: $wp_tokens)"
+  echo -e "${RED}✗${NC} worker-prompt default: expected sections=core,team, got $wp_sections (tokens: $wp_tokens)"
   FAIL=$((FAIL + 1))
 fi
 
-# Test: worker-prompt --team includes team sections
-wp_team_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --team --json)"
-wp_team_sections="$(echo "$wp_team_json" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); print(",".join(sorted(d["sections"])))')"
-if [[ "$wp_team_sections" == *"team"* ]] && [[ "$wp_team_sections" == *"core"* ]]; then
-  echo -e "${GREEN}✓${NC} worker-prompt --team: includes team sections ($wp_team_sections)"
+# Test: worker-prompt --no-team excludes team sections
+wp_noteam_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --no-team --json)"
+wp_noteam_sections="$(echo "$wp_noteam_json" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); print(",".join(sorted(d["sections"])))')"
+if [[ "$wp_noteam_sections" == "core" ]]; then
+  echo -e "${GREEN}✓${NC} worker-prompt --no-team: excludes team sections ($wp_noteam_sections)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} worker-prompt --team: expected core,team in sections, got $wp_team_sections"
+  echo -e "${RED}✗${NC} worker-prompt --no-team: expected core only, got $wp_noteam_sections"
   FAIL=$((FAIL + 1))
 fi
 
@@ -1896,15 +1896,27 @@ EPIC_PH="$(echo "$EPIC_PH_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.
 scripts/flowctl.py task create --epic "$EPIC_PH" --title "Phase task" --json >/dev/null
 scripts/flowctl.py start "${EPIC_PH}.1" --json >/dev/null
 
-# Test: worker-phase next returns phase 1 initially
+# Test: worker-phase next returns phase 0 initially (Teams default includes Phase 0)
 wph_next="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_phase="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
 wph_done="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["all_done"])')"
-if [[ "$wph_phase" == "1" ]] && [[ "$wph_done" == "False" ]]; then
-  echo -e "${GREEN}✓${NC} worker-phase next: initial phase is 1"
+if [[ "$wph_phase" == "0" ]] && [[ "$wph_done" == "False" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase next: initial phase is 0 (Teams default)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} worker-phase next: expected phase=1 all_done=False, got phase=$wph_phase all_done=$wph_done"
+  echo -e "${RED}✗${NC} worker-phase next: expected phase=0 all_done=False, got phase=$wph_phase all_done=$wph_done"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: worker-phase done phase 0 → next returns phase 1
+scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase 0 --json >/dev/null
+wph_next1="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"
+wph_phase1="$(echo "$wph_next1" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
+if [[ "$wph_phase1" == "1" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase done→next: advances to phase 1"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase done→next: expected phase=1, got $wph_phase1"
   FAIL=$((FAIL + 1))
 fi
 
@@ -1931,7 +1943,7 @@ else
 fi
 
 # Test: worker-phase next returns non-empty content field
-wph_content_len="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(len(json.load(sys.stdin).get("content","")))')"
+wph_content_len="$(echo "$wph_next1" | "$PYTHON_BIN" -c 'import json,sys; print(len(json.load(sys.stdin).get("content","")))')"
 if [[ "$wph_content_len" -gt 0 ]]; then
   echo -e "${GREEN}✓${NC} worker-phase next: content field is non-empty ($wph_content_len chars)"
   PASS=$((PASS + 1))
@@ -1941,7 +1953,7 @@ else
 fi
 
 # Test: worker-phase next returns different content for different phases
-wph_content_p1="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("content","")[:50])')"
+wph_content_p1="$(echo "$wph_next1" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("content","")[:50])')"
 wph_content_p2="$(echo "$wph_next2" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("content","")[:50])')"
 if [[ "$wph_content_p1" != "$wph_content_p2" ]] && [[ -n "$wph_content_p2" ]]; then
   echo -e "${GREEN}✓${NC} worker-phase next: content changes between phases"
@@ -1963,7 +1975,8 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# Test: complete all default phases → all_done
+# Test: complete all remaining default phases → all_done
+# Phases 0 and 1 already done above; complete remaining: 2, 2.5, 3, 5, 6
 for phase in 2 2.5 3 5 6; do
   scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --json >/dev/null
 done

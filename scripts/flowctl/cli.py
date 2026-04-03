@@ -35,6 +35,7 @@ from flowctl.commands.gap import (
     cmd_gap_resolve,
     cmd_gap_check,
 )
+from flowctl.commands.findings import cmd_parse_findings
 from flowctl.commands.epic import (
     cmd_epic_create,
     cmd_epic_set_plan,
@@ -543,6 +544,30 @@ def main() -> None:
     p_gap_check.add_argument("--epic", required=True, help="Epic ID")
     p_gap_check.add_argument("--json", action="store_true", help="JSON output")
     p_gap_check.set_defaults(func=cmd_gap_check)
+
+    # parse-findings
+    p_pf = subparsers.add_parser(
+        "parse-findings",
+        help="Extract structured findings from review output",
+    )
+    p_pf.add_argument(
+        "--file", required=True,
+        help="Review output file (or '-' for stdin)",
+    )
+    p_pf.add_argument(
+        "--epic", default=None,
+        help="Epic ID (required with --register)",
+    )
+    p_pf.add_argument(
+        "--register", action="store_true",
+        help="Auto-register critical/major findings as gaps",
+    )
+    p_pf.add_argument(
+        "--source", default="manual",
+        help="Gap source label (default: manual)",
+    )
+    p_pf.add_argument("--json", action="store_true", help="JSON output")
+    p_pf.set_defaults(func=cmd_parse_findings)
 
     # show
     p_show = subparsers.add_parser("show", help="Show epic or task")

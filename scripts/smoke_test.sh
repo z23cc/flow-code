@@ -1609,6 +1609,130 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+echo -e "${YELLOW}--- parse-findings ---${NC}"
+
+# Test: valid <findings> tag
+FINDINGS_FILE="$TEST_DIR/findings_valid.txt"
+cat > "$FINDINGS_FILE" <<'FINDINGS_EOF'
+Some review preamble text.
+
+<findings>
+[
+  {
+    "title": "Missing input validation",
+    "severity": "critical",
+    "location": "src/auth.py:42",
+    "recommendation": "Add input sanitization"
+  },
+  {
+    "title": "Unused import",
+    "severity": "nitpick",
+    "location": "src/utils.py:1",
+    "recommendation": "Remove unused import"
+  }
+]
+</findings>
+
+More review text after.
+FINDINGS_EOF
+
+pf_result="$(scripts/flowctl.py parse-findings --file "$FINDINGS_FILE" --json)"
+pf_count="$(echo "$pf_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
+if [[ "$pf_count" == "2" ]]; then
+  echo -e "${GREEN}✓${NC} parse-findings extracts findings from <findings> tag"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} parse-findings count wrong (expected 2, got $pf_count)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: missing <findings> tag → graceful empty
+FINDINGS_EMPTY="$TEST_DIR/findings_empty.txt"
+echo "No findings here, just plain review text." > "$FINDINGS_EMPTY"
+
+pf_empty="$(scripts/flowctl.py parse-findings --file "$FINDINGS_EMPTY" --json)"
+pf_empty_count="$(echo "$pf_empty" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
+pf_empty_warns="$(echo "$pf_empty" | "$PYTHON_BIN" -c 'import json,sys; w=json.load(sys.stdin).get("warnings",[]); print(len(w))')"
+if [[ "$pf_empty_count" == "0" ]] && [[ "$pf_empty_warns" -ge 1 ]]; then
+  echo -e "${GREEN}✓${NC} parse-findings gracefully handles missing tags"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} parse-findings missing tag handling wrong (count=$pf_empty_count, warns=$pf_empty_warns)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: malformed JSON (trailing commas)
+FINDINGS_MALFORMED="$TEST_DIR/findings_malformed.txt"
+cat > "$FINDINGS_MALFORMED" <<'FINDINGS_EOF'
+<findings>
+[
+  {
+    "title": "Trailing comma issue",
+    "severity": "major",
+    "location": "src/app.py:10",
+    "recommendation": "Fix the trailing comma",
+  },
+]
+</findings>
+FINDINGS_EOF
+
+pf_mal="$(scripts/flowctl.py parse-findings --file "$FINDINGS_MALFORMED" --json)"
+pf_mal_count="$(echo "$pf_mal" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
+if [[ "$pf_mal_count" == "1" ]]; then
+  echo -e "${GREEN}✓${NC} parse-findings handles malformed JSON (trailing commas)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} parse-findings malformed JSON handling wrong (expected 1, got $pf_mal_count)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: --register auto gap add
+FINDINGS_REG="$TEST_DIR/findings_register.txt"
+cat > "$FINDINGS_REG" <<'FINDINGS_EOF'
+<findings>
+[
+  {
+    "title": "SQL injection vulnerability",
+    "severity": "critical",
+    "location": "src/db.py:99",
+    "recommendation": "Use parameterized queries"
+  },
+  {
+    "title": "Minor typo in comment",
+    "severity": "minor",
+    "location": "src/main.py:5",
+    "recommendation": "Fix typo"
+  }
+]
+</findings>
+FINDINGS_EOF
+
+pf_reg="$(scripts/flowctl.py parse-findings --file "$FINDINGS_REG" --epic "$EPIC1" --register --source plan-review --json)"
+pf_reg_registered="$(echo "$pf_reg" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("registered", 0))')"
+if [[ "$pf_reg_registered" == "1" ]]; then
+  echo -e "${GREEN}✓${NC} parse-findings --register adds critical/major gaps (skips minor)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} parse-findings --register wrong count (expected 1, got $pf_reg_registered)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify the gap was actually created
+gap_reg_check="$(scripts/flowctl.py gap list --epic "$EPIC1" --json | "$PYTHON_BIN" -c '
+import json, sys
+data = json.load(sys.stdin)
+gaps = data.get("gaps", [])
+sql_gaps = [g for g in gaps if "SQL injection" in g.get("capability", "")]
+print(len(sql_gaps))
+')"
+if [[ "$gap_reg_check" == "1" ]]; then
+  echo -e "${GREEN}✓${NC} parse-findings --register actually created the gap"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} parse-findings --register gap not found in registry (found $gap_reg_check)"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo -e "${YELLOW}=== Results ===${NC}"
 echo -e "Passed: ${GREEN}$PASS${NC}"

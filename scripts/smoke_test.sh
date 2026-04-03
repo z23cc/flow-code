@@ -1950,6 +1950,35 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Test: worker-phase 2.5 content contains SELF-AWARENESS pattern
+wph_content_2_5="$(echo "$wph_next2_5" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("content",""))')"
+if echo "$wph_content_2_5" | grep -q "SELF-AWARENESS"; then
+  echo -e "${GREEN}✓${NC} worker-phase 2.5 content: contains SELF-AWARENESS pattern"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase 2.5 content: missing SELF-AWARENESS pattern"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: worker-phase 6 content contains structured output format (Scope:)
+# Advance through remaining phases to reach phase 6
+EPIC_PH2_JSON="$(scripts/flowctl.py epic create --title "Phase content test" --json)"
+EPIC_PH2="$(echo "$EPIC_PH2_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+scripts/flowctl.py task create --epic "$EPIC_PH2" --title "Content task" --json >/dev/null
+scripts/flowctl.py start "${EPIC_PH2}.1" --json >/dev/null
+for phase in 0 1 2 2.5 3 5 5b; do
+  scripts/flowctl.py worker-phase done --task "${EPIC_PH2}.1" --phase "$phase" --json >/dev/null
+done
+wph_next6="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH2}.1" --json)"
+wph_content_6="$(echo "$wph_next6" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("content",""))')"
+if echo "$wph_content_6" | grep -q "Scope:"; then
+  echo -e "${GREEN}✓${NC} worker-phase 6 content: contains structured output format (Scope:)"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase 6 content: missing structured output format (Scope:)"
+  FAIL=$((FAIL + 1))
+fi
+
 # Test: worker-prompt --bootstrap outputs <300 tokens
 wp_boot_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --bootstrap --json)"
 wp_boot_tokens="$(echo "$wp_boot_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["estimated_tokens"])')"
@@ -1963,8 +1992,8 @@ else
 fi
 
 # Test: complete all remaining default phases → all_done
-# Phases 0, 1, 2 already done above; complete remaining: 2.5, 3, 5, 6
-for phase in 2.5 3 5 6; do
+# Phases 0, 1, 2 already done above; complete remaining: 2.5, 3, 5, 5b, 6
+for phase in 2.5 3 5 5b 6; do
   scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --json >/dev/null
 done
 wph_final="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"

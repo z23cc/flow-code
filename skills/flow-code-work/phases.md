@@ -39,6 +39,7 @@ Detect input type in this order (first match wins):
 - **This is the only task to execute** — no loop to next task
 
 **Flow epic ID (fn-N-slug or legacy fn-N/fn-N-xxx)** → EPIC_MODE:
+- Clear auto-execute marker (confirms work has started): `$FLOWCTL epic set-auto-execute <id> --done --json`
 - Read epic: `$FLOWCTL show <id> --json`
 - Read spec: `$FLOWCTL cat <id>`
 - Get first ready task: `$FLOWCTL ready --epic <id> --json`

@@ -50,6 +50,7 @@ from flowctl.commands.epic import (
     cmd_epic_reopen,
     cmd_epic_archive,
     cmd_epic_clean,
+    cmd_epic_set_auto_execute,
 )
 from flowctl.commands.task import (
     cmd_task_create,
@@ -388,6 +389,19 @@ def main() -> None:
     )
     p_epic_set_backend.add_argument("--json", action="store_true", help="JSON output")
     p_epic_set_backend.set_defaults(func=cmd_epic_set_backend)
+
+    p_epic_set_auto_execute = epic_sub.add_parser(
+        "set-auto-execute", help="Set or clear auto_execute_pending marker"
+    )
+    p_epic_set_auto_execute.add_argument("id", help="Epic ID (e.g., fn-1, fn-1-add-auth)")
+    p_epic_set_auto_execute.add_argument(
+        "--pending", action="store_true", help="Mark auto-execute as pending"
+    )
+    p_epic_set_auto_execute.add_argument(
+        "--done", action="store_true", help="Clear auto-execute pending marker"
+    )
+    p_epic_set_auto_execute.add_argument("--json", action="store_true", help="JSON output")
+    p_epic_set_auto_execute.set_defaults(func=cmd_epic_set_auto_execute)
 
     # task create
     p_task = subparsers.add_parser("task", help="Task commands")

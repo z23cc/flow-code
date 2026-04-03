@@ -89,6 +89,10 @@ def normalize_epic(epic_data: dict) -> dict:
         epic_data["default_sync"] = None
     if "gaps" not in epic_data:
         epic_data["gaps"] = []
+    if "auto_execute_pending" not in epic_data:
+        epic_data["auto_execute_pending"] = False
+    if "auto_execute_set_at" not in epic_data:
+        epic_data["auto_execute_set_at"] = None
     return epic_data
 
 

@@ -28,17 +28,16 @@ The worker may run in the main working directory or an isolated git worktree (vi
 
 ## Execution Mode
 
-Your phases are managed by flowctl. To get your current phase:
-```bash
-$FLOWCTL worker-phase next --task $TASK_ID --json
-```
+You execute phases one at a time via flowctl commands.
 
-After completing each phase:
-```bash
-$FLOWCTL worker-phase done --task $TASK_ID --phase <N> --json
-```
+**Phase loop:**
+1. Run: `$FLOWCTL worker-phase next --task $TASK_ID [--team] [--tdd] [--review] --json`
+2. Read the returned `content` field — it contains your instructions for this phase
+3. Execute the phase instructions completely
+4. Run: `$FLOWCTL worker-phase done --task $TASK_ID --phase <N> --json`
+5. Repeat from step 1 until response has `all_done: true`
 
-Do NOT skip phases. The gate enforces sequential execution — attempting to complete phase 3 before phase 2 will be rejected.
+Do NOT skip phases. Do NOT execute phases out of order. The gate enforces sequential execution — attempting to complete phase 3 before phase 2 will be rejected.
 <!-- /section:core -->
 
 <!-- section:team -->

@@ -191,18 +191,18 @@ you have violated the Teams protocol. Delete those agents and redo 3c-3d.
 
 **Prompt generation for worker:**
 
-Use `flowctl worker-prompt` to generate a trimmed prompt for each worker. This strips unused sections (Team, TDD, Review) based on flags, reducing prompt size by ~60%.
+Use `flowctl worker-prompt --bootstrap` to generate a minimal bootstrap prompt for each worker. This outputs a ~200 token prompt that instructs the worker to call `worker-phase next` in a loop, fetching full phase instructions on demand.
 
 ```bash
-# Build the prompt — flags match the task's execution context
-WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> [--team] [--tdd] [--review rp|codex])
+# Build the bootstrap prompt — flags match the task's execution context
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--team] [--tdd] [--review rp|codex])
 ```
 
 **Multiple ready tasks (Teams mode):**
 
 ```bash
-# Generate trimmed prompt with --team flag
-WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --team [--tdd] [--review rp|codex])
+# Generate bootstrap prompt with --team flag
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap --team [--tdd] [--review rp|codex])
 ```
 
 ```
@@ -231,8 +231,8 @@ Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
 **Single ready task (no Teams overhead):**
 
 ```bash
-# Generate trimmed prompt (no --team flag)
-WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> [--tdd] [--review rp|codex])
+# Generate bootstrap prompt (no --team flag)
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--tdd] [--review rp|codex])
 ```
 
 ```

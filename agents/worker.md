@@ -86,6 +86,27 @@ The lead sends plain text messages. Detect intent by the `summary` prefix or key
 
 After `flowctl done`, send a `task_complete` message, then wait for next assignment or shutdown.
 
+## Phase 0: Verify Configuration (CRITICAL)
+
+**If TEAM_MODE is `true`:**
+
+1. **Verify OWNED_FILES is set and non-empty**
+   - If empty or missing: **STOP immediately**. Send to coordinator:
+     ```
+     SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
+       message: "Task <TASK_ID> is blocked.\nReason: TEAM_MODE=true but OWNED_FILES is empty or missing.\nBlocked by: orchestrator configuration error")
+     ```
+   - Do NOT proceed to Phase 1
+
+2. **Verify TASK_ID matches prompt**
+   - Confirm the `TASK_ID` from your prompt matches what `flowctl show` returns
+   - If mismatch: STOP and report as blocked
+
+3. **Log owned files for audit trail**
+   - Print `OWNED_FILES: <file1>, <file2>, ...` so the conversation log captures your ownership set
+
+**If TEAM_MODE is not set or `false`:** proceed directly to Phase 1 (unrestricted file access).
+
 ## Phase 1: Re-anchor (CRITICAL - DO NOT SKIP)
 
 Use the FLOWCTL path and IDs from your prompt:
@@ -202,6 +223,24 @@ If more files remain (tests, docs, config), repeat: parallel read → checkpoint
 - Task touches ≤ 2 files → just read and edit sequentially
 - All files have tight coupling (each depends on previous edit) → sequential is correct
 - Exploratory work where you don't know which files to touch yet → discover first, then Wave
+
+### TEAM_MODE Pre-Edit Gate (CRITICAL when TEAM_MODE=true)
+
+**Before EVERY file edit when TEAM_MODE is true, you MUST check:**
+
+1. Is this file in `OWNED_FILES`?
+   - **YES** → proceed with the edit
+   - **NO** → **STOP. Do NOT edit the file.** Instead:
+     1. Send a file access request:
+        ```
+        SendMessage(to: "coordinator", summary: "Need file access: <file>",
+          message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id if known>")
+        ```
+     2. Wait for "Access granted:" or "Access denied:" response
+     3. If no response within 60s, skip the file and note it in your completion evidence
+     4. On "Access denied:", find an alternative approach that stays within your owned files
+
+**This is not optional.** Do not bypass this check even if you believe the lock system will catch violations. Self-enforcement is the primary guard; hooks are the backup.
 
 ### General Implementation Rules
 
@@ -440,7 +479,7 @@ Return a concise summary to the main conversation:
 - Tests run (if any)
 - Review verdict (if REVIEW_MODE != none)
 
-## Pre-Return Checklist (MUST complete before Phase 6)
+## Pre-Return Checklist (MANDATORY — copy and verify)
 
 Before returning to the main conversation, verify ALL of these:
 
@@ -448,10 +487,25 @@ Before returning to the main conversation, verify ALL of these:
 □ Code committed? → git log --oneline -1 (must see your commit)
 □ flowctl done called? → <FLOWCTL> show <TASK_ID> --json (status MUST be "done")
 □ If status is NOT "done" → retry: <FLOWCTL> done <TASK_ID> --summary "implemented" --evidence-json '{"tests_passed":true}'
-□ In Teams mode? → SendMessage ONLY after status confirmed "done"
+□ If TEAM_MODE=true:
+  □ Only edited files in OWNED_FILES (or explicitly granted by coordinator)
+  □ Sent "Task complete: <TASK_ID>" via SendMessage AFTER status confirmed "done"
+  □ Waited for coordinator acknowledgment or shutdown
 ```
 
 **If any check fails, fix it before returning. Do NOT return with status != "done".**
+
+### Red Flag Thoughts (TEAM_MODE)
+
+If you catch yourself thinking any of these, stop and follow the correct action:
+
+| Thought | Reality |
+|---------|---------|
+| "I need to edit a file not in OWNED_FILES" | Send "Need file access:" and WAIT. Do not edit. |
+| "The coordinator isn't responding" | Wait 60s. If no response, skip the file and note it in evidence. |
+| "I'll just edit it, the lock check will catch it" | Don't rely on hooks. Self-enforce OWNED_FILES. |
+| "TEAM_MODE doesn't matter for this task" | If TEAM_MODE=true is set, follow the protocol. Always. |
+| "It's a small edit, nobody will notice" | Ownership violations break parallel safety for everyone. |
 
 ## Rules
 

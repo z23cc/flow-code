@@ -103,6 +103,7 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Goal-backward verification**: worker Phase 5 re-reads acceptance criteria and verifies each is actually satisfied before completing
 - **Full-auto by default**: `/flow-code:plan` and `/flow-code:work` require zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
 - **Cross-platform**: flowctl CLI works on macOS/Linux/Windows (Python, no native deps). RP plan-review auto-degrades to Codex on platforms where rp-cli is unavailable. Bash hooks degrade gracefully on Windows (skip, don't block)
+- **Session start**: if `.flow/` exists, run `flowctl status --interrupted` to check for unfinished work from a previous session and resume with the suggested `/flow-code:work <id>` command
 
 ## Files to Never Commit
 

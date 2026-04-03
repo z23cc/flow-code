@@ -1733,6 +1733,64 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── status --interrupted ──
+echo -e "\n${YELLOW}=== status --interrupted ===${NC}"
+
+# Create a second epic with todo tasks to test interrupted detection
+EPIC_INT_JSON="$(scripts/flowctl.py epic create --title "Interrupted test epic" --json)"
+EPIC_INT="$(echo "$EPIC_INT_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+scripts/flowctl.py task create --epic "$EPIC_INT" --title "Interrupted task 1" --json > /dev/null
+scripts/flowctl.py task create --epic "$EPIC_INT" --title "Interrupted task 2" --json > /dev/null
+
+# Test --interrupted --json detects epic with todo tasks
+int_json="$(scripts/flowctl.py status --interrupted --json)"
+int_count="$(echo "$int_json" | "$PYTHON_BIN" -c '
+import json, sys
+data = json.load(sys.stdin)
+epics = data.get("interrupted", [])
+matching = [e for e in epics if e["id"] == "'"$EPIC_INT"'"]
+print(len(matching))
+')"
+if [[ "$int_count" == "1" ]]; then
+  echo -e "${GREEN}✓${NC} status --interrupted detects epic with todo tasks"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} status --interrupted did not detect epic (found $int_count)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify suggested command is included
+int_suggested="$(echo "$int_json" | "$PYTHON_BIN" -c '
+import json, sys
+data = json.load(sys.stdin)
+epics = data.get("interrupted", [])
+matching = [e for e in epics if e["id"] == "'"$EPIC_INT"'"]
+print(matching[0].get("suggested", "") if matching else "")
+')"
+if [[ "$int_suggested" == "/flow-code:work $EPIC_INT" ]]; then
+  echo -e "${GREEN}✓${NC} status --interrupted includes suggested resume command"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} status --interrupted wrong suggested (got: $int_suggested)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify task counts in interrupted output
+int_todo="$(echo "$int_json" | "$PYTHON_BIN" -c '
+import json, sys
+data = json.load(sys.stdin)
+epics = data.get("interrupted", [])
+matching = [e for e in epics if e["id"] == "'"$EPIC_INT"'"]
+print(matching[0].get("todo", 0) if matching else 0)
+')"
+if [[ "$int_todo" == "2" ]]; then
+  echo -e "${GREEN}✓${NC} status --interrupted reports correct todo count"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} status --interrupted wrong todo count (expected 2, got $int_todo)"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo -e "${YELLOW}=== Results ===${NC}"
 echo -e "Passed: ${GREEN}$PASS${NC}"

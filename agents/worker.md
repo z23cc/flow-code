@@ -31,7 +31,7 @@ The worker may run in the main working directory or an isolated git worktree (vi
 You execute phases one at a time via flowctl commands.
 
 **Phase loop:**
-1. Run: `$FLOWCTL worker-phase next --task $TASK_ID [--team] [--tdd] [--review] --json`
+1. Run: `$FLOWCTL worker-phase next --task $TASK_ID [--tdd] [--review] --json`
 2. Read the returned `content` field — it contains your instructions for this phase
 3. Execute the phase instructions completely
 4. Run: `$FLOWCTL worker-phase done --task $TASK_ID --phase <N> --json`

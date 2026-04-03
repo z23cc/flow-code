@@ -19,7 +19,7 @@ scripts/flowctl/         → Core engine package — all .flow/ state management
   compat.py               → fcntl/Windows platform abstraction
   cli.py                  → argparse setup + command dispatch
   core/                   → Shared utilities (constants, io, ids, config, paths, state, git)
-  commands/               → Command handlers (admin, epic, task, workflow, query, memory, review, rp, stack, gap)
+  commands/               → Command handlers (admin, epic, task, workflow, query, memory, review, rp, stack, gap, findings)
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
@@ -88,22 +88,22 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Review comparison**: `flowctl review-backend --compare <files>` or `--epic <id>` detects consensus/conflict across review receipts (auto-archived to `.flow/reviews/`)
 - **Domain tagging**: `flowctl task create --domain <domain>` tags tasks (frontend/backend/architecture/testing/docs/ops/general), filterable via `tasks --domain`
 - **Epic archival**: `flowctl epic archive <id>` moves closed epic + tasks + specs + reviews to `.flow/.archive/`; `flowctl epic clean` archives all closed epics at once
-- **Learning loop**: plan injects memory (Step 1b), worker saves lessons (Phase 5b), epic close prompts retro, retro verifies stale entries via `flowctl memory verify <id>`
+- **Learning loop**: plan injects memory (Step 1b), worker saves lessons (Phase 5b, included in default sequence when memory.enabled is true), epic close prompts retro, retro verifies stale entries via `flowctl memory verify <id>`
 - **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
 - **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files --epic <id>` shows ownership map + conflict detection
 - **File locking (Teams)**: `flowctl lock --task <id> --files <paths>` acquires runtime file locks; `flowctl unlock --task <id>` releases on completion; `flowctl lock-check --file <path>` inspects lock state; `flowctl unlock --all` clears all locks between waves
 - **Agent Teams mode**: `/flow-code:work --teams` spawns workers as Agent Team teammates with plain-text protocol messages (summary-prefix routing: "Task complete:", "Spec conflict:", "Blocked:", "Need file access:", "New task:", "Access granted/denied:", native `shutdown_request`) and file lock enforcement
 - **Adversarial review**: `flowctl codex adversarial --base main [--focus "area"]` runs Codex in adversarial mode — tries to break the code, not validate it. Returns SHIP/NEEDS_WORK with grounded findings
-- **Three-layer quality system**: Layer 1: `flowctl guard` (deterministic lint/type/test, every commit). Layer 2: RP plan-review (code-aware spec validation, plan phase — RP sees full codebase via context_builder). Layer 3: `flowctl codex adversarial` (cross-model adversarial, epic completion — different model family catches blind spots). Spec conflicts and blockers forwarded to Codex for autonomous decision-making.
+- **Three-layer quality system**: Layer 1: `flowctl guard` (deterministic lint/type/test, every commit). Layer 2: RP plan-review (code-aware spec validation, invoked via `/flow-code:plan-review` — RP sees full codebase via context_builder). Layer 3: `flowctl codex adversarial` (cross-model adversarial, epic completion — different model family catches blind spots). Spec conflicts and blockers forwarded to Codex for autonomous decision-making.
 - **Review circuit breaker**: impl-review fix loop capped at `MAX_REVIEW_ITERATIONS` (default 3) — prevents infinite NEEDS_WORK cycles
 - **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
 - **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`
 - **Worker self-review**: Phase 2.5 runs guard + structured diff review (correctness, quality, performance, testing) before commit
 - **Plan auto-execute**: `/flow-code:plan` defaults to auto-execute work after planning (≤10 tasks direct, >10 suggests Ralph); `--plan-only` to opt out
 - **Goal-backward verification**: worker Phase 5 re-reads acceptance criteria and verifies each is actually satisfied before completing
-- **Full-auto by default**: `/flow-code:plan` and `/flow-code:work` require zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
+- **Full-auto by default**: `/flow-code:plan` and `/flow-code:work` require zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + Teams + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
 - **Cross-platform**: flowctl CLI works on macOS/Linux/Windows (Python, no native deps). RP plan-review auto-degrades to Codex on platforms where rp-cli is unavailable. Bash hooks degrade gracefully on Windows (skip, don't block)
-- **Session start**: if `.flow/` exists, run `flowctl status --interrupted` to check for unfinished work from a previous session and resume with the suggested `/flow-code:work <id>` command
+- **Session start**: CLAUDE.md instruction (not an enforced hook) — if `.flow/` exists, run `flowctl status --interrupted` to check for unfinished work from a previous session and resume with the suggested `/flow-code:work <id>` command
 
 ## Files to Never Commit
 

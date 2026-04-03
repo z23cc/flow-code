@@ -752,8 +752,8 @@ def main() -> None:
         help="Include review Phase 4 (rp or codex)",
     )
     p_wp.add_argument(
-        "--bootstrap", action="store_true",
-        help="Output minimal ~200 token bootstrap prompt for phase-gate execution",
+        "--bootstrap", action="store_true", default=True,
+        help="(deprecated, now always active) Bootstrap prompt mode",
     )
     p_wp.add_argument("--json", action="store_true", help="JSON output")
     p_wp.set_defaults(func=cmd_worker_prompt)

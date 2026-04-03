@@ -1858,22 +1858,18 @@ fi
 
 echo -e "${YELLOW}--- worker-prompt ---${NC}"
 
-# We need agents/worker.md accessible from the test's CLAUDE_PLUGIN_ROOT
-# Copy the agents directory so worker-prompt can find worker.md
+# Copy agents directory so worker-phase can find worker.md
 cp -r "$PLUGIN_ROOT/agents" "$TEST_DIR/repo/agents"
 
-# Disable memory so default prompt is core-only (memory auto-includes if enabled)
-scripts/flowctl.py config set memory.enabled false --json >/dev/null
-
-# Test: worker-prompt default output (core+team — both always active)
+# Test: worker-prompt default output (bootstrap mode — full mode removed)
 wp_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --json)"
-wp_sections="$(echo "$wp_json" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); print(",".join(sorted(d["sections"])))')"
+wp_mode="$(echo "$wp_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["mode"])')"
 wp_tokens="$(echo "$wp_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["estimated_tokens"])')"
-if [[ "$wp_sections" == "core,team" ]] && [[ "$wp_tokens" -gt 0 ]]; then
-  echo -e "${GREEN}✓${NC} worker-prompt default: core+team (both active), ${wp_tokens} tokens"
+if [[ "$wp_mode" == "bootstrap" ]] && [[ "$wp_tokens" -gt 0 ]] && [[ "$wp_tokens" -lt 300 ]]; then
+  echo -e "${GREEN}✓${NC} worker-prompt default: bootstrap mode, ${wp_tokens} tokens (<300)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} worker-prompt default: expected sections=core,team, got $wp_sections (tokens: $wp_tokens)"
+  echo -e "${RED}✗${NC} worker-prompt default: expected mode=bootstrap and <300 tokens, got mode=$wp_mode tokens=$wp_tokens"
   FAIL=$((FAIL + 1))
 fi
 

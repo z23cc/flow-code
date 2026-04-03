@@ -50,6 +50,6 @@ PHASE_DEFS = {
 
 # Phase sequences by mode
 # Default: Worktree + Teams — Phase 0 (team verification) always included.
-PHASE_SEQ_DEFAULT = ["0", "1", "2", "2.5", "3", "5", "6"]
-PHASE_SEQ_TDD     = ["0", "1", "2a", "2", "2.5", "3", "5", "6"]
-PHASE_SEQ_REVIEW  = ["0", "1", "2", "2.5", "3", "4", "5", "6"]
+PHASE_SEQ_DEFAULT = ["0", "1", "2", "2.5", "3", "5", "5b", "6"]
+PHASE_SEQ_TDD     = ["0", "1", "2a", "2", "2.5", "3", "5", "5b", "6"]
+PHASE_SEQ_REVIEW  = ["0", "1", "2", "2.5", "3", "4", "5", "5b", "6"]

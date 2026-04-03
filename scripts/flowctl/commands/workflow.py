@@ -1182,8 +1182,6 @@ def _build_bootstrap_prompt(
     """
     # Build mode flags string for worker-phase calls
     flags = []
-    if team:
-        flags.append("--team")
     if tdd:
         flags.append("--tdd")
     if review:
@@ -1233,87 +1231,28 @@ def _build_bootstrap_prompt(
 
 
 def cmd_worker_prompt(args: argparse.Namespace) -> None:
-    """Output a trimmed worker prompt based on mode flags."""
-    from flowctl.core.config import get_config
+    """Output a bootstrap worker prompt for phase-gate execution."""
+    task_id = args.task
+    epic_id = epic_id_from_task(task_id) if is_task_id(task_id) else task_id
 
-    # Handle --bootstrap mode: minimal ~200 token prompt
-    if getattr(args, "bootstrap", False):
-        task_id = args.task
-        epic_id = epic_id_from_task(task_id) if is_task_id(task_id) else task_id
+    plugin_root = _get_plugin_root()
+    flowctl_path = str(plugin_root / "scripts" / "flowctl.py")
 
-        plugin_root = _get_plugin_root()
-        flowctl_path = str(plugin_root / "scripts" / "flowctl.py")
-
-        prompt_text = _build_bootstrap_prompt(
-            task_id=task_id,
-            epic_id=epic_id,
-            flowctl_path=flowctl_path,
-            team=True,  # Teams always enabled by default
-            tdd=args.tdd,
-            review=args.review,
-            ralph=getattr(args, "ralph", False),
-        )
-        estimated_tokens = _estimate_tokens(prompt_text)
-
-        if args.json:
-            json_output({
-                "prompt": prompt_text,
-                "mode": "bootstrap",
-                "estimated_tokens": estimated_tokens,
-            })
-        else:
-            print(prompt_text)
-        return
-
-    worker_path = _get_plugin_root() / "agents" / "worker.md"
-    if not worker_path.exists():
-        error_exit(
-            f"agents/worker.md not found at {worker_path}", use_json=args.json
-        )
-
-    raw = worker_path.read_text(encoding="utf-8")
-
-    # Strip YAML frontmatter (between --- markers)
-    frontmatter_match = re.match(r"^---\n.*?\n---\n", raw, re.DOTALL)
-    if frontmatter_match:
-        raw = raw[frontmatter_match.end():]
-
-    sections = _parse_worker_sections(raw)
-    if not sections:
-        error_exit(
-            "No section markers found in worker.md. Expected <!-- section:tag --> markers.",
-            use_json=args.json,
-        )
-
-    # Determine which tags to include
-    # Both worktree and teams are default — always include team sections
-    include_tags = {"core", "team"}
-
-    if args.tdd:
-        include_tags.add("tdd")
-
-    if args.review:
-        include_tags.add("review")
-
-    # Auto-include memory if config says it's enabled
-    memory_enabled = get_config("memory.enabled", False)
-    if memory_enabled:
-        include_tags.add("memory")
-
-    # Filter sections
-    included = [s for s in sections if s["tag"] in include_tags]
-    included_tags = sorted({s["tag"] for s in included})
-
-    # Assemble output
-    prompt_parts = [s["content"] for s in included]
-    prompt_text = "\n\n".join(prompt_parts)
+    prompt_text = _build_bootstrap_prompt(
+        task_id=task_id,
+        epic_id=epic_id,
+        flowctl_path=flowctl_path,
+        team=True,  # Teams always enabled by default
+        tdd=args.tdd,
+        review=args.review,
+        ralph=getattr(args, "ralph", False),
+    )
     estimated_tokens = _estimate_tokens(prompt_text)
 
     if args.json:
         json_output({
             "prompt": prompt_text,
-            "mode": "full",
-            "sections": included_tags,
+            "mode": "bootstrap",
             "estimated_tokens": estimated_tokens,
         })
     else:

@@ -746,7 +746,7 @@ def main() -> None:
         "worker-prompt", help="Output trimmed worker prompt based on mode flags"
     )
     p_wp.add_argument("--task", required=True, help="Task ID (for context, e.g., fn-1.1)")
-    p_wp.add_argument("--no-team", action="store_true", help="Exclude Team Mode sections (Teams is default)")
+    p_wp.add_argument("--team", action="store_true", help="Include Team Mode sections (worktree is default)")
     p_wp.add_argument("--tdd", action="store_true", help="Include TDD Phase 2a")
     p_wp.add_argument(
         "--review", choices=["rp", "codex"], default=None,
@@ -770,7 +770,7 @@ def main() -> None:
         "next", help="Return the next uncompleted phase"
     )
     p_wph_next.add_argument("--task", required=True, help="Task ID (e.g., fn-1.1)")
-    p_wph_next.add_argument("--no-team", action="store_true", help="Exclude Team Mode phases (Teams is default)")
+    p_wph_next.add_argument("--team", action="store_true", help="Include Team Mode phases (worktree is default)")
     p_wph_next.add_argument("--tdd", action="store_true", help="Include TDD phases")
     p_wph_next.add_argument(
         "--review", choices=["rp", "codex"], default=None,
@@ -785,7 +785,7 @@ def main() -> None:
     )
     p_wph_done.add_argument("--task", required=True, help="Task ID (e.g., fn-1.1)")
     p_wph_done.add_argument("--phase", required=True, help="Phase ID to mark done (e.g., 1, 2, 2.5)")
-    p_wph_done.add_argument("--no-team", action="store_true", help="Exclude Team Mode phases (Teams is default)")
+    p_wph_done.add_argument("--team", action="store_true", help="Include Team Mode phases (worktree is default)")
     p_wph_done.add_argument("--tdd", action="store_true", help="Include TDD phases")
     p_wph_done.add_argument(
         "--review", choices=["rp", "codex"], default=None,

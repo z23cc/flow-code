@@ -526,17 +526,64 @@ fn main() {
                 let result = if let Some(tcp_port) = port {
                     println!("flowctl daemon starting on http://127.0.0.1:{tcp_port}");
 
+                    // Initialize the Leptos/tokio executor for SSR rendering.
+                    let _ = any_spawner::Executor::init_tokio();
+
                     // Build API router from daemon.
                     let (state, cancel) = flowctl_daemon::server::create_state(runtime, event_bus)
                         .expect("failed to create state");
                     let api_router = flowctl_daemon::server::build_router(state);
 
+                    // Serve static CSS at /pkg/flowctl-web.css
+                    let css_content = include_str!("../../flowctl-web/style/main.css");
+                    let css_content_owned = css_content.to_string();
+                    let css_handler = axum::routing::get(move || {
+                        let css = css_content_owned.clone();
+                        async move {
+                            (
+                                [(axum::http::header::CONTENT_TYPE, "text/css")],
+                                css,
+                            )
+                        }
+                    });
+
                     // Add Leptos SSR fallback: API routes take priority,
                     // everything else renders the Leptos app via SSR.
+                    // Wrap in HTML shell since we're not using leptos_meta.
+                    let ssr_handler = leptos_axum::render_app_to_stream(
+                        flowctl_web::app::App,
+                    );
+                    let shell_handler = move |req: axum::http::Request<axum::body::Body>| {
+                        let ssr = ssr_handler.clone();
+                        async move {
+                            let resp = ssr(req).await;
+                            let (parts, body) = resp.into_parts();
+                            let bytes = axum::body::to_bytes(body, 1024 * 1024).await.unwrap_or_default();
+                            let inner_html = String::from_utf8_lossy(&bytes);
+                            let full_html = format!(
+                                r#"<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>flowctl — AI Development Platform</title>
+<link rel="stylesheet" href="/pkg/flowctl-web.css"/>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+{inner_html}
+</body>
+</html>"#
+                            );
+                            axum::http::Response::from_parts(
+                                parts,
+                                axum::body::Body::from(full_html),
+                            )
+                        }
+                    };
+
                     let router = api_router
-                        .fallback(leptos_axum::render_app_to_stream(
-                            flowctl_web::app::App,
-                        ));
+                        .route("/pkg/flowctl-web.css", css_handler)
+                        .fallback(shell_handler);
 
                     let addr = format!("127.0.0.1:{tcp_port}");
                     let listener = tokio::net::TcpListener::bind(&addr).await

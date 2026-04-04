@@ -1,0 +1,7 @@
+# Status command -- handles missing .flow/ gracefully
+bin.name = "flowctl"
+args = ["status"]
+status.code = 0
+stdout = """
+...
+"""

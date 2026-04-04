@@ -1,0 +1,7 @@
+# Cat with invalid ID format
+bin.name = "flowctl"
+args = ["cat", "test-epic-1"]
+status.code = 1
+stderr = """
+...
+"""

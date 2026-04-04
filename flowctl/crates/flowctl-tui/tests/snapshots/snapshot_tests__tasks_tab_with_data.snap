@@ -1,0 +1,25 @@
+---
+source: crates/flowctl-tui/tests/snapshot_tests.rs
+assertion_line: 171
+expression: output
+---
+███████████████████████████
+█████████████████████████1/3 done, 1 running, 0 failed
+┌ Tasks (3/3) ─────────────────────────────────────────────────────────────────┐
+│  Statu Pri  Domain        ID                        Title                    │
+│> [~]   2    backend       fn-1-test.2               Build API                │
+│  [ ]   3    testing       fn-1-test.3               Write tests              │
+│  [x]   1    backend       fn-1-test.1               Setup database           │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘

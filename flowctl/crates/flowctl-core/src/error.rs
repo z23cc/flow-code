@@ -33,4 +33,24 @@ pub enum CoreError {
     /// Serialization error.
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    /// Frontmatter parse error.
+    #[error("frontmatter parse error: {0}")]
+    FrontmatterParse(String),
+
+    /// Frontmatter serialization error.
+    #[error("frontmatter serialization error: {0}")]
+    FrontmatterSerialize(String),
+
+    /// Cycle detected in task dependency graph.
+    #[error("cycle detected in task DAG: {0}")]
+    CycleDetected(String),
+
+    /// Dependency references a task not in the graph.
+    #[error("unknown dependency: task {task} depends on {dependency}")]
+    UnknownDependency { task: String, dependency: String },
+
+    /// Duplicate task ID in input.
+    #[error("duplicate task ID: {0}")]
+    DuplicateTask(String),
 }

@@ -1,0 +1,6 @@
+bin.name = "flowctl"
+args = ["task", "create"]
+status.code = 2
+stderr = """
+...
+"""

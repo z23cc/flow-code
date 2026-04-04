@@ -4,3 +4,10 @@
 //! circuit breaker, and HTTP API over Unix socket.
 
 pub use flowctl_core;
+
+#[cfg(feature = "daemon")]
+pub mod handlers;
+#[cfg(feature = "daemon")]
+pub mod lifecycle;
+#[cfg(feature = "daemon")]
+pub mod server;

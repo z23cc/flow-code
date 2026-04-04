@@ -1,0 +1,6 @@
+bin.name = "flowctl"
+args = []
+status.code = 2
+stderr = """
+...
+"""

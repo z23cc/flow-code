@@ -3,4 +3,11 @@
 //! Provides a 4-tab TUI dashboard (Tasks, DAG, Logs, Stats) using
 //! ratatui with component architecture and context-sensitive keybindings.
 
-pub use flowctl_core;
+pub mod action;
+pub mod app;
+pub mod component;
+pub mod tabs;
+pub mod widgets;
+
+pub use app::App;
+pub use widgets::toast::{Toast, ToastLevel, ToastStack};

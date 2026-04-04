@@ -6,6 +6,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+daemon = [
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:axum",
+    "dep:nix",
+]
+
 [dependencies]
 flowctl-core = { workspace = true }
 flowctl-db = { workspace = true }
@@ -15,8 +24,19 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
+notify = { workspace = true }
+
+# Daemon-only deps (feature-gated)
+tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+nix = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = "3"
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-axum = { workspace = true }
-notify = { workspace = true }
-nix = { workspace = true }
+hyper = "1"
+hyper-util = { version = "0.1", features = ["client-legacy", "tokio"] }
+http-body-util = "0.1"
+bytes = "1"

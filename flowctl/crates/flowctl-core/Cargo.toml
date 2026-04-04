@@ -9,8 +9,10 @@ license.workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde-saphyr = "0.0.23"
 thiserror = { workspace = true }
 chrono = { workspace = true }
 regex = { workspace = true }
+petgraph = { workspace = true }
 
 [dev-dependencies]

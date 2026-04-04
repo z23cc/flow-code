@@ -396,6 +396,10 @@ pub struct RuntimeState {
     /// Git rev at completion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub final_rev: Option<String>,
+
+    /// Number of retries attempted so far.
+    #[serde(default)]
+    pub retry_count: u32,
 }
 
 /// Runtime fields stored in state-dir (matching Python RUNTIME_FIELDS).

@@ -1,7 +1,6 @@
 //! Memory commands: init, add, read, list, search, inject, verify, gc.
 
 use std::collections::HashSet;
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -12,7 +11,9 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::output::{error_exit, json_output};
-use flowctl_core::types::{CONFIG_FILE, FLOW_DIR, MEMORY_DIR};
+use flowctl_core::types::{CONFIG_FILE, MEMORY_DIR};
+
+use super::helpers::get_flow_dir;
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -103,12 +104,6 @@ pub fn dispatch(cmd: &MemoryCmd, json: bool) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-fn get_flow_dir() -> PathBuf {
-    env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(FLOW_DIR)
-}
 
 fn memory_dir() -> PathBuf {
     get_flow_dir().join(MEMORY_DIR)

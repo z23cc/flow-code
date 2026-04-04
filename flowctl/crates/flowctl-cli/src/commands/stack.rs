@@ -12,9 +12,11 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
-use flowctl_core::types::{CONFIG_FILE, FLOW_DIR};
+use flowctl_core::types::CONFIG_FILE;
 
-// ── Stack ──────────────────────────────────────────────────────────
+use super::helpers::get_flow_dir;
+
+// ── Stack ─────────────────────────���───────────────────────────��────
 
 #[derive(Subcommand, Debug)]
 pub enum StackCmd {
@@ -67,12 +69,6 @@ pub fn dispatch_invariants(cmd: &InvariantsCmd, json: bool) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-fn get_flow_dir() -> std::path::PathBuf {
-    env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(FLOW_DIR)
-}
 
 fn get_repo_root() -> std::path::PathBuf {
     let output = Command::new("git")

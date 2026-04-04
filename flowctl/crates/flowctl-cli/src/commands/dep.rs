@@ -14,7 +14,9 @@ use crate::output::{error_exit, json_output};
 
 use flowctl_core::frontmatter;
 use flowctl_core::id::{epic_id_from_task, is_task_id};
-use flowctl_core::types::{Task, FLOW_DIR, TASKS_DIR};
+use flowctl_core::types::{Task, TASKS_DIR};
+
+use super::helpers::get_flow_dir;
 
 #[derive(Subcommand, Debug)]
 pub enum DepCmd {
@@ -32,12 +34,6 @@ pub enum DepCmd {
         /// Dependency to remove.
         depends_on: String,
     },
-}
-
-fn get_flow_dir() -> PathBuf {
-    env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(FLOW_DIR)
 }
 
 fn ensure_flow_exists() -> PathBuf {

@@ -1,7 +1,7 @@
 //! HTTP API route handlers for the daemon.
 //!
 //! Provides REST endpoints for status, epics, tasks, and a WebSocket
-//! endpoint for streaming live events to connected TUI clients.
+//! endpoint for streaming live events to connected clients.
 
 use std::sync::Arc;
 
@@ -13,9 +13,42 @@ use axum::Json;
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
+use flowctl_core::id::is_task_id;
+use flowctl_core::state_machine::{Status, Transition};
 use flowctl_scheduler::TimestampedEvent;
 
 use crate::lifecycle::DaemonRuntime;
+
+/// Application-level error type with proper HTTP status mapping.
+#[derive(Debug)]
+pub enum AppError {
+    /// Database error (query failed, constraint violation, etc.)
+    Db(String),
+    /// Invalid state transition (e.g., done → in_progress)
+    InvalidTransition(String),
+    /// Invalid input (bad ID format, missing fields, etc.)
+    InvalidInput(String),
+    /// Internal error (serialization failure, lock poisoned, etc.)
+    Internal(String),
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> axum::response::Response {
+        let (status, message) = match &self {
+            AppError::Db(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::InvalidTransition(msg) => (StatusCode::CONFLICT, msg.clone()),
+            AppError::InvalidInput(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+        };
+        (status, Json(serde_json::json!({"error": message}))).into_response()
+    }
+}
+
+impl From<flowctl_db::DbError> for AppError {
+    fn from(e: flowctl_db::DbError) -> Self {
+        AppError::Db(e.to_string())
+    }
+}
 
 /// Shared application state for all handlers.
 pub type AppState = Arc<DaemonState>;
@@ -25,6 +58,15 @@ pub struct DaemonState {
     pub runtime: DaemonRuntime,
     pub event_bus: flowctl_scheduler::EventBus,
     pub db: std::sync::Mutex<rusqlite::Connection>,
+}
+
+impl DaemonState {
+    /// Acquire DB lock, returning AppError instead of panicking.
+    fn db_lock(&self) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>, AppError> {
+        self.db
+            .lock()
+            .map_err(|_| AppError::Internal("DB lock poisoned".to_string()))
+    }
 }
 
 /// GET /api/v1/health -- simple liveness check.
@@ -66,33 +108,33 @@ pub async fn status_handler(State(state): State<AppState>) -> impl IntoResponse 
 }
 
 /// GET /api/v1/epics -- list epics from the database.
-///
-/// Returns a JSON array of epics. On database errors, returns 500.
-pub async fn epics_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let conn = state.db.lock().unwrap();
+pub async fn epics_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
     let repo = flowctl_db::EpicRepo::new(&conn);
-    match repo.list(None) {
-        Ok(epics) => (StatusCode::OK, Json(serde_json::to_value(&epics).unwrap())),
-        Err(e) => db_error(&e.to_string()),
-    }
+    let epics = repo.list(None)?;
+    let value = serde_json::to_value(&epics)
+        .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
+    Ok(Json(value))
 }
 
 /// GET /api/v1/tasks -- list tasks, optionally filtered by epic_id query param.
 pub async fn tasks_handler(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<TasksQuery>,
-) -> impl IntoResponse {
-    let conn = state.db.lock().unwrap();
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
     let repo = flowctl_db::TaskRepo::new(&conn);
     let result = if let Some(ref epic_id) = params.epic_id {
         repo.list_by_epic(epic_id)
     } else {
         repo.list_all(None, None)
     };
-    match result {
-        Ok(tasks) => (StatusCode::OK, Json(serde_json::to_value(&tasks).unwrap())),
-        Err(e) => db_error(&e.to_string()),
-    }
+    let tasks = result?;
+    let value = serde_json::to_value(&tasks)
+        .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
+    Ok(Json(value))
 }
 
 /// Query parameters for the tasks endpoint.
@@ -107,14 +149,22 @@ pub struct TasksQuery {
 pub async fn create_task_handler(
     State(state): State<AppState>,
     Json(body): Json<CreateTaskRequest>,
-) -> impl IntoResponse {
-    let conn = state.db.lock().unwrap();
+) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+    // Validate task ID format.
+    if !is_task_id(&body.id) {
+        return Err(AppError::InvalidInput(format!(
+            "invalid task ID format: '{}'. Expected format: epic-id.N",
+            body.id
+        )));
+    }
+
+    let conn = state.db_lock()?;
     let task = flowctl_core::types::Task {
         schema_version: 1,
         id: body.id.clone(),
         epic: body.epic_id.clone(),
         title: body.title.clone(),
-        status: flowctl_core::state_machine::Status::Todo,
+        status: Status::Todo,
         priority: None,
         domain: flowctl_core::types::Domain::General,
         depends_on: body.depends_on.unwrap_or_default(),
@@ -127,36 +177,63 @@ pub async fn create_task_handler(
         updated_at: chrono::Utc::now(),
     };
     let repo = flowctl_db::TaskRepo::new(&conn);
-    match repo.upsert_with_body(&task, &body.body.unwrap_or_default()) {
-        Ok(()) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "id": body.id}))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
-    }
+    repo.upsert_with_body(&task, &body.body.unwrap_or_default())?;
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({"success": true, "id": body.id})),
+    ))
 }
 
-/// POST /api/v1/tasks/start -- start a task.
+/// POST /api/v1/tasks/start -- start a task (validates state transition).
 pub async fn start_task_handler(
     State(state): State<AppState>,
     Json(body): Json<TaskIdRequest>,
-) -> impl IntoResponse {
-    let conn = state.db.lock().unwrap();
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
     let repo = flowctl_db::TaskRepo::new(&conn);
-    match repo.update_status(&body.task_id, flowctl_core::state_machine::Status::InProgress) {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true, "id": body.task_id}))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
-    }
+
+    // Get current task to validate transition.
+    let task = repo
+        .get(&body.task_id)
+        .map_err(|_| AppError::InvalidInput(format!("task not found: {}", body.task_id)))?;
+
+    Transition::new(task.status, Status::InProgress).map_err(|e| {
+        AppError::InvalidTransition(format!(
+            "cannot start task '{}': {}",
+            body.task_id, e
+        ))
+    })?;
+
+    repo.update_status(&body.task_id, Status::InProgress)?;
+    Ok(Json(
+        serde_json::json!({"success": true, "id": body.task_id}),
+    ))
 }
 
-/// POST /api/v1/tasks/done -- complete a task.
+/// POST /api/v1/tasks/done -- complete a task (validates state transition).
 pub async fn done_task_handler(
     State(state): State<AppState>,
     Json(body): Json<TaskIdRequest>,
-) -> impl IntoResponse {
-    let conn = state.db.lock().unwrap();
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
     let repo = flowctl_db::TaskRepo::new(&conn);
-    match repo.update_status(&body.task_id, flowctl_core::state_machine::Status::Done) {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true, "id": body.task_id}))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
-    }
+
+    // Get current task to validate transition.
+    let task = repo
+        .get(&body.task_id)
+        .map_err(|_| AppError::InvalidInput(format!("task not found: {}", body.task_id)))?;
+
+    Transition::new(task.status, Status::Done).map_err(|e| {
+        AppError::InvalidTransition(format!(
+            "cannot complete task '{}': {}",
+            body.task_id, e
+        ))
+    })?;
+
+    repo.update_status(&body.task_id, Status::Done)?;
+    Ok(Json(
+        serde_json::json!({"success": true, "id": body.task_id}),
+    ))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -171,11 +248,6 @@ pub struct CreateTaskRequest {
 #[derive(Debug, serde::Deserialize)]
 pub struct TaskIdRequest {
     pub task_id: String,
-}
-
-/// Helper: acquire DB lock from shared state.
-fn db_error(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": msg})))
 }
 
 /// GET /api/v1/events -- WebSocket upgrade for live event streaming.
@@ -229,7 +301,6 @@ async fn handle_event_socket(
                     }
                 }
             }
-            // Also handle incoming messages (ping/pong, close).
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Close(_))) | None => {

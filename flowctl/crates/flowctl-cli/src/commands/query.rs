@@ -13,17 +13,12 @@ use crate::output::{error_exit, json_output};
 use flowctl_core::frontmatter;
 use flowctl_core::id::{is_epic_id, is_task_id, parse_id};
 use flowctl_core::types::{
-    Epic, Task, EPICS_DIR, FLOW_DIR, SPECS_DIR, TASKS_DIR,
+    Epic, Task, EPICS_DIR, SPECS_DIR, TASKS_DIR,
 };
 
-// ── Helpers ─────────────────────────────────────────────────────────
+use super::helpers::get_flow_dir;
 
-/// Get the .flow/ directory path.
-fn get_flow_dir() -> PathBuf {
-    env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(FLOW_DIR)
-}
+// ── Helpers ─────────────────────────────────────────────────────────
 
 /// Ensure .flow/ exists, error_exit if not.
 fn ensure_flow_exists() -> PathBuf {

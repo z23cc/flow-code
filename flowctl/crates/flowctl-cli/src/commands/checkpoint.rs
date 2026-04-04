@@ -13,7 +13,7 @@ use serde_json::json;
 use crate::output::{error_exit, json_output};
 
 use flowctl_core::id::is_epic_id;
-use flowctl_core::types::FLOW_DIR;
+use super::helpers::get_flow_dir;
 
 #[derive(Subcommand, Debug)]
 pub enum CheckpointCmd {
@@ -46,12 +46,6 @@ pub fn dispatch(cmd: &CheckpointCmd, json: bool) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-fn get_flow_dir() -> std::path::PathBuf {
-    env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(FLOW_DIR)
-}
 
 /// Resolve the checkpoint file path for a given epic.
 /// Checkpoints are stored in the state directory alongside the main database.

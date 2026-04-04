@@ -133,14 +133,9 @@ pub enum EpicCmd {
     },
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
+use super::helpers::get_flow_dir;
 
-/// Get the .flow/ directory path.
-fn get_flow_dir() -> PathBuf {
-    env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(FLOW_DIR)
-}
+// ── Helpers ─────────────────────────────────────────────────────────
 
 /// Ensure .flow/ exists, error_exit if not.
 fn ensure_flow_exists() -> PathBuf {

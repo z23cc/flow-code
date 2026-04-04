@@ -22,8 +22,6 @@ pub mod metrics;
 pub mod migration;
 pub mod pool;
 pub mod repo;
-#[allow(dead_code)]
-mod sync; // Legacy dual-write module, kept for backward compatibility but not re-exported.
 
 pub use error::DbError;
 pub use pool::{cleanup, open, open_memory, resolve_db_path, resolve_state_dir};

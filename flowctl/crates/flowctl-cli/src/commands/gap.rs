@@ -5,7 +5,6 @@
 //! `.flow/epics/<epic-id>.gaps.json`). Blocking gaps (required/important)
 //! prevent epic closure.
 
-use std::env;
 use std::fs;
 
 use clap::Subcommand;
@@ -14,7 +13,9 @@ use serde_json::json;
 use crate::output::{error_exit, json_output};
 
 use flowctl_core::id::is_epic_id;
-use flowctl_core::types::{EPICS_DIR, FLOW_DIR};
+use flowctl_core::types::EPICS_DIR;
+
+use super::helpers::get_flow_dir;
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -93,12 +94,6 @@ pub fn dispatch(cmd: &GapCmd, json: bool) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-fn get_flow_dir() -> std::path::PathBuf {
-    env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(FLOW_DIR)
-}
 
 /// Compute deterministic gap ID from epic + capability (content-hash).
 fn gap_id(epic_id: &str, capability: &str) -> String {

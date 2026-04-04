@@ -43,3 +43,4 @@ hyper = "1"
 hyper-util = { version = "0.1", features = ["client-legacy", "tokio"] }
 http-body-util = "0.1"
 bytes = "1"
+tower = { version = "0.5", features = ["util"] }

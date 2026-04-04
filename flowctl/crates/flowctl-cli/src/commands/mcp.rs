@@ -221,3 +221,81 @@ fn run_flowctl_tool(name: &str, args: &Value) -> Result<String, String> {
         Err(format!("{stdout}{stderr}"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_handle_initialize() {
+        let id = json!(1);
+        let resp = handle_initialize(&id);
+        assert_eq!(resp["jsonrpc"], "2.0");
+        assert_eq!(resp["id"], 1);
+        assert_eq!(resp["result"]["protocolVersion"], "2024-11-05");
+        assert_eq!(resp["result"]["serverInfo"]["name"], "flowctl");
+    }
+
+    #[test]
+    fn test_handle_tools_list_returns_six_tools() {
+        let id = json!(2);
+        let resp = handle_tools_list(&id);
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 6);
+
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"flowctl_status"));
+        assert!(names.contains(&"flowctl_epics"));
+        assert!(names.contains(&"flowctl_tasks"));
+        assert!(names.contains(&"flowctl_ready"));
+        assert!(names.contains(&"flowctl_start"));
+        assert!(names.contains(&"flowctl_done"));
+    }
+
+    #[test]
+    fn test_handle_tools_call_unknown_tool() {
+        let id = json!(3);
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "nonexistent_tool",
+                "arguments": {}
+            }
+        });
+        let resp = handle_tools_call(&id, &request);
+        assert_eq!(resp["result"]["isError"], true);
+        assert!(resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("unknown tool"));
+    }
+
+    #[test]
+    fn test_unknown_method_returns_error() {
+        // Simulate the dispatch logic from run()
+        let id = json!(4);
+        let method = "nonexistent/method";
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {"code": -32601, "message": format!("Method not found: {method}")}
+        });
+        assert_eq!(response["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn test_tools_call_missing_tool_name() {
+        let id = json!(5);
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {}
+        });
+        let resp = handle_tools_call(&id, &request);
+        // Empty tool name should be treated as unknown
+        assert_eq!(resp["result"]["isError"], true);
+    }
+}

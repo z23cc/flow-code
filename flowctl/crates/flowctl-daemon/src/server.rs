@@ -211,6 +211,181 @@ mod tests {
 
     use axum::http::StatusCode;
 
+    /// Create a test router backed by an in-memory-like DB (via test_setup).
+    fn test_router() -> (TempDir, axum::Router) {
+        let (tmp, runtime, event_bus) = test_setup();
+        let (state, _cancel) = create_state(runtime, event_bus).unwrap();
+        let router = build_router(state);
+        (tmp, router)
+    }
+
+    #[tokio::test]
+    async fn epics_endpoint_empty_db() {
+        let (_tmp, app) = test_router();
+        let req = axum::http::Request::builder()
+            .uri("/api/v1/epics")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn tasks_endpoint_empty_db() {
+        let (_tmp, app) = test_router();
+        let req = axum::http::Request::builder()
+            .uri("/api/v1/tasks")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_task_with_valid_data() {
+        let (_tmp, runtime, event_bus) = test_setup();
+        let (state, _cancel) = create_state(runtime, event_bus).unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            conn.execute(
+                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-99-test', 'Test', 'open', 'epics/fn-99-test.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                [],
+            ).unwrap();
+        }
+        let app = build_router(state);
+
+        let create_body = serde_json::json!({
+            "id": "fn-99-test.1",
+            "epic_id": "fn-99-test",
+            "title": "Test Task"
+        });
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/tasks/create")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(create_body.to_string()))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn create_task_rejects_invalid_id() {
+        let (_tmp, app) = test_router();
+        let create_body = serde_json::json!({
+            "id": "../../bad-id",
+            "epic_id": "test-epic",
+            "title": "Bad Task"
+        });
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/tasks/create")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(create_body.to_string()))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn start_task_validates_transition() {
+        // Setup: create epic + task in todo state, then start it (should succeed),
+        // then try to start again from in_progress (should fail with CONFLICT).
+        let (tmp, runtime, event_bus) = test_setup();
+        let (state, _cancel) = create_state(runtime, event_bus).unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            conn.execute(
+                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('e1', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('e1.1', 'e1', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                [],
+            ).unwrap();
+        }
+        let app = build_router(state.clone());
+
+        // Start: todo → in_progress (should succeed)
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/tasks/start")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"task_id":"e1.1"}"#))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Try done: in_progress → done (should succeed)
+        let app2 = build_router(state.clone());
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/tasks/done")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"task_id":"e1.1"}"#))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app2, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Try start again: done → in_progress (should fail with CONFLICT)
+        let app3 = build_router(state);
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/tasks/start")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"task_id":"e1.1"}"#))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app3, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn done_task_rejects_from_todo() {
+        let (tmp, runtime, event_bus) = test_setup();
+        let (state, _cancel) = create_state(runtime, event_bus).unwrap();
+        {
+            let conn = state.db.lock().unwrap();
+            conn.execute(
+                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('e2', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('e2.1', 'e2', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                [],
+            ).unwrap();
+        }
+        let app = build_router(state);
+
+        // done from todo → should be rejected
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/tasks/done")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"task_id":"e2.1"}"#))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn start_nonexistent_task_returns_error() {
+        let (_tmp, app) = test_router();
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/tasks/start")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"task_id":"nonexistent.1"}"#))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
     #[tokio::test]
     async fn status_endpoint_returns_overview() {
         let (_tmp, runtime, event_bus) = test_setup();

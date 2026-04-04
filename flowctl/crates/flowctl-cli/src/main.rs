@@ -489,7 +489,7 @@ fn main() {
 
         // Daemon
         #[cfg(feature = "daemon")]
-        Commands::Serve { port: _ } => {
+        Commands::Serve { port } => {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(async {
                 let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -527,9 +527,15 @@ fn main() {
                     cancel_clone.cancel();
                 });
 
-                println!("flowctl daemon starting on {}", paths.socket_file.display());
+                let result = if let Some(tcp_port) = port {
+                    println!("flowctl daemon starting on http://127.0.0.1:{tcp_port}");
+                    flowctl_daemon::server::serve_tcp(runtime, event_bus, tcp_port).await
+                } else {
+                    println!("flowctl daemon starting on {}", paths.socket_file.display());
+                    flowctl_daemon::server::serve(runtime, event_bus).await
+                };
 
-                if let Err(e) = flowctl_daemon::server::serve(runtime, event_bus).await {
+                if let Err(e) = result {
                     eprintln!("daemon error: {e}");
                     std::process::exit(1);
                 }

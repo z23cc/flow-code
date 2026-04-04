@@ -12,6 +12,7 @@ daemon = [
     "dep:tokio",
     "dep:tokio-util",
     "dep:axum",
+    "dep:tower-http",
     "dep:nix",
 ]
 
@@ -31,6 +32,7 @@ notify = { workspace = true }
 tokio = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
+tower-http = { version = "0.6", features = ["cors"], optional = true }
 nix = { workspace = true, optional = true }
 
 [dev-dependencies]

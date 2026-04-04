@@ -7,6 +7,7 @@ members = [
     "crates/flowctl-cli",
     "crates/flowctl-daemon",
     "crates/flowctl-tui",
+    "crates/flowctl-web",
 ]
 
 # ── Shared package metadata (nushell convention) ──────────────────────
@@ -88,3 +89,10 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# ── WASM release profile ─────────────────────────────────────────────
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1

@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::routing::{get, post};
-use tokio::net::UnixListener;
+use tokio::net::{TcpListener, UnixListener};
+use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
 use crate::handlers::{
@@ -18,6 +19,11 @@ use crate::lifecycle::{set_socket_permissions, DaemonRuntime};
 
 /// Build the Axum router with all daemon API routes.
 fn build_router(state: AppState) -> axum::Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     axum::Router::new()
         .route("/api/v1/health", get(handlers::health_handler))
         .route("/api/v1/metrics", get(handlers::metrics_handler))
@@ -29,6 +35,7 @@ fn build_router(state: AppState) -> axum::Router {
         .route("/api/v1/tasks/done", post(handlers::done_task_handler))
         .route("/api/v1/shutdown", post(handlers::shutdown_handler))
         .route("/api/v1/events", get(handlers::events_ws_handler))
+        .layer(cors)
         .with_state(state)
 }
 
@@ -46,6 +53,39 @@ pub async fn serve(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBu
     set_socket_permissions(&socket_path)?;
 
     info!("daemon API listening on {}", socket_path.display());
+
+    let cancel = runtime.cancel.clone();
+
+    let state: AppState = Arc::new(DaemonState {
+        runtime,
+        event_bus,
+    });
+
+    let router = build_router(state);
+
+    axum::serve(listener, router)
+        .with_graceful_shutdown(async move {
+            cancel.cancelled().await;
+            info!("HTTP server shutting down");
+        })
+        .await
+        .context("HTTP server error")?;
+
+    Ok(())
+}
+
+/// Start the HTTP server on a TCP port (for web browser access).
+pub async fn serve_tcp(
+    runtime: DaemonRuntime,
+    event_bus: flowctl_scheduler::EventBus,
+    port: u16,
+) -> Result<()> {
+    let addr = format!("127.0.0.1:{port}");
+    let listener = TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("failed to bind TCP: {addr}"))?;
+
+    info!("daemon API listening on http://{addr}");
 
     let cancel = runtime.cancel.clone();
 

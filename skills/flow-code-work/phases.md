@@ -39,7 +39,7 @@ Detect input type in this order (first match wins):
 - **This is the only task to execute** — no loop to next task
 
 **Flow epic ID (fn-N-slug or legacy fn-N/fn-N-xxx)** → EPIC_MODE:
-- Clear auto-execute marker (confirms work has started): `$FLOWCTL epic set-auto-execute <id> --done --json`
+- Clear auto-execute marker (confirms work has started): `$FLOWCTL epic auto-exec <id> --done --json`
 - Read epic: `$FLOWCTL show <id> --json`
 - Read spec: `$FLOWCTL cat <id>`
 - Get first ready task: `$FLOWCTL ready --epic <id> --json`
@@ -49,7 +49,7 @@ Detect input type in this order (first match wins):
 2. Initialize: `$FLOWCTL init --json`
 3. Read file and extract title from first `# Heading` or use filename
 4. Create epic: `$FLOWCTL epic create --title "<extracted-title>" --json`
-5. Set spec from file: `$FLOWCTL epic set-plan <epic-id> --file <path> --json`
+5. Set spec from file: `$FLOWCTL epic plan <epic-id> --file <path> --json`
 6. Create single task: `$FLOWCTL task create --epic <epic-id> --title "Implement <title>" --json`
 7. Continue with epic-id
 
@@ -353,7 +353,7 @@ Go to Phase 4 directly. No fallback to RP — different model family is the poin
 
 **After SHIP (or skip):**
 ```bash
-$FLOWCTL epic set-completion-review-status <epic-id> --status ship --json
+$FLOWCTL epic completion <epic-id> --status ship --json
 ```
 
 ---

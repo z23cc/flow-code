@@ -98,13 +98,13 @@ pub fn cmd_done(
     }
 }
 
-pub fn cmd_block(json_mode: bool, id: String, reason_file: String) {
+pub fn cmd_block(json_mode: bool, id: String, reason: String) {
     let flow_dir = ensure_flow_exists();
     let conn = try_open_db();
 
     let req = BlockTaskRequest {
         task_id: id.clone(),
-        reason_file,
+        reason,
     };
 
     match flowctl_service::lifecycle::block_task(conn.as_ref(), &flow_dir, req) {

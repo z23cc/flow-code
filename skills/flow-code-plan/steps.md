@@ -170,14 +170,14 @@ Default to standard unless complexity demands more or less.
 
 ## Step 5: Write to .flow
 
-**Efficiency note**: Use stdin (`--file -`) with heredocs to avoid temp files. Use `task set-spec` to set description + acceptance in one call.
+**Efficiency note**: Use stdin (`--file -`) with heredocs to avoid temp files. Use `task spec` to set description + acceptance in one call.
 
 **Route A - Input was an existing Flow ID**:
 
 1. If epic ID (fn-N-slug or legacy fn-N/fn-N-xxx):
    ```bash
    # Use stdin heredoc (no temp file needed)
-   $FLOWCTL epic set-plan <id> --file - --json <<'EOF'
+   $FLOWCTL epic plan <id> --file - --json <<'EOF'
    <plan content here>
    EOF
    ```
@@ -187,7 +187,7 @@ Default to standard unless complexity demands more or less.
    ```bash
    # Combined set-spec: description + acceptance in one call
    # Write to temp files only if content has single quotes
-   $FLOWCTL task set-spec <id> --description /tmp/desc.md --acceptance /tmp/acc.md --json
+   $FLOWCTL task spec <id> --desc /tmp/desc.md --accept /tmp/acc.md --json
    ```
 
 **Route B - Input was text (new idea)**:
@@ -201,7 +201,7 @@ Default to standard unless complexity demands more or less.
 2. Set epic branch_name (deterministic):
    - Default: use epic ID (e.g., fn-1-add-oauth)
    ```bash
-   $FLOWCTL epic set-branch <epic-id> --branch "<epic-id>" --json
+   $FLOWCTL epic branch <epic-id> "<epic-id>" --json
    ```
    - If user specified a branch, use that instead.
 
@@ -209,7 +209,7 @@ Default to standard unless complexity demands more or less.
    ```bash
    # Include: Overview, Scope, Approach, Quick commands (REQUIRED), Acceptance, References
    # Add mermaid diagram if data model or architecture changes
-   $FLOWCTL epic set-plan <epic-id> --file - --json <<'EOF'
+   $FLOWCTL epic plan <epic-id> --file - --json <<'EOF'
    # Epic Title
 
    ## Overview
@@ -263,7 +263,7 @@ Default to standard unless complexity demands more or less.
    ```bash
    # For each task - single call sets both sections
    # Write description and acceptance to temp files, then:
-   $FLOWCTL task set-spec <task-id> --description /tmp/desc.md --acceptance /tmp/acc.md --json
+   $FLOWCTL task spec <task-id> --desc /tmp/desc.md --accept /tmp/acc.md --json
    ```
 
    **Task spec content** (remember: NO implementation code):
@@ -349,7 +349,7 @@ If review was decided in Context Analysis:
 **Otherwise (default — auto-execute immediately, no menu):**
 
 ```bash
-$FLOWCTL epic set-auto-execute <epic-id> --pending --json
+$FLOWCTL epic auto-exec <epic-id> --pending --json
 ```
 
 - **≤ 10 tasks**: Invoke `/flow-code:work <epic-id> --no-review` directly.

@@ -66,9 +66,9 @@ $FLOWCTL codex plan-review "$EPIC_ID" --files "$CODE_FILES" --receipt "$RECEIPT_
 
 ```bash
 # Based on verdict
-$FLOWCTL epic set-plan-review-status "$EPIC_ID" --status ship --json
+$FLOWCTL epic review "$EPIC_ID" --status ship --json
 # OR
-$FLOWCTL epic set-plan-review-status "$EPIC_ID" --status needs_work --json
+$FLOWCTL epic review "$EPIC_ID" --status needs_work --json
 ```
 
 ### Step 3: Handle Verdict
@@ -280,10 +280,10 @@ fi
 Extract verdict from response, then:
 ```bash
 # If SHIP
-$FLOWCTL epic set-plan-review-status <EPIC_ID> --status ship --json
+$FLOWCTL epic review <EPIC_ID> --status ship --json
 
 # If NEEDS_WORK or MAJOR_RETHINK
-$FLOWCTL epic set-plan-review-status <EPIC_ID> --status needs_work --json
+$FLOWCTL epic review <EPIC_ID> --status needs_work --json
 ```
 
 If no verdict tag, output `<promise>RETRY</promise>` and stop.
@@ -310,12 +310,12 @@ If verdict is NEEDS_WORK:
 3. **Update epic spec in flowctl** (MANDATORY before re-review):
    ```bash
    # Option A: stdin heredoc (preferred, no temp file)
-   $FLOWCTL epic set-plan <EPIC_ID> --file - --json <<'EOF'
+   $FLOWCTL epic plan <EPIC_ID> --file - --json <<'EOF'
    <updated epic spec content>
    EOF
 
    # Option B: temp file (if content has single quotes)
-   $FLOWCTL epic set-plan <EPIC_ID> --file /tmp/updated-plan.md --json
+   $FLOWCTL epic plan <EPIC_ID> --file /tmp/updated-plan.md --json
    ```
    **If you skip this step and re-review with same content, reviewer will return NEEDS_WORK again.**
 
@@ -326,7 +326,7 @@ If verdict is NEEDS_WORK:
 
 4. **Sync affected task specs** - If epic changes affect task specs, update them:
    ```bash
-   $FLOWCTL task set-spec <TASK_ID> --file - --json <<'EOF'
+   $FLOWCTL task spec <TASK_ID> --file - --json <<'EOF'
    <updated task spec content>
    EOF
    ```

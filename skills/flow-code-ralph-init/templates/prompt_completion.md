@@ -28,7 +28,7 @@ Ralph mode rules (must follow):
    - If COMPLETION_REVIEW=rp: run `/flow-code:epic-review {{EPIC_ID}} --review=rp`
    - If COMPLETION_REVIEW=codex: run `/flow-code:epic-review {{EPIC_ID}} --review=codex`
    - If COMPLETION_REVIEW=none: set ship and stop:
-     `scripts/ralph/flowctl epic set-completion-review-status {{EPIC_ID}} --status ship --json`
+     `scripts/ralph/flowctl epic completion {{EPIC_ID}} --status ship --json`
 
    When REVIEW_MODE=per-epic, this is the ONLY review gate. The reviewer should examine:
    - All task implementations holistically (no per-task review was done)
@@ -56,11 +56,11 @@ Ralph mode rules (must follow):
    Missing id = verification fails = forced retry.
 
 6) After SHIP:
-   - `scripts/ralph/flowctl epic set-completion-review-status {{EPIC_ID}} --status ship --json`
+   - `scripts/ralph/flowctl epic completion {{EPIC_ID}} --status ship --json`
    - stop (do NOT output promise tag)
 
 7) If MAJOR_RETHINK (rare):
-   - `scripts/ralph/flowctl epic set-completion-review-status {{EPIC_ID}} --status needs_work --json`
+   - `scripts/ralph/flowctl epic completion {{EPIC_ID}} --status needs_work --json`
    - output `<promise>FAIL</promise>` and stop
 
 8) On hard failure, output `<promise>FAIL</promise>` and stop.

@@ -40,7 +40,7 @@ Full request: $ARGUMENTS
 
 Accepts:
 - **Flow epic ID** `fn-N-slug` (e.g., `fn-1-add-oauth`) or legacy `fn-N`/`fn-N-xxx`: Fetch with `flowctl show`, write back with `flowctl epic set-plan`
-- **Flow task ID** `fn-N-slug.M` (e.g., `fn-1-add-oauth.2`) or legacy `fn-N.M`/`fn-N-xxx.M`: Fetch with `flowctl show`, write back with `flowctl task set-description/set-acceptance`
+- **Flow task ID** `fn-N-slug.M` (e.g., `fn-1-add-oauth.2`) or legacy `fn-N.M`/`fn-N-xxx.M`: Fetch with `flowctl show`, write back with `flowctl task spec/set-acceptance`
 - **File path** (e.g., `docs/spec.md`): Read file, interview, rewrite file
 - **Empty**: Prompt for target
 
@@ -114,7 +114,7 @@ Create epic with interview output. **DO NOT create tasks** — that's `/flow-cod
 
 ```bash
 $FLOWCTL epic create --title "..." --json
-$FLOWCTL epic set-plan <id> --file - --json <<'EOF'
+$FLOWCTL epic plan <id> --file - --json <<'EOF'
 # Epic Title
 
 ## Problem
@@ -150,7 +150,7 @@ $FLOWCTL tasks --epic <id> --json
 **If no tasks:** Update epic spec, then suggest `/flow-code:plan`.
 
 ```bash
-$FLOWCTL epic set-plan <id> --file - --json <<'EOF'
+$FLOWCTL epic plan <id> --file - --json <<'EOF'
 # Epic Title
 
 ## Problem
@@ -184,7 +184,7 @@ $FLOWCTL cat <id>
 - Only ADD new acceptance criteria discovered in interview:
   ```bash
   # Read existing acceptance, append new criteria
-  $FLOWCTL task set-acceptance <id> --file /tmp/acc.md --json
+  $FLOWCTL task spec <id> --file /tmp/acc.md --json
   ```
 - Or suggest interviewing the epic instead: `/flow-code:interview <epic-id>`
 
@@ -193,7 +193,7 @@ $FLOWCTL cat <id>
 - Focus on **requirements**, not implementation details
 
 ```bash
-$FLOWCTL task set-spec <id> --description /tmp/desc.md --acceptance /tmp/acc.md --json
+$FLOWCTL task spec <id> --desc /tmp/desc.md --accept /tmp/acc.md --json
 ```
 
 Description should capture:

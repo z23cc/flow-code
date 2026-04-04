@@ -115,7 +115,7 @@ $FLOWCTL codex plan-review "$EPIC_ID" --files "$CODE_FILES" --receipt "$RECEIPT_
 # Output includes VERDICT=SHIP|NEEDS_WORK|MAJOR_RETHINK
 ```
 
-On NEEDS_WORK: fix plan via `$FLOWCTL epic set-plan` AND sync affected task specs via `$FLOWCTL task set-spec`, then re-run (receipt enables session continuity).
+On NEEDS_WORK: fix plan via `$FLOWCTL epic set-plan` AND sync affected task specs via `$FLOWCTL task spec`, then re-run (receipt enables session continuity).
 
 **Note**: `codex plan-review` automatically includes task specs in the review prompt.
 
@@ -143,16 +143,16 @@ If verdict is NEEDS_WORK, loop internally until SHIP:
 2. **Fix epic spec** (stdin preferred, temp file if content has single quotes):
    ```bash
    # Preferred: stdin heredoc
-   $FLOWCTL epic set-plan <EPIC_ID> --file - --json <<'EOF'
+   $FLOWCTL epic plan <EPIC_ID> --file - --json <<'EOF'
    <updated epic spec content>
    EOF
 
    # Or temp file
-   $FLOWCTL epic set-plan <EPIC_ID> --file /tmp/updated-plan.md --json
+   $FLOWCTL epic plan <EPIC_ID> --file /tmp/updated-plan.md --json
    ```
 3. **Sync affected task specs** - If epic changes affect task specs, update them:
    ```bash
-   $FLOWCTL task set-spec <TASK_ID> --file - --json <<'EOF'
+   $FLOWCTL task spec <TASK_ID> --file - --json <<'EOF'
    <updated task spec content>
    EOF
    ```

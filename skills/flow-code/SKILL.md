@@ -58,10 +58,10 @@ $FLOWCTL ready --epic fn-1-add-oauth --json
 $FLOWCTL task create --epic fn-1-add-oauth --title "Fix bug X" --json
 
 # Set task description and acceptance (combined, fewer writes)
-$FLOWCTL task set-spec fn-1-add-oauth.2 --description /tmp/desc.md --acceptance /tmp/accept.md --json
+$FLOWCTL task spec fn-1-add-oauth.2 --desc /tmp/desc.md --accept /tmp/accept.md --json
 
 # Or use stdin with heredoc (no temp file):
-$FLOWCTL task set-description fn-1-add-oauth.2 --file - --json <<'EOF'
+$FLOWCTL task spec fn-1-add-oauth.2 --file - --json <<'EOF'
 Description here
 EOF
 
@@ -109,7 +109,7 @@ $FLOWCTL validate --all --json
    - [ ] Criterion 1
    - [ ] Criterion 2
    EOF
-   $FLOWCTL task set-spec fn-N.M --description /tmp/desc.md --acceptance /tmp/accept.md --json
+   $FLOWCTL task spec fn-N.M --desc /tmp/desc.md --accept /tmp/accept.md --json
    ```
 
 ### "What tasks are there?"

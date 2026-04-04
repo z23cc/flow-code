@@ -57,7 +57,8 @@ pub struct DoneTaskResponse {
 /// Request to block a task.
 pub struct BlockTaskRequest {
     pub task_id: String,
-    pub reason_file: String,
+    /// Block reason text (not a file path).
+    pub reason: String,
 }
 
 /// Response from blocking a task.
@@ -853,14 +854,7 @@ pub fn block_task(
         )));
     }
 
-    let reason = fs::read_to_string(&req.reason_file)
-        .map(|s| s.trim().to_string())
-        .map_err(|e| {
-            ServiceError::IoError(std::io::Error::new(
-                e.kind(),
-                format!("Cannot read reason file: {}", e),
-            ))
-        })?;
+    let reason = req.reason.trim().to_string();
 
     if reason.is_empty() {
         return Err(ServiceError::ValidationError(

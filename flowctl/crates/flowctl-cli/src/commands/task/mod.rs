@@ -47,35 +47,19 @@ pub enum TaskCmd {
         #[arg(long)]
         files: Option<String>,
     },
-    /// Set task description.
-    SetDescription {
-        /// Task ID.
-        id: String,
-        /// Markdown file (use '-' for stdin).
-        #[arg(long)]
-        file: String,
-    },
-    /// Set task acceptance criteria.
-    SetAcceptance {
-        /// Task ID.
-        id: String,
-        /// Markdown file (use '-' for stdin).
-        #[arg(long)]
-        file: String,
-    },
-    /// Set task spec (full file or sections).
-    SetSpec {
+    /// Set task spec: full file or individual sections.
+    Spec {
         /// Task ID.
         id: String,
         /// Full spec file.
         #[arg(long)]
         file: Option<String>,
         /// Description section file.
-        #[arg(long)]
-        description: Option<String>,
+        #[arg(long, alias = "description")]
+        desc: Option<String>,
         /// Acceptance section file.
-        #[arg(long)]
-        acceptance: Option<String>,
+        #[arg(long, alias = "acceptance")]
+        accept: Option<String>,
     },
     /// Reset task to todo.
     Reset {
@@ -423,14 +407,12 @@ pub fn dispatch(cmd: &TaskCmd, json: bool) {
             domain.as_deref(),
             files.as_deref(),
         ),
-        TaskCmd::SetDescription { id, file } => query::cmd_task_set_section(json, id, "## Description", file),
-        TaskCmd::SetAcceptance { id, file } => query::cmd_task_set_section(json, id, "## Acceptance", file),
-        TaskCmd::SetSpec {
+        TaskCmd::Spec {
             id,
             file,
-            description,
-            acceptance,
-        } => query::cmd_task_set_spec(json, id, file.as_deref(), description.as_deref(), acceptance.as_deref()),
+            desc,
+            accept,
+        } => query::cmd_task_set_spec(json, id, file.as_deref(), desc.as_deref(), accept.as_deref()),
         TaskCmd::Reset { task_id, cascade } => mutate::cmd_task_reset(json, task_id, *cascade),
         TaskCmd::Skip { task_id, reason } => mutate::cmd_task_skip(json, task_id, reason.as_deref()),
         TaskCmd::Split {

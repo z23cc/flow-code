@@ -30,7 +30,7 @@ Ralph mode rules (must follow):
    - If PLAN_REVIEW=none:
      - If REQUIRE_PLAN_REVIEW=1: output `<promise>RETRY</promise>` and stop.
      - Else: set ship and stop:
-       `scripts/ralph/flowctl epic set-plan-review-status {{EPIC_ID}} --status ship --json`
+       `scripts/ralph/flowctl epic review {{EPIC_ID}} --status ship --json`
 
 4) The skill will loop internally until `<verdict>SHIP</verdict>`:
    - First review uses `--new-chat`
@@ -52,11 +52,11 @@ Ralph mode rules (must follow):
    Missing id = verification fails = forced retry.
 
 6) After SHIP:
-   - `scripts/ralph/flowctl epic set-plan-review-status {{EPIC_ID}} --status ship --json`
+   - `scripts/ralph/flowctl epic review {{EPIC_ID}} --status ship --json`
    - stop (do NOT output promise tag)
 
 7) If MAJOR_RETHINK (rare):
-   - `scripts/ralph/flowctl epic set-plan-review-status {{EPIC_ID}} --status needs_work --json`
+   - `scripts/ralph/flowctl epic review {{EPIC_ID}} --status needs_work --json`
    - output `<promise>FAIL</promise>` and stop
 
 8) On hard failure, output `<promise>FAIL</promise>` and stop.

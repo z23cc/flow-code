@@ -20,7 +20,7 @@ A spec = an epic. Create one directly — do NOT use `/flow-code:plan` (that bre
 
 ```bash
 .flow/bin/flowctl epic create --title "Short title" --json
-.flow/bin/flowctl epic set-plan <epic-id> --file - --json <<'EOF'
+.flow/bin/flowctl epic plan <epic-id> --file - --json <<'EOF'
 # Title
 
 ## Goal & Context

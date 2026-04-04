@@ -29,8 +29,8 @@ pub enum EpicCmd {
         #[arg(long)]
         branch: Option<String>,
     },
-    /// Set epic spec from file.
-    SetPlan {
+    /// Set epic spec from file (use '-' for stdin).
+    Plan {
         /// Epic ID.
         id: String,
         /// Markdown file (use '-' for stdin).
@@ -38,31 +38,30 @@ pub enum EpicCmd {
         file: String,
     },
     /// Set plan review status.
-    SetPlanReviewStatus {
+    Review {
         /// Epic ID.
         id: String,
-        /// Review status.
-        #[arg(long, value_parser = ["ship", "needs_work", "unknown"])]
+        /// Review status: ship, needs_work, unknown.
+        #[arg(value_parser = ["ship", "needs_work", "unknown"])]
         status: String,
     },
     /// Set completion review status.
-    SetCompletionReviewStatus {
+    Completion {
         /// Epic ID.
         id: String,
-        /// Review status.
-        #[arg(long, value_parser = ["ship", "needs_work", "unknown"])]
+        /// Review status: ship, needs_work, unknown.
+        #[arg(value_parser = ["ship", "needs_work", "unknown"])]
         status: String,
     },
     /// Set epic branch name.
-    SetBranch {
+    Branch {
         /// Epic ID.
         id: String,
         /// Branch name.
-        #[arg(long)]
-        branch: String,
+        name: String,
     },
-    /// Rename epic by setting a new title.
-    SetTitle {
+    /// Rename epic title.
+    Title {
         /// Epic ID.
         id: String,
         /// New title.
@@ -121,7 +120,7 @@ pub enum EpicCmd {
         sync: Option<String>,
     },
     /// Set or clear auto_execute_pending marker.
-    SetAutoExecute {
+    AutoExec {
         /// Epic ID.
         id: String,
         /// Mark auto-execute as pending.
@@ -1281,15 +1280,11 @@ fn cmd_set_auto_execute(id: &str, pending: bool, done: bool, json_mode: bool) {
 pub fn dispatch(cmd: &EpicCmd, json: bool) {
     match cmd {
         EpicCmd::Create { title, branch } => cmd_create(title, branch, json),
-        EpicCmd::SetPlan { id, file } => cmd_set_plan(id, file, json),
-        EpicCmd::SetPlanReviewStatus { id, status } => {
-            cmd_set_plan_review_status(id, status, json)
-        }
-        EpicCmd::SetCompletionReviewStatus { id, status } => {
-            cmd_set_completion_review_status(id, status, json)
-        }
-        EpicCmd::SetBranch { id, branch } => cmd_set_branch(id, branch, json),
-        EpicCmd::SetTitle { id, title } => cmd_set_title(id, title, json),
+        EpicCmd::Plan { id, file } => cmd_set_plan(id, file, json),
+        EpicCmd::Review { id, status } => cmd_set_plan_review_status(id, status, json),
+        EpicCmd::Completion { id, status } => cmd_set_completion_review_status(id, status, json),
+        EpicCmd::Branch { id, name } => cmd_set_branch(id, name, json),
+        EpicCmd::Title { id, title } => cmd_set_title(id, title, json),
         EpicCmd::Close {
             id,
             skip_gap_check,
@@ -1305,7 +1300,7 @@ pub fn dispatch(cmd: &EpicCmd, json: bool) {
             review,
             sync,
         } => cmd_set_backend(id, impl_spec, review, sync, json),
-        EpicCmd::SetAutoExecute {
+        EpicCmd::AutoExec {
             id,
             pending,
             done,

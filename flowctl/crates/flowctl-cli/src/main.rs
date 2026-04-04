@@ -124,6 +124,11 @@ enum Commands {
         review: Option<String>,
     },
 
+    /// Render ASCII DAG of task dependencies.
+    Dag {
+        /// Epic ID.
+        id: String,
+    },
     /// Estimate remaining time for an epic based on historical durations.
     Estimate {
         /// Epic ID.
@@ -347,9 +352,12 @@ enum Commands {
     Block {
         /// Task ID.
         id: String,
-        /// Markdown file with block reason.
+        /// Block reason (inline text).
         #[arg(long)]
-        reason_file: String,
+        reason: Option<String>,
+        /// Block reason from file (deprecated, use --reason).
+        #[arg(long)]
+        reason_file: Option<String>,
     },
     /// Mark task as failed (triggers upstream_failed propagation to downstream).
     Fail {
@@ -440,6 +448,7 @@ fn main() {
             admin::cmd_worker_prompt(json, task, tdd, review)
         }
 
+        Commands::Dag { id } => commands::stats::cmd_dag(json, Some(id)),
         Commands::Estimate { epic } => commands::stats::cmd_estimate(json, &epic),
         Commands::Replay { epic_id, dry_run, force } => commands::epic::cmd_replay(json, &epic_id, dry_run, force),
         Commands::Diff { epic_id } => commands::epic::cmd_diff(json, &epic_id),
@@ -506,7 +515,18 @@ fn main() {
             force,
         ),
         Commands::Restart { id, dry_run, force } => workflow::cmd_restart(json, id, dry_run, force),
-        Commands::Block { id, reason_file } => workflow::cmd_block(json, id, reason_file),
+        Commands::Block { id, reason, reason_file } => {
+            let reason_text = if let Some(r) = reason {
+                r
+            } else if let Some(f) = reason_file {
+                std::fs::read_to_string(&f).unwrap_or_else(|e| {
+                    output::error_exit(&format!("Cannot read reason file: {e}"));
+                })
+            } else {
+                output::error_exit("Either --reason or --reason-file is required");
+            };
+            workflow::cmd_block(json, id, reason_text)
+        }
         Commands::Fail { id, reason, force } => workflow::cmd_fail(json, id, reason, force),
 
         // MCP Server

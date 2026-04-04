@@ -160,9 +160,7 @@ git commit -m "chore: init" >/dev/null
 
 mkdir -p scripts/ralph
 cp -R "$PLUGIN_ROOT/skills/flow-code-ralph-init/templates/." scripts/ralph/
-cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl.py
-cp -r "$PLUGIN_ROOT/scripts/flowctl" scripts/ralph/flowctl
-cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl
+cp "$PLUGIN_ROOT/bin/flowctl" scripts/ralph/flowctl
 chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl
 FLOWCTL="scripts/ralph/flowctl"
 
@@ -186,9 +184,7 @@ scripts/ralph/flowctl init --json >/dev/null
 
 # Mirror /flow-code:setup - add .flow/bin/ + usage.md + CLAUDE.md
 mkdir -p .flow/bin
-cp "$PLUGIN_ROOT/scripts/flowctl.py" .flow/bin/flowctl
-cp "$PLUGIN_ROOT/scripts/flowctl.py" .flow/bin/flowctl.py
-cp -r "$PLUGIN_ROOT/scripts/flowctl" .flow/bin/flowctl
+cp "$PLUGIN_ROOT/bin/flowctl" .flow/bin/flowctl
 chmod +x .flow/bin/flowctl
 cp "$PLUGIN_ROOT/skills/flow-code-setup/templates/usage.md" .flow/usage.md
 cat "$PLUGIN_ROOT/skills/flow-code-setup/templates/claude-md-snippet.md" > CLAUDE.md

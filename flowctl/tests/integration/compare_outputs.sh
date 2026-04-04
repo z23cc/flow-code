@@ -22,7 +22,7 @@ FAIL=0
 SKIP=0
 
 # ── Locate binaries ──────────────────────────────────────────────────
-FLOWCTL="${FLOWCTL:-$REPO_ROOT/scripts/flowctl.py}"
+FLOWCTL="${FLOWCTL:-$REPO_ROOT/bin/flowctl}"
 if [[ ! -f "$FLOWCTL" ]]; then
   echo "FATAL: Python flowctl not found at $FLOWCTL"
   exit 1

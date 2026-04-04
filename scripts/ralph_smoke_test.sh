@@ -54,9 +54,7 @@ git commit -m "chore: init" >/dev/null
 scaffold() {
   mkdir -p scripts/ralph
   cp -R "$PLUGIN_ROOT/skills/flow-code-ralph-init/templates/." scripts/ralph/
-  cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl.py
-  cp -r "$PLUGIN_ROOT/scripts/flowctl" scripts/ralph/flowctl
-  cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/ralph/flowctl
+  cp "$PLUGIN_ROOT/bin/flowctl" scripts/ralph/flowctl
   chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl
 }
 
@@ -97,7 +95,7 @@ scaffold
 
 echo -e "${YELLOW}--- ralph-init scaffold ---${NC}"
 missing=0
-for f in ralph.sh ralph_once.sh prompt_plan.md prompt_work.md config.env runs/.gitkeep flowctl flowctl.py .gitignore; do
+for f in ralph.sh ralph_once.sh prompt_plan.md prompt_work.md config.env runs/.gitkeep flowctl .gitignore; do
   if [[ ! -f "scripts/ralph/$f" ]]; then
     echo -e "${RED}✗${NC} missing scripts/ralph/$f"
     missing=1

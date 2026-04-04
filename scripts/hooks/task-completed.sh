@@ -19,9 +19,9 @@ set -uo pipefail
 
 [ -d ".flow" ] || exit 0
 
-FLOWCTL="${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT:-$(cd "$(dirname "$(dirname "$0")")" && pwd)}}/scripts/flowctl.py"
+PLUGIN_DIR="${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT:-$(cd "$(dirname "$(dirname "$0")")" && pwd)}}"
+FLOWCTL="$PLUGIN_DIR/bin/flowctl"
 [ -f "$FLOWCTL" ] || exit 0
-command -v python3 &>/dev/null || exit 0
 
 # Read hook input from stdin
 INPUT=$(cat)
@@ -54,11 +54,11 @@ echo "{\"event\":\"task_completed\",\"time\":\"$TIMESTAMP\",\"teammate\":\"$TEAM
 # If we identified a flow task, unlock its files
 if [[ -n "$FLOW_TASK_ID" && "$FLOW_TASK_ID" =~ ^fn- ]]; then
     # Check if task exists and is in_progress
-    STATUS=$(python3 "$FLOWCTL" show "$FLOW_TASK_ID" --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+    STATUS=$("$FLOWCTL" show "$FLOW_TASK_ID" --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
 
     if [[ "$STATUS" == "in_progress" || "$STATUS" == "done" ]]; then
         # Unlock files for this task (safe even if no locks exist)
-        python3 "$FLOWCTL" unlock --task "$FLOW_TASK_ID" --json 2>/dev/null || true
+        "$FLOWCTL" unlock --task "$FLOW_TASK_ID" --json 2>/dev/null || true
         echo "{\"event\":\"files_unlocked\",\"time\":\"$TIMESTAMP\",\"task\":\"$FLOW_TASK_ID\"}" >> "$LOG_DIR/events.jsonl"
     fi
 fi

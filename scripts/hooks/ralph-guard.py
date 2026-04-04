@@ -135,7 +135,6 @@ def output_json(data: dict) -> None:
 PROTECTED_FILE_PATTERNS = [
     "ralph-guard.py",
     "ralph-guard",
-    "flowctl.py",
     "flowctl",
     "/hooks/hooks.json",
     "/flowctl/",
@@ -190,7 +189,7 @@ def handle_file_lock_check(data: dict) -> None:
     if not flowctl:
         plugin_root = os.environ.get("DROID_PLUGIN_ROOT") or os.environ.get("CLAUDE_PLUGIN_ROOT", "")
         if plugin_root:
-            flowctl = os.path.join(plugin_root, "scripts", "flowctl.py")
+            flowctl = os.path.join(plugin_root, "bin", "flowctl")
 
     if not flowctl or not os.path.exists(flowctl):
         # Fail-open: flowctl unavailable
@@ -201,7 +200,7 @@ def handle_file_lock_check(data: dict) -> None:
     # If locked by another task, flowctl lock fails with non-zero exit.
     try:
         result = subprocess.run(
-            ["python3", flowctl, "lock", "--task", my_task_id, "--files", rel_path, "--json"],
+            [flowctl, "lock", "--task", my_task_id, "--files", rel_path, "--json"],
             capture_output=True, text=True, timeout=5, cwd=str(get_repo_root()),
         )
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
@@ -462,7 +461,7 @@ def handle_post_tool_use(data: dict) -> None:
 
     # Track flowctl done calls - match various invocation patterns:
     # - flowctl done <task>
-    # - flowctl.py done <task>
+    # - flowctl done <task>
     # - .flow/bin/flowctl done <task>
     # - scripts/ralph/flowctl done <task>
     # - $FLOWCTL done <task>

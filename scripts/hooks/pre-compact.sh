@@ -12,9 +12,9 @@ set -uo pipefail
 
 [ -d ".flow" ] || exit 0
 
-FLOWCTL="${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT:-$(cd "$(dirname "$(dirname "$0")")" && pwd)}}/scripts/flowctl.py"
+PLUGIN_DIR="${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT:-$(cd "$(dirname "$(dirname "$0")")" && pwd)}}"
+FLOWCTL="$PLUGIN_DIR/bin/flowctl"
 [ -f "$FLOWCTL" ] || exit 0
-command -v python3 &>/dev/null || exit 0
 
 # Collect state efficiently — single python script to minimize subprocess overhead
 python3 - "$FLOWCTL" <<'PYEOF'
@@ -25,7 +25,7 @@ FLOWCTL = sys.argv[1]
 def run(args):
     try:
         r = subprocess.run(
-            ["python3", FLOWCTL] + args,
+            [FLOWCTL] + args,
             capture_output=True, text=True, timeout=5
         )
         if r.returncode == 0 and r.stdout.strip():

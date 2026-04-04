@@ -39,23 +39,28 @@ trap cleanup EXIT
 
 echo -e "${YELLOW}=== flowctl smoke tests ===${NC}"
 
-mkdir -p "$TEST_DIR/repo/scripts"
+mkdir -p "$TEST_DIR/repo"
 cd "$TEST_DIR/repo"
 git init -q
 
-cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/flowctl.py
-cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/flowctl.py
-cp -r "$PLUGIN_ROOT/scripts/flowctl" scripts/flowctl
-chmod +x scripts/flowctl.py
+# Locate flowctl binary (Rust)
+if [[ -x "$PLUGIN_ROOT/bin/flowctl" ]]; then
+  FLOWCTL="$PLUGIN_ROOT/bin/flowctl"
+elif command -v flowctl >/dev/null 2>&1; then
+  FLOWCTL="$(command -v flowctl)"
+else
+  echo "ERROR: flowctl binary not found. Build with: cd flowctl && cargo build --release && cp target/release/flowctl ../bin/" >&2
+  exit 1
+fi
 
-scripts/flowctl.py init --json >/dev/null
+$FLOWCTL init --json >/dev/null
 printf '{"commits":[],"tests":[],"prs":[]}' > "$TEST_DIR/evidence.json"
 printf "ok\n" > "$TEST_DIR/summary.md"
 
 echo -e "${YELLOW}--- idempotent init ---${NC}"
 
 # Test 1: Re-run init (no changes)
-init_result="$(scripts/flowctl.py init --json)"
+init_result="$($FLOWCTL init --json)"
 init_actions="$(echo "$init_result" | "$PYTHON_BIN" -c 'import json,sys; print(len(json.load(sys.stdin).get("actions", [])))')"
 if [[ "$init_actions" == "0" ]]; then
   echo -e "${GREEN}✓${NC} init idempotent (no changes on re-run)"
@@ -67,7 +72,7 @@ fi
 
 # Test 2: Config upgrade (old config without planSync)
 echo '{"memory":{"enabled":true}}' > .flow/config.json
-init_upgrade="$(scripts/flowctl.py init --json)"
+init_upgrade="$($FLOWCTL init --json)"
 upgrade_msg="$(echo "$init_upgrade" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("message", ""))')"
 if [[ "$upgrade_msg" == *"upgraded config.json"* ]]; then
   echo -e "${GREEN}✓${NC} init upgrades config (adds missing keys)"
@@ -78,7 +83,7 @@ else
 fi
 
 # Test 3: Verify existing values preserved after upgrade
-memory_val="$(scripts/flowctl.py config get memory.enabled --json | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("value"))')"
+memory_val="$($FLOWCTL config get memory.enabled --json | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("value"))')"
 if [[ "$memory_val" == "True" ]]; then
   echo -e "${GREEN}✓${NC} init preserves existing config values"
   PASS=$((PASS + 1))
@@ -88,7 +93,7 @@ else
 fi
 
 # Test 4: Verify new defaults added (memory + planSync now default to True)
-plansync_val="$(scripts/flowctl.py config get planSync.enabled --json | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("value"))')"
+plansync_val="$($FLOWCTL config get planSync.enabled --json | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("value"))')"
 if [[ "$plansync_val" == "True" ]]; then
   echo -e "${GREEN}✓${NC} init adds new default keys"
   PASS=$((PASS + 1))
@@ -98,16 +103,16 @@ else
 fi
 
 # Reset config for remaining tests
-scripts/flowctl.py config set memory.enabled false --json >/dev/null
+$FLOWCTL config set memory.enabled false --json >/dev/null
 
 echo -e "${YELLOW}--- next: plan/work/none + priority ---${NC}"
 # Capture epic ID from create output (fn-N-xxx format)
-EPIC1_JSON="$(scripts/flowctl.py epic create --title "Epic One" --json)"
+EPIC1_JSON="$($FLOWCTL epic create --title "Epic One" --json)"
 EPIC1="$(echo "$EPIC1_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-scripts/flowctl.py task create --epic "$EPIC1" --title "Low pri" --priority 5 --json >/dev/null
-scripts/flowctl.py task create --epic "$EPIC1" --title "High pri" --priority 1 --json >/dev/null
+$FLOWCTL task create --epic "$EPIC1" --title "Low pri" --priority 5 --json >/dev/null
+$FLOWCTL task create --epic "$EPIC1" --title "High pri" --priority 1 --json >/dev/null
 
-plan_json="$(scripts/flowctl.py next --require-plan-review --json)"
+plan_json="$($FLOWCTL next --require-plan-review --json)"
 "$PYTHON_BIN" - "$plan_json" "$EPIC1" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -118,8 +123,8 @@ PY
 echo -e "${GREEN}✓${NC} next plan"
 PASS=$((PASS + 1))
 
-scripts/flowctl.py epic set-plan-review-status "$EPIC1" --status ship --json >/dev/null
-work_json="$(scripts/flowctl.py next --json)"
+$FLOWCTL epic set-plan-review-status "$EPIC1" --status ship --json >/dev/null
+work_json="$($FLOWCTL next --json)"
 "$PYTHON_BIN" - "$work_json" "$EPIC1" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -130,11 +135,11 @@ PY
 echo -e "${GREEN}✓${NC} next work priority"
 PASS=$((PASS + 1))
 
-scripts/flowctl.py start "${EPIC1}.2" --json >/dev/null
-scripts/flowctl.py done "${EPIC1}.2" --summary-file "$TEST_DIR/summary.md" --evidence-json "$TEST_DIR/evidence.json" --json >/dev/null
-scripts/flowctl.py start "${EPIC1}.1" --json >/dev/null
-scripts/flowctl.py done "${EPIC1}.1" --summary-file "$TEST_DIR/summary.md" --evidence-json "$TEST_DIR/evidence.json" --json >/dev/null
-none_json="$(scripts/flowctl.py next --json)"
+$FLOWCTL start "${EPIC1}.2" --json >/dev/null
+$FLOWCTL done "${EPIC1}.2" --summary-file "$TEST_DIR/summary.md" --evidence-json "$TEST_DIR/evidence.json" --json >/dev/null
+$FLOWCTL start "${EPIC1}.1" --json >/dev/null
+$FLOWCTL done "${EPIC1}.1" --summary-file "$TEST_DIR/summary.md" --evidence-json "$TEST_DIR/evidence.json" --json >/dev/null
+none_json="$($FLOWCTL next --json)"
 "$PYTHON_BIN" - <<'PY' "$none_json"
 import json, sys
 data = json.loads(sys.argv[1])
@@ -154,7 +159,7 @@ cat > ".flow/tasks/${EPIC1}.1-summary.json" << 'EOF'
 EOF
 # Test that next still works with artifact files present
 set +e
-next_result="$(scripts/flowctl.py next --json 2>&1)"
+next_result="$($FLOWCTL next --json 2>&1)"
 next_rc=$?
 set -e
 if [[ "$next_rc" -eq 0 ]]; then
@@ -166,7 +171,7 @@ else
 fi
 # Test that list still works
 set +e
-list_result="$(scripts/flowctl.py list --json 2>&1)"
+list_result="$($FLOWCTL list --json 2>&1)"
 list_rc=$?
 set -e
 if [[ "$list_rc" -eq 0 ]]; then
@@ -178,7 +183,7 @@ else
 fi
 # Test that ready still works
 set +e
-ready_result="$(scripts/flowctl.py ready --epic "$EPIC1" --json 2>&1)"
+ready_result="$($FLOWCTL ready --epic "$EPIC1" --json 2>&1)"
 ready_rc=$?
 set -e
 if [[ "$ready_rc" -eq 0 ]]; then
@@ -190,7 +195,7 @@ else
 fi
 # Test that show (with tasks) still works
 set +e
-show_result="$(scripts/flowctl.py show "$EPIC1" --json 2>&1)"
+show_result="$($FLOWCTL show "$EPIC1" --json 2>&1)"
 show_rc=$?
 set -e
 if [[ "$show_rc" -eq 0 ]]; then
@@ -202,7 +207,7 @@ else
 fi
 # Test that validate still works
 set +e
-validate_result="$(scripts/flowctl.py validate --epic "$EPIC1" --json 2>&1)"
+validate_result="$($FLOWCTL validate --epic "$EPIC1" --json 2>&1)"
 validate_rc=$?
 set -e
 if [[ "$validate_rc" -eq 0 ]]; then
@@ -227,7 +232,7 @@ data.pop("plan_reviewed_at", None)
 data.pop("branch_name", None)
 path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 PY
-show_json="$(scripts/flowctl.py show "$EPIC1" --json)"
+show_json="$($FLOWCTL show "$EPIC1" --json)"
 "$PYTHON_BIN" - <<'PY' "$show_json"
 import json, sys
 data = json.loads(sys.argv[1])
@@ -239,8 +244,8 @@ echo -e "${GREEN}✓${NC} plan_review_status defaulted"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- branch_name set ---${NC}"
-scripts/flowctl.py epic set-branch "$EPIC1" --branch "${EPIC1}-epic" --json >/dev/null
-show_json="$(scripts/flowctl.py show "$EPIC1" --json)"
+$FLOWCTL epic set-branch "$EPIC1" --branch "${EPIC1}-epic" --json >/dev/null
+show_json="$($FLOWCTL show "$EPIC1" --json)"
 "$PYTHON_BIN" - "$show_json" "$EPIC1" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -252,15 +257,15 @@ PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- epic set-title ---${NC}"
 # Create epic with tasks for rename test
-RENAME_EPIC_JSON="$(scripts/flowctl.py epic create --title "Old Title" --json)"
+RENAME_EPIC_JSON="$($FLOWCTL epic create --title "Old Title" --json)"
 RENAME_EPIC="$(echo "$RENAME_EPIC_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-scripts/flowctl.py task create --epic "$RENAME_EPIC" --title "First task" --json >/dev/null
-scripts/flowctl.py task create --epic "$RENAME_EPIC" --title "Second task" --json >/dev/null
+$FLOWCTL task create --epic "$RENAME_EPIC" --title "First task" --json >/dev/null
+$FLOWCTL task create --epic "$RENAME_EPIC" --title "Second task" --json >/dev/null
 # Add task dependency within epic
-scripts/flowctl.py dep add "${RENAME_EPIC}.2" "${RENAME_EPIC}.1" --json >/dev/null
+$FLOWCTL dep add "${RENAME_EPIC}.2" "${RENAME_EPIC}.1" --json >/dev/null
 
 # Rename epic
-rename_result="$(scripts/flowctl.py epic set-title "$RENAME_EPIC" --title "New Shiny Title" --json)"
+rename_result="$($FLOWCTL epic set-title "$RENAME_EPIC" --title "New Shiny Title" --json)"
 NEW_EPIC="$(echo "$rename_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["new_id"])')"
 
 # Test 1: Verify old files are gone
@@ -321,7 +326,7 @@ echo -e "${GREEN}✓${NC} set-title updates task JSON and deps"
 PASS=$((PASS + 1))
 
 # Test 6: Verify show works with new ID
-show_json="$(scripts/flowctl.py show "$NEW_EPIC" --json)"
+show_json="$($FLOWCTL show "$NEW_EPIC" --json)"
 "$PYTHON_BIN" - "$show_json" "$NEW_EPIC" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -333,11 +338,11 @@ echo -e "${GREEN}✓${NC} set-title show works with new ID"
 PASS=$((PASS + 1))
 
 # Test 7: depends_on_epics update in other epics
-DEP_EPIC_JSON="$(scripts/flowctl.py epic create --title "Depends on renamed" --json)"
+DEP_EPIC_JSON="$($FLOWCTL epic create --title "Depends on renamed" --json)"
 DEP_EPIC="$(echo "$DEP_EPIC_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-scripts/flowctl.py epic add-dep "$DEP_EPIC" "$NEW_EPIC" --json >/dev/null
+$FLOWCTL epic add-dep "$DEP_EPIC" "$NEW_EPIC" --json >/dev/null
 # Rename the dependency
-rename2_result="$(scripts/flowctl.py epic set-title "$NEW_EPIC" --title "Final Title" --json)"
+rename2_result="$($FLOWCTL epic set-title "$NEW_EPIC" --title "Final Title" --json)"
 FINAL_EPIC="$(echo "$rename2_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["new_id"])')"
 # Verify DEP_EPIC's depends_on_epics was updated
 "$PYTHON_BIN" - "$DEP_EPIC" "$FINAL_EPIC" <<'PY'
@@ -353,18 +358,18 @@ echo -e "${GREEN}✓${NC} set-title updates depends_on_epics in other epics"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- block + validate + epic close ---${NC}"
-EPIC2_JSON="$(scripts/flowctl.py epic create --title "Epic Two" --json)"
+EPIC2_JSON="$($FLOWCTL epic create --title "Epic Two" --json)"
 EPIC2="$(echo "$EPIC2_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-scripts/flowctl.py task create --epic "$EPIC2" --title "Block me" --json >/dev/null
-scripts/flowctl.py task create --epic "$EPIC2" --title "Other" --json >/dev/null
+$FLOWCTL task create --epic "$EPIC2" --title "Block me" --json >/dev/null
+$FLOWCTL task create --epic "$EPIC2" --title "Other" --json >/dev/null
 printf "Blocked by test\n" > "$TEST_DIR/reason.md"
-scripts/flowctl.py block "${EPIC2}.1" --reason-file "$TEST_DIR/reason.md" --json >/dev/null
-scripts/flowctl.py validate --epic "$EPIC2" --json >/dev/null
+$FLOWCTL block "${EPIC2}.1" --reason-file "$TEST_DIR/reason.md" --json >/dev/null
+$FLOWCTL validate --epic "$EPIC2" --json >/dev/null
 echo -e "${GREEN}✓${NC} validate allows blocked"
 PASS=$((PASS + 1))
 
 set +e
-scripts/flowctl.py epic close "$EPIC2" --json >/dev/null
+$FLOWCTL epic close "$EPIC2" --json >/dev/null
 rc=$?
 set -e
 if [[ "$rc" -ne 0 ]]; then
@@ -375,17 +380,17 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-scripts/flowctl.py start "${EPIC2}.1" --force --json >/dev/null
-scripts/flowctl.py done "${EPIC2}.1" --summary-file "$TEST_DIR/summary.md" --evidence-json "$TEST_DIR/evidence.json" --json >/dev/null
-scripts/flowctl.py start "${EPIC2}.2" --json >/dev/null
-scripts/flowctl.py done "${EPIC2}.2" --summary-file "$TEST_DIR/summary.md" --evidence-json "$TEST_DIR/evidence.json" --json >/dev/null
-scripts/flowctl.py epic close "$EPIC2" --json >/dev/null
+$FLOWCTL start "${EPIC2}.1" --force --json >/dev/null
+$FLOWCTL done "${EPIC2}.1" --summary-file "$TEST_DIR/summary.md" --evidence-json "$TEST_DIR/evidence.json" --json >/dev/null
+$FLOWCTL start "${EPIC2}.2" --json >/dev/null
+$FLOWCTL done "${EPIC2}.2" --summary-file "$TEST_DIR/summary.md" --evidence-json "$TEST_DIR/evidence.json" --json >/dev/null
+$FLOWCTL epic close "$EPIC2" --json >/dev/null
 echo -e "${GREEN}✓${NC} epic close succeeds when done"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- config set/get ---${NC}"
-scripts/flowctl.py config set memory.enabled true --json >/dev/null
-config_json="$(scripts/flowctl.py config get memory.enabled --json)"
+$FLOWCTL config set memory.enabled true --json >/dev/null
+config_json="$($FLOWCTL config get memory.enabled --json)"
 "$PYTHON_BIN" - <<'PY' "$config_json"
 import json, sys
 data = json.loads(sys.argv[1])
@@ -394,8 +399,8 @@ PY
 echo -e "${GREEN}✓${NC} config set/get"
 PASS=$((PASS + 1))
 
-scripts/flowctl.py config set memory.enabled false --json >/dev/null
-config_json="$(scripts/flowctl.py config get memory.enabled --json)"
+$FLOWCTL config set memory.enabled false --json >/dev/null
+config_json="$($FLOWCTL config get memory.enabled --json)"
 "$PYTHON_BIN" - <<'PY' "$config_json"
 import json, sys
 data = json.loads(sys.argv[1])
@@ -405,8 +410,8 @@ echo -e "${GREEN}✓${NC} config toggle"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- planSync config ---${NC}"
-scripts/flowctl.py config set planSync.enabled true --json >/dev/null
-config_json="$(scripts/flowctl.py config get planSync.enabled --json)"
+$FLOWCTL config set planSync.enabled true --json >/dev/null
+config_json="$($FLOWCTL config get planSync.enabled --json)"
 "$PYTHON_BIN" - <<'PY' "$config_json"
 import json, sys
 data = json.loads(sys.argv[1])
@@ -415,8 +420,8 @@ PY
 echo -e "${GREEN}✓${NC} planSync config set/get"
 PASS=$((PASS + 1))
 
-scripts/flowctl.py config set planSync.enabled false --json >/dev/null
-config_json="$(scripts/flowctl.py config get planSync.enabled --json)"
+$FLOWCTL config set planSync.enabled false --json >/dev/null
+config_json="$($FLOWCTL config get planSync.enabled --json)"
 "$PYTHON_BIN" - <<'PY' "$config_json"
 import json, sys
 data = json.loads(sys.argv[1])
@@ -429,7 +434,7 @@ echo -e "${YELLOW}--- gap commands ---${NC}"
 
 # Use EPIC1 which was created earlier in the test
 # Test 1: gap add
-gap_add_result="$(scripts/flowctl.py gap add --epic "$EPIC1" --capability "Missing auth check" --priority required --source flow-gap-analyst --json)"
+gap_add_result="$($FLOWCTL gap add --epic "$EPIC1" --capability "Missing auth check" --priority required --source flow-gap-analyst --json)"
 gap_created="$(echo "$gap_add_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("created", False))')"
 if [[ "$gap_created" == "True" ]]; then
   echo -e "${GREEN}✓${NC} gap add creates new gap"
@@ -440,7 +445,7 @@ else
 fi
 
 # Test 2: gap add idempotent
-gap_dup_result="$(scripts/flowctl.py gap add --epic "$EPIC1" --capability "Missing auth check" --priority required --json)"
+gap_dup_result="$($FLOWCTL gap add --epic "$EPIC1" --capability "Missing auth check" --priority required --json)"
 gap_dup_created="$(echo "$gap_dup_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("created", False))')"
 if [[ "$gap_dup_created" == "False" ]]; then
   echo -e "${GREEN}✓${NC} gap add idempotent (duplicate returns created=false)"
@@ -451,10 +456,10 @@ else
 fi
 
 # Test 3: gap add nice-to-have
-scripts/flowctl.py gap add --epic "$EPIC1" --capability "Optional caching" --priority nice-to-have --json >/dev/null
+$FLOWCTL gap add --epic "$EPIC1" --capability "Optional caching" --priority nice-to-have --json >/dev/null
 
 # Test 4: gap list
-gap_list_count="$(scripts/flowctl.py gap list --epic "$EPIC1" --json | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
+gap_list_count="$($FLOWCTL gap list --epic "$EPIC1" --json | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
 if [[ "$gap_list_count" == "2" ]]; then
   echo -e "${GREEN}✓${NC} gap list returns correct count"
   PASS=$((PASS + 1))
@@ -464,7 +469,7 @@ else
 fi
 
 # Test 5: gap list with status filter
-gap_open_count="$(scripts/flowctl.py gap list --epic "$EPIC1" --status open --json | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
+gap_open_count="$($FLOWCTL gap list --epic "$EPIC1" --status open --json | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
 if [[ "$gap_open_count" == "2" ]]; then
   echo -e "${GREEN}✓${NC} gap list --status open filter works"
   PASS=$((PASS + 1))
@@ -474,7 +479,7 @@ else
 fi
 
 # Test 6: gap check fails with open required gap
-if ! scripts/flowctl.py gap check --epic "$EPIC1" --json >/dev/null 2>&1; then
+if ! $FLOWCTL gap check --epic "$EPIC1" --json >/dev/null 2>&1; then
   echo -e "${GREEN}✓${NC} gap check fails with open blocking gaps (exit 1)"
   PASS=$((PASS + 1))
 else
@@ -483,7 +488,7 @@ else
 fi
 
 # Test 7: gap check JSON has gate=fail
-gap_check_gate="$(scripts/flowctl.py gap check --epic "$EPIC1" --json 2>/dev/null || true)"
+gap_check_gate="$($FLOWCTL gap check --epic "$EPIC1" --json 2>/dev/null || true)"
 gap_gate_val="$(echo "$gap_check_gate" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("gate", ""))')"
 if [[ "$gap_gate_val" == "fail" ]]; then
   echo -e "${GREEN}✓${NC} gap check gate=fail in JSON output"
@@ -494,7 +499,7 @@ else
 fi
 
 # Test 8: gap resolve
-gap_resolve_result="$(scripts/flowctl.py gap resolve --epic "$EPIC1" --capability "Missing auth check" --evidence "Added in auth.py:42" --json)"
+gap_resolve_result="$($FLOWCTL gap resolve --epic "$EPIC1" --capability "Missing auth check" --evidence "Added in auth.py:42" --json)"
 gap_changed="$(echo "$gap_resolve_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("changed", False))')"
 if [[ "$gap_changed" == "True" ]]; then
   echo -e "${GREEN}✓${NC} gap resolve marks gap as resolved"
@@ -505,7 +510,7 @@ else
 fi
 
 # Test 9: gap resolve idempotent
-gap_resolve_dup="$(scripts/flowctl.py gap resolve --epic "$EPIC1" --capability "Missing auth check" --evidence "duplicate" --json)"
+gap_resolve_dup="$($FLOWCTL gap resolve --epic "$EPIC1" --capability "Missing auth check" --evidence "duplicate" --json)"
 gap_dup_changed="$(echo "$gap_resolve_dup" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("changed", False))')"
 if [[ "$gap_dup_changed" == "False" ]]; then
   echo -e "${GREEN}✓${NC} gap resolve idempotent (already resolved)"
@@ -516,7 +521,7 @@ else
 fi
 
 # Test 10: gap check passes (only nice-to-have left)
-if scripts/flowctl.py gap check --epic "$EPIC1" --json >/dev/null 2>&1; then
+if $FLOWCTL gap check --epic "$EPIC1" --json >/dev/null 2>&1; then
   echo -e "${GREEN}✓${NC} gap check passes (nice-to-have does not block)"
   PASS=$((PASS + 1))
 else
@@ -525,7 +530,7 @@ else
 fi
 
 # Test 11: gap check gate=pass in JSON
-gap_pass_gate="$(scripts/flowctl.py gap check --epic "$EPIC1" --json)"
+gap_pass_gate="$($FLOWCTL gap check --epic "$EPIC1" --json)"
 gap_pass_val="$(echo "$gap_pass_gate" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("gate", ""))')"
 if [[ "$gap_pass_val" == "pass" ]]; then
   echo -e "${GREEN}✓${NC} gap check gate=pass in JSON output"
@@ -536,8 +541,8 @@ else
 fi
 
 echo -e "${YELLOW}--- memory commands ---${NC}"
-scripts/flowctl.py config set memory.enabled true --json >/dev/null
-scripts/flowctl.py memory init --json >/dev/null
+$FLOWCTL config set memory.enabled true --json >/dev/null
+$FLOWCTL memory init --json >/dev/null
 if [[ -d ".flow/memory/entries" ]]; then
   echo -e "${GREEN}✓${NC} memory init creates entries dir"
   PASS=$((PASS + 1))
@@ -546,7 +551,7 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-add_result="$(scripts/flowctl.py memory add pitfall "Test pitfall entry" --json)"
+add_result="$($FLOWCTL memory add pitfall "Test pitfall entry" --json)"
 add_ok="$(echo "$add_result" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); print(d.get("success",False) and d.get("type")=="pitfall")')"
 if [[ "$add_ok" == "True" ]]; then
   echo -e "${GREEN}✓${NC} memory add pitfall"
@@ -556,9 +561,9 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-scripts/flowctl.py memory add convention "Test convention" --json >/dev/null
-scripts/flowctl.py memory add decision "Test decision" --json >/dev/null
-list_json="$(scripts/flowctl.py memory list --json)"
+$FLOWCTL memory add convention "Test convention" --json >/dev/null
+$FLOWCTL memory add decision "Test decision" --json >/dev/null
+list_json="$($FLOWCTL memory list --json)"
 "$PYTHON_BIN" - <<'PY' "$list_json"
 import json, sys
 data = json.loads(sys.argv[1])
@@ -581,13 +586,13 @@ data = json.loads(path.read_text())
 data["schema_version"] = 1
 path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 PY
-scripts/flowctl.py validate --all --json >/dev/null
+$FLOWCTL validate --all --json >/dev/null
 echo -e "${GREEN}✓${NC} schema v1 validate"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- codex commands ---${NC}"
 # Test codex check (may or may not have codex installed)
-codex_check_json="$(scripts/flowctl.py codex check --json 2>/dev/null || echo '{"success":true}')"
+codex_check_json="$($FLOWCTL codex check --json 2>/dev/null || echo '{"success":true}')"
 "$PYTHON_BIN" - <<'PY' "$codex_check_json"
 import json, sys
 data = json.loads(sys.argv[1])
@@ -599,7 +604,7 @@ PASS=$((PASS + 1))
 
 # Test codex impl-review help (no codex required for argparse check)
 set +e
-scripts/flowctl.py codex impl-review --help >/dev/null 2>&1
+$FLOWCTL codex impl-review --help >/dev/null 2>&1
 rc=$?
 set -e
 if [[ "$rc" -eq 0 ]]; then
@@ -612,7 +617,7 @@ fi
 
 # Test codex plan-review help
 set +e
-scripts/flowctl.py codex plan-review --help >/dev/null 2>&1
+$FLOWCTL codex plan-review --help >/dev/null 2>&1
 rc=$?
 set -e
 if [[ "$rc" -eq 0 ]]; then
@@ -775,12 +780,12 @@ PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- codex e2e (requires codex CLI) ---${NC}"
 # Check if codex is available (handles its own auth)
-codex_available="$(scripts/flowctl.py codex check --json 2>/dev/null | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('available', False))" 2>/dev/null || echo "False")"
+codex_available="$($FLOWCTL codex check --json 2>/dev/null | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('available', False))" 2>/dev/null || echo "False")"
 if [[ "$codex_available" == "True" ]]; then
   # Create a simple epic + task for testing
-  EPIC3_JSON="$(scripts/flowctl.py epic create --title "Codex test epic" --json)"
+  EPIC3_JSON="$($FLOWCTL epic create --title "Codex test epic" --json)"
   EPIC3="$(echo "$EPIC3_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-  scripts/flowctl.py task create --epic "$EPIC3" --title "Test task" --json >/dev/null
+  $FLOWCTL task create --epic "$EPIC3" --title "Test task" --json >/dev/null
 
   # Write a simple spec
   cat > ".flow/specs/${EPIC3}.md" << 'EOF'
@@ -807,7 +812,7 @@ EOF
   mkdir -p src
   echo 'def hello(): return "hello world"' > src/hello.py
   set +e
-  plan_result="$(scripts/flowctl.py codex plan-review "$EPIC3" --files "src/hello.py" --base main --receipt "$TEST_DIR/plan-receipt.json" --json 2>&1)"
+  plan_result="$($FLOWCTL codex plan-review "$EPIC3" --files "src/hello.py" --base main --receipt "$TEST_DIR/plan-receipt.json" --json 2>&1)"
   plan_rc=$?
   set -e
 
@@ -845,7 +850,7 @@ EOF
   git -C "$TEST_DIR/repo" commit -m "Add hello function" >/dev/null
 
   set +e
-  impl_result="$(scripts/flowctl.py codex impl-review "${EPIC3}.1" --base HEAD~1 --receipt "$TEST_DIR/impl-receipt.json" --json 2>&1)"
+  impl_result="$($FLOWCTL codex impl-review "${EPIC3}.1" --base HEAD~1 --receipt "$TEST_DIR/impl-receipt.json" --json 2>&1)"
   impl_rc=$?
   set -e
 
@@ -880,10 +885,10 @@ fi
 echo -e "${YELLOW}--- depends_on_epics gate ---${NC}"
 cd "$TEST_DIR/repo"  # Back to test repo
 # Create epics and capture their IDs
-DEP_BASE_JSON="$(scripts/flowctl.py epic create --title "Dep base" --json)"
+DEP_BASE_JSON="$($FLOWCTL epic create --title "Dep base" --json)"
 DEP_BASE_ID="$(echo "$DEP_BASE_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-scripts/flowctl.py task create --epic "$DEP_BASE_ID" --title "Base task" --json >/dev/null
-DEP_CHILD_JSON="$(scripts/flowctl.py epic create --title "Dep child" --json)"
+$FLOWCTL task create --epic "$DEP_BASE_ID" --title "Base task" --json >/dev/null
+DEP_CHILD_JSON="$($FLOWCTL epic create --title "Dep child" --json)"
 DEP_CHILD_ID="$(echo "$DEP_CHILD_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 "$PYTHON_BIN" - "$DEP_CHILD_ID" "$DEP_BASE_ID" <<'PY'
 import json, sys
@@ -895,7 +900,7 @@ data["depends_on_epics"] = [base_id]
 path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 PY
 printf '{"epics":["%s"]}\n' "$DEP_CHILD_ID" > "$TEST_DIR/epics.json"
-blocked_json="$(scripts/flowctl.py next --epics-file "$TEST_DIR/epics.json" --json)"
+blocked_json="$($FLOWCTL next --epics-file "$TEST_DIR/epics.json" --json)"
 "$PYTHON_BIN" - "$DEP_CHILD_ID" "$blocked_json" <<'PY'
 import json, sys
 child_id = sys.argv[1]
@@ -909,10 +914,10 @@ PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- stdin support ---${NC}"
 cd "$TEST_DIR/repo"
-STDIN_EPIC_JSON="$(scripts/flowctl.py epic create --title "Stdin test" --json)"
+STDIN_EPIC_JSON="$($FLOWCTL epic create --title "Stdin test" --json)"
 STDIN_EPIC="$(echo "$STDIN_EPIC_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 # Test epic set-plan with stdin
-scripts/flowctl.py epic set-plan "$STDIN_EPIC" --file - --json <<'EOF'
+$FLOWCTL epic set-plan "$STDIN_EPIC" --file - --json <<'EOF'
 # Stdin Test Plan
 
 ## Overview
@@ -922,28 +927,28 @@ Testing stdin support for set-plan.
 - Works via stdin
 EOF
 # Verify content was written
-spec_content="$(scripts/flowctl.py cat "$STDIN_EPIC")"
+spec_content="$($FLOWCTL cat "$STDIN_EPIC")"
 echo "$spec_content" | grep -q "Testing stdin support" || { echo "stdin set-plan failed"; FAIL=$((FAIL + 1)); }
 echo -e "${GREEN}✓${NC} stdin epic set-plan"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- task set-spec combined ---${NC}"
-scripts/flowctl.py task create --epic "$STDIN_EPIC" --title "Set-spec test" --json >/dev/null
+$FLOWCTL task create --epic "$STDIN_EPIC" --title "Set-spec test" --json >/dev/null
 SETSPEC_TASK="${STDIN_EPIC}.1"
 # Write temp files for combined set-spec
 echo 'This is the description.' > "$TEST_DIR/desc.md"
 echo '- [ ] Check 1
 - [ ] Check 2' > "$TEST_DIR/acc.md"
-scripts/flowctl.py task set-spec "$SETSPEC_TASK" --description "$TEST_DIR/desc.md" --acceptance "$TEST_DIR/acc.md" --json >/dev/null
+$FLOWCTL task set-spec "$SETSPEC_TASK" --description "$TEST_DIR/desc.md" --acceptance "$TEST_DIR/acc.md" --json >/dev/null
 # Verify both sections were written
-task_spec="$(scripts/flowctl.py cat "$SETSPEC_TASK")"
+task_spec="$($FLOWCTL cat "$SETSPEC_TASK")"
 echo "$task_spec" | grep -q "This is the description" || { echo "set-spec description failed"; FAIL=$((FAIL + 1)); }
 echo "$task_spec" | grep -q "Check 1" || { echo "set-spec acceptance failed"; FAIL=$((FAIL + 1)); }
 echo -e "${GREEN}✓${NC} task set-spec combined"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- task set-spec --file (full replacement) ---${NC}"
-scripts/flowctl.py task create --epic "$STDIN_EPIC" --title "Full replacement test" --json >/dev/null
+$FLOWCTL task create --epic "$STDIN_EPIC" --title "Full replacement test" --json >/dev/null
 FULLREPLACE_TASK="${STDIN_EPIC}.2"
 # Write complete spec file
 cat > "$TEST_DIR/full_spec.md" << 'FULLSPEC'
@@ -958,19 +963,19 @@ This is a completely new spec that replaces everything.
 - [ ] Verify full replacement works
 - [ ] Original content is gone
 FULLSPEC
-scripts/flowctl.py task set-spec "$FULLREPLACE_TASK" --file "$TEST_DIR/full_spec.md" --json >/dev/null
+$FLOWCTL task set-spec "$FULLREPLACE_TASK" --file "$TEST_DIR/full_spec.md" --json >/dev/null
 # Verify full replacement
-full_spec="$(scripts/flowctl.py cat "$FULLREPLACE_TASK")"
+full_spec="$($FLOWCTL cat "$FULLREPLACE_TASK")"
 echo "$full_spec" | grep -q "completely new spec that replaces everything" || { echo "set-spec --file content failed"; FAIL=$((FAIL + 1)); }
 echo "$full_spec" | grep -q "Verify full replacement works" || { echo "set-spec --file acceptance failed"; FAIL=$((FAIL + 1)); }
 echo -e "${GREEN}✓${NC} task set-spec --file"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- task set-spec --file stdin ---${NC}"
-scripts/flowctl.py task create --epic "$STDIN_EPIC" --title "Stdin replacement test" --json >/dev/null
+$FLOWCTL task create --epic "$STDIN_EPIC" --title "Stdin replacement test" --json >/dev/null
 STDIN_REPLACE_TASK="${STDIN_EPIC}.3"
 # Full replacement via stdin
-scripts/flowctl.py task set-spec "$STDIN_REPLACE_TASK" --file - --json <<'EOF'
+$FLOWCTL task set-spec "$STDIN_REPLACE_TASK" --file - --json <<'EOF'
 # Task: Stdin replacement test
 
 ## Description
@@ -982,27 +987,27 @@ This spec was written via stdin.
 - [ ] Stdin replacement works
 EOF
 # Verify stdin replacement
-stdin_spec="$(scripts/flowctl.py cat "$STDIN_REPLACE_TASK")"
+stdin_spec="$($FLOWCTL cat "$STDIN_REPLACE_TASK")"
 echo "$stdin_spec" | grep -q "spec was written via stdin" || { echo "set-spec --file stdin failed"; FAIL=$((FAIL + 1)); }
 echo -e "${GREEN}✓${NC} task set-spec --file stdin"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- checkpoint save/restore ---${NC}"
 # Save checkpoint
-scripts/flowctl.py checkpoint save --epic "$STDIN_EPIC" --json >/dev/null
+$FLOWCTL checkpoint save --epic "$STDIN_EPIC" --json >/dev/null
 # Verify checkpoint file exists
 [[ -f ".flow/.checkpoint-${STDIN_EPIC}.json" ]] || { echo "checkpoint file not created"; FAIL=$((FAIL + 1)); }
 # Modify epic spec
-scripts/flowctl.py epic set-plan "$STDIN_EPIC" --file - --json <<'EOF'
+$FLOWCTL epic set-plan "$STDIN_EPIC" --file - --json <<'EOF'
 # Modified content
 EOF
 # Restore from checkpoint
-scripts/flowctl.py checkpoint restore --epic "$STDIN_EPIC" --json >/dev/null
+$FLOWCTL checkpoint restore --epic "$STDIN_EPIC" --json >/dev/null
 # Verify original content restored
-restored_spec="$(scripts/flowctl.py cat "$STDIN_EPIC")"
+restored_spec="$($FLOWCTL cat "$STDIN_EPIC")"
 echo "$restored_spec" | grep -q "Testing stdin support" || { echo "checkpoint restore failed"; FAIL=$((FAIL + 1)); }
 # Delete checkpoint
-scripts/flowctl.py checkpoint delete --epic "$STDIN_EPIC" --json >/dev/null
+$FLOWCTL checkpoint delete --epic "$STDIN_EPIC" --json >/dev/null
 [[ ! -f ".flow/.checkpoint-${STDIN_EPIC}.json" ]] || { echo "checkpoint delete failed"; FAIL=$((FAIL + 1)); }
 echo -e "${GREEN}✓${NC} checkpoint save/restore/delete"
 PASS=$((PASS + 1))
@@ -1065,12 +1070,12 @@ fi
 echo -e "\n${YELLOW}--- task duration tracking ---${NC}"
 
 # Setup: create epic + task, start and complete with a small delay
-DUR_EPIC_JSON="$(scripts/flowctl.py epic create --title "Duration test" --json)"
+DUR_EPIC_JSON="$($FLOWCTL epic create --title "Duration test" --json)"
 DUR_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$DUR_EPIC_JSON")"
-scripts/flowctl.py task create --epic "$DUR_EPIC" --title "Timed task" --json > /dev/null
-scripts/flowctl.py start "${DUR_EPIC}.1" --json > /dev/null
+$FLOWCTL task create --epic "$DUR_EPIC" --title "Timed task" --json > /dev/null
+$FLOWCTL start "${DUR_EPIC}.1" --json > /dev/null
 sleep 1
-result="$(scripts/flowctl.py done "${DUR_EPIC}.1" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json)"
+result="$($FLOWCTL done "${DUR_EPIC}.1" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json)"
 
 # Test 1: duration_seconds present in JSON output
 "$PYTHON_BIN" - "$result" <<'PY'
@@ -1088,7 +1093,7 @@ else
 fi
 
 # Test 2: duration rendered in spec markdown
-SPEC="$(scripts/flowctl.py cat "${DUR_EPIC}.1")"
+SPEC="$($FLOWCTL cat "${DUR_EPIC}.1")"
 if echo "$SPEC" | grep -q "Duration:"; then
   echo -e "${GREEN}✓${NC} duration rendered in spec evidence"
   PASS=$((PASS + 1))
@@ -1100,14 +1105,14 @@ fi
 echo -e "\n${YELLOW}--- workspace_changes evidence ---${NC}"
 
 # Setup: create epic + task, start it
-WS_EPIC_JSON="$(scripts/flowctl.py epic create --title "Workspace test" --json)"
+WS_EPIC_JSON="$($FLOWCTL epic create --title "Workspace test" --json)"
 WS_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$WS_EPIC_JSON")"
-scripts/flowctl.py task create --epic "$WS_EPIC" --title "WS task" --json > /dev/null
-scripts/flowctl.py start "${WS_EPIC}.1" --json > /dev/null
+$FLOWCTL task create --epic "$WS_EPIC" --title "WS task" --json > /dev/null
+$FLOWCTL start "${WS_EPIC}.1" --json > /dev/null
 
 # Test 1: valid workspace_changes renders in spec
 WS_EVIDENCE='{"commits":["abc"],"tests":["pytest"],"prs":[],"workspace_changes":{"baseline_rev":"aaa111bbb","final_rev":"ccc222ddd","files_changed":5,"insertions":120,"deletions":30}}'
-result="$(scripts/flowctl.py done "${WS_EPIC}.1" --summary "done" --evidence "$WS_EVIDENCE" --json)"
+result="$($FLOWCTL done "${WS_EPIC}.1" --summary "done" --evidence "$WS_EVIDENCE" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1123,7 +1128,7 @@ else
 fi
 
 # Check spec has workspace line
-WS_SPEC="$(scripts/flowctl.py cat "${WS_EPIC}.1")"
+WS_SPEC="$($FLOWCTL cat "${WS_EPIC}.1")"
 if echo "$WS_SPEC" | grep -q "5 files changed"; then
   echo -e "${GREEN}✓${NC} workspace_changes rendered in spec markdown"
   PASS=$((PASS + 1))
@@ -1133,10 +1138,10 @@ else
 fi
 
 # Test 2: malformed workspace_changes triggers warning
-scripts/flowctl.py task reset "${WS_EPIC}.1" --json > /dev/null
-scripts/flowctl.py start "${WS_EPIC}.1" --force --json > /dev/null
+$FLOWCTL task reset "${WS_EPIC}.1" --json > /dev/null
+$FLOWCTL start "${WS_EPIC}.1" --force --json > /dev/null
 BAD_EVIDENCE='{"commits":[],"tests":[],"prs":[],"workspace_changes":{"baseline_rev":"aaa"}}'
-result="$(scripts/flowctl.py done "${WS_EPIC}.1" --summary "done" --evidence "$BAD_EVIDENCE" --json)"
+result="$($FLOWCTL done "${WS_EPIC}.1" --summary "done" --evidence "$BAD_EVIDENCE" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1155,14 +1160,14 @@ fi
 echo -e "\n${YELLOW}--- files ownership map ---${NC}"
 
 # Setup: epic + tasks with --files
-FO_EPIC_JSON="$(scripts/flowctl.py epic create --title "Files test" --json)"
+FO_EPIC_JSON="$($FLOWCTL epic create --title "Files test" --json)"
 FO_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$FO_EPIC_JSON")"
-scripts/flowctl.py task create --epic "$FO_EPIC" --title "T1" --files "src/auth.ts,src/middleware.ts" --json > /dev/null
-scripts/flowctl.py task create --epic "$FO_EPIC" --title "T2" --files "src/routes.ts" --json > /dev/null
-scripts/flowctl.py task create --epic "$FO_EPIC" --title "T3" --files "src/auth.ts" --json > /dev/null
+$FLOWCTL task create --epic "$FO_EPIC" --title "T1" --files "src/auth.ts,src/middleware.ts" --json > /dev/null
+$FLOWCTL task create --epic "$FO_EPIC" --title "T2" --files "src/routes.ts" --json > /dev/null
+$FLOWCTL task create --epic "$FO_EPIC" --title "T3" --files "src/auth.ts" --json > /dev/null
 
 # Test 1: files stored in task JSON
-result="$(scripts/flowctl.py show "${FO_EPIC}.1" --json)"
+result="$($FLOWCTL show "${FO_EPIC}.1" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 d = json.loads(sys.argv[1])
@@ -1177,7 +1182,7 @@ else
 fi
 
 # Test 2: files command detects ownership + conflicts
-result="$(scripts/flowctl.py files --epic "$FO_EPIC" --json)"
+result="$($FLOWCTL files --epic "$FO_EPIC" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 d = json.loads(sys.argv[1])
@@ -1196,12 +1201,12 @@ fi
 echo -e "\n${YELLOW}--- memory verify + staleness ---${NC}"
 
 # Setup: enable memory + add entry
-scripts/flowctl.py config set memory.enabled true --json > /dev/null
-scripts/flowctl.py memory init --json > /dev/null
-scripts/flowctl.py memory add pitfall "Test pitfall for verify" --json > /dev/null
+$FLOWCTL config set memory.enabled true --json > /dev/null
+$FLOWCTL memory init --json > /dev/null
+$FLOWCTL memory add pitfall "Test pitfall for verify" --json > /dev/null
 
 # Test 1: memory verify updates last_verified
-result="$(scripts/flowctl.py memory verify 1 --json)"
+result="$($FLOWCTL memory verify 1 --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1217,7 +1222,7 @@ else
 fi
 
 # Test 2: memory list includes last_verified and stale flag in JSON
-result="$(scripts/flowctl.py memory list --json)"
+result="$($FLOWCTL memory list --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1235,12 +1240,12 @@ else
 fi
 
 # Test 3: epic close includes retro_suggested
-EPC_EPIC_JSON="$(scripts/flowctl.py epic create --title "Retro prompt test" --json)"
+EPC_EPIC_JSON="$($FLOWCTL epic create --title "Retro prompt test" --json)"
 EPC_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$EPC_EPIC_JSON")"
-scripts/flowctl.py task create --epic "$EPC_EPIC" --title "Done task" --json > /dev/null
-scripts/flowctl.py start "${EPC_EPIC}.1" --json > /dev/null
-scripts/flowctl.py done "${EPC_EPIC}.1" --summary "ok" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
-result="$(scripts/flowctl.py epic close "$EPC_EPIC" --json)"
+$FLOWCTL task create --epic "$EPC_EPIC" --title "Done task" --json > /dev/null
+$FLOWCTL start "${EPC_EPIC}.1" --json > /dev/null
+$FLOWCTL done "${EPC_EPIC}.1" --summary "ok" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+result="$($FLOWCTL epic close "$EPC_EPIC" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1257,22 +1262,22 @@ fi
 echo -e "\n${YELLOW}--- restart command ---${NC}"
 
 # Setup: create epic + 3 tasks with deps: .1 -> .2 -> .3
-RST_EPIC_JSON="$(scripts/flowctl.py epic create --title "Restart test" --json)"
+RST_EPIC_JSON="$($FLOWCTL epic create --title "Restart test" --json)"
 RST_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$RST_EPIC_JSON")"
-scripts/flowctl.py task create --epic "$RST_EPIC" --title "Task 1" --json > /dev/null
-scripts/flowctl.py task create --epic "$RST_EPIC" --title "Task 2" --deps "${RST_EPIC}.1" --json > /dev/null
-scripts/flowctl.py task create --epic "$RST_EPIC" --title "Task 3" --deps "${RST_EPIC}.2" --json > /dev/null
+$FLOWCTL task create --epic "$RST_EPIC" --title "Task 1" --json > /dev/null
+$FLOWCTL task create --epic "$RST_EPIC" --title "Task 2" --deps "${RST_EPIC}.1" --json > /dev/null
+$FLOWCTL task create --epic "$RST_EPIC" --title "Task 3" --deps "${RST_EPIC}.2" --json > /dev/null
 
 # Complete tasks 1, 2, 3
-scripts/flowctl.py start "${RST_EPIC}.1" --json > /dev/null
-scripts/flowctl.py done "${RST_EPIC}.1" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
-scripts/flowctl.py start "${RST_EPIC}.2" --json > /dev/null
-scripts/flowctl.py done "${RST_EPIC}.2" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
-scripts/flowctl.py start "${RST_EPIC}.3" --json > /dev/null
-scripts/flowctl.py done "${RST_EPIC}.3" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+$FLOWCTL start "${RST_EPIC}.1" --json > /dev/null
+$FLOWCTL done "${RST_EPIC}.1" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+$FLOWCTL start "${RST_EPIC}.2" --json > /dev/null
+$FLOWCTL done "${RST_EPIC}.2" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+$FLOWCTL start "${RST_EPIC}.3" --json > /dev/null
+$FLOWCTL done "${RST_EPIC}.3" --summary "done" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
 
 # Test 1: restart --dry-run shows what would be reset
-result="$(scripts/flowctl.py restart "${RST_EPIC}.1" --dry-run --json)"
+result="$($FLOWCTL restart "${RST_EPIC}.1" --dry-run --json)"
 "$PYTHON_BIN" - "$result" "$RST_EPIC" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1291,7 +1296,7 @@ else
 fi
 
 # Test 2: restart actually resets target + downstream
-result="$(scripts/flowctl.py restart "${RST_EPIC}.1" --json)"
+result="$($FLOWCTL restart "${RST_EPIC}.1" --json)"
 "$PYTHON_BIN" - "$result" "$RST_EPIC" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1310,7 +1315,7 @@ else
 fi
 
 # Test 3: verify tasks are back to todo
-result="$(scripts/flowctl.py show "${RST_EPIC}.1" --json)"
+result="$($FLOWCTL show "${RST_EPIC}.1" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1325,7 +1330,7 @@ else
 fi
 
 # Test 4: restart already-todo is no-op
-result="$(scripts/flowctl.py restart "${RST_EPIC}.1" --json)"
+result="$($FLOWCTL restart "${RST_EPIC}.1" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1341,9 +1346,9 @@ else
 fi
 
 # Test 5: restart rejects in_progress without --force
-scripts/flowctl.py start "${RST_EPIC}.1" --json > /dev/null
+$FLOWCTL start "${RST_EPIC}.1" --json > /dev/null
 set +e
-result="$(scripts/flowctl.py restart "${RST_EPIC}.1" --json 2>&1)"
+result="$($FLOWCTL restart "${RST_EPIC}.1" --json 2>&1)"
 rc=$?
 set -e
 "$PYTHON_BIN" - "$result" "$rc" <<'PY'
@@ -1362,7 +1367,7 @@ else
 fi
 
 # Test 6: restart --force overrides in_progress
-result="$(scripts/flowctl.py restart "${RST_EPIC}.1" --force --json)"
+result="$($FLOWCTL restart "${RST_EPIC}.1" --force --json)"
 "$PYTHON_BIN" - "$result" "$RST_EPIC" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1392,7 +1397,7 @@ cat > "$TEST_DIR/receipt-conflict.json" << 'EOF'
 EOF
 
 # Test 1: compare with consensus (both SHIP)
-result="$(scripts/flowctl.py review-backend --compare "$TEST_DIR/receipt-codex.json,$TEST_DIR/receipt-rp.json" --json)"
+result="$($FLOWCTL review-backend --compare "$TEST_DIR/receipt-codex.json,$TEST_DIR/receipt-rp.json" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1409,7 +1414,7 @@ else
 fi
 
 # Test 2: compare with conflict (SHIP vs NEEDS_WORK)
-result="$(scripts/flowctl.py review-backend --compare "$TEST_DIR/receipt-codex.json,$TEST_DIR/receipt-conflict.json" --json)"
+result="$($FLOWCTL review-backend --compare "$TEST_DIR/receipt-codex.json,$TEST_DIR/receipt-conflict.json" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1427,14 +1432,14 @@ fi
 echo -e "\n${YELLOW}--- review receipt archival ---${NC}"
 
 # Setup: create epic + task
-RR_EPIC_JSON="$(scripts/flowctl.py epic create --title "Receipt test" --json)"
+RR_EPIC_JSON="$($FLOWCTL epic create --title "Receipt test" --json)"
 RR_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$RR_EPIC_JSON")"
-scripts/flowctl.py task create --epic "$RR_EPIC" --title "Task with review" --json > /dev/null
-scripts/flowctl.py start "${RR_EPIC}.1" --json > /dev/null
+$FLOWCTL task create --epic "$RR_EPIC" --title "Task with review" --json > /dev/null
+$FLOWCTL start "${RR_EPIC}.1" --json > /dev/null
 
 # Test 1: done with review_receipt archives to .flow/reviews/
 RR_EVIDENCE="{\"commits\":[\"x1\"],\"tests\":[],\"prs\":[],\"review_receipt\":{\"type\":\"impl_review\",\"id\":\"${RR_EPIC}.1\",\"mode\":\"codex\",\"verdict\":\"SHIP\",\"timestamp\":\"2026-03-30T00:00:00Z\",\"review\":\"LGTM\"}}"
-scripts/flowctl.py done "${RR_EPIC}.1" --summary "done" --evidence "$RR_EVIDENCE" --json > /dev/null
+$FLOWCTL done "${RR_EPIC}.1" --summary "done" --evidence "$RR_EVIDENCE" --json > /dev/null
 if [ -f ".flow/reviews/impl_review-${RR_EPIC}.1-codex.json" ]; then
   echo -e "${GREEN}✓${NC} review receipt archived to .flow/reviews/"
   PASS=$((PASS + 1))
@@ -1449,7 +1454,7 @@ cat > ".flow/reviews/impl_review-${RR_EPIC}.1-rp.json" << 'EOF'
 EOF
 
 # Test 2: review-backend --epic auto-discovers receipts
-result="$(scripts/flowctl.py review-backend --epic "$RR_EPIC" --json)"
+result="$($FLOWCTL review-backend --epic "$RR_EPIC" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1467,14 +1472,14 @@ fi
 echo -e "\n${YELLOW}--- task domain tagging ---${NC}"
 
 # Setup: create epic + tasks with domains
-DOM_EPIC_JSON="$(scripts/flowctl.py epic create --title "Domain test" --json)"
+DOM_EPIC_JSON="$($FLOWCTL epic create --title "Domain test" --json)"
 DOM_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$DOM_EPIC_JSON")"
-scripts/flowctl.py task create --epic "$DOM_EPIC" --title "Build API" --domain backend --json > /dev/null
-scripts/flowctl.py task create --epic "$DOM_EPIC" --title "Build UI" --domain frontend --json > /dev/null
-scripts/flowctl.py task create --epic "$DOM_EPIC" --title "No domain" --json > /dev/null
+$FLOWCTL task create --epic "$DOM_EPIC" --title "Build API" --domain backend --json > /dev/null
+$FLOWCTL task create --epic "$DOM_EPIC" --title "Build UI" --domain frontend --json > /dev/null
+$FLOWCTL task create --epic "$DOM_EPIC" --title "No domain" --json > /dev/null
 
 # Test 1: domain stored in task JSON
-result="$(scripts/flowctl.py show "${DOM_EPIC}.1" --json)"
+result="$($FLOWCTL show "${DOM_EPIC}.1" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1489,7 +1494,7 @@ else
 fi
 
 # Test 2: task without domain has null domain
-result="$(scripts/flowctl.py show "${DOM_EPIC}.3" --json)"
+result="$($FLOWCTL show "${DOM_EPIC}.3" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1504,7 +1509,7 @@ else
 fi
 
 # Test 3: tasks --domain filters correctly
-result="$(scripts/flowctl.py tasks --epic "$DOM_EPIC" --domain backend --json)"
+result="$($FLOWCTL tasks --epic "$DOM_EPIC" --domain backend --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1520,7 +1525,7 @@ else
 fi
 
 # Test 4: tasks without --domain shows all
-result="$(scripts/flowctl.py tasks --epic "$DOM_EPIC" --json)"
+result="$($FLOWCTL tasks --epic "$DOM_EPIC" --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1537,15 +1542,15 @@ fi
 echo -e "\n${YELLOW}--- epic archive/clean ---${NC}"
 
 # Setup: create + close an epic
-ARC_EPIC_JSON="$(scripts/flowctl.py epic create --title "Archive me" --json)"
+ARC_EPIC_JSON="$($FLOWCTL epic create --title "Archive me" --json)"
 ARC_EPIC="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$ARC_EPIC_JSON")"
-scripts/flowctl.py task create --epic "$ARC_EPIC" --title "Done task" --json > /dev/null
-scripts/flowctl.py start "${ARC_EPIC}.1" --json > /dev/null
-scripts/flowctl.py done "${ARC_EPIC}.1" --summary "ok" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
-scripts/flowctl.py epic close "$ARC_EPIC" --json > /dev/null
+$FLOWCTL task create --epic "$ARC_EPIC" --title "Done task" --json > /dev/null
+$FLOWCTL start "${ARC_EPIC}.1" --json > /dev/null
+$FLOWCTL done "${ARC_EPIC}.1" --summary "ok" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+$FLOWCTL epic close "$ARC_EPIC" --json > /dev/null
 
 # Test 1: archive moves files
-result="$(scripts/flowctl.py epic archive "$ARC_EPIC" --json)"
+result="$($FLOWCTL epic archive "$ARC_EPIC" --json)"
 "$PYTHON_BIN" - "$result" "$ARC_EPIC" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1562,7 +1567,7 @@ else
 fi
 
 # Test 2: archived epic no longer shows in list
-result="$(scripts/flowctl.py epics --json)"
+result="$($FLOWCTL epics --json)"
 "$PYTHON_BIN" - "$result" "$ARC_EPIC" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1588,14 +1593,14 @@ else
 fi
 
 # Test 4: epic clean archives all closed epics
-CLEAN_EP1_JSON="$(scripts/flowctl.py epic create --title "Clean1" --json)"
+CLEAN_EP1_JSON="$($FLOWCTL epic create --title "Clean1" --json)"
 CLEAN_EP1="$("$PYTHON_BIN" -c "import json,sys; print(json.loads(sys.argv[1])['id'])" "$CLEAN_EP1_JSON")"
-scripts/flowctl.py task create --epic "$CLEAN_EP1" --title "T1" --json > /dev/null
-scripts/flowctl.py start "${CLEAN_EP1}.1" --json > /dev/null
-scripts/flowctl.py done "${CLEAN_EP1}.1" --summary "ok" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
-scripts/flowctl.py epic close "$CLEAN_EP1" --json > /dev/null
+$FLOWCTL task create --epic "$CLEAN_EP1" --title "T1" --json > /dev/null
+$FLOWCTL start "${CLEAN_EP1}.1" --json > /dev/null
+$FLOWCTL done "${CLEAN_EP1}.1" --summary "ok" --evidence '{"commits":[],"tests":[],"prs":[]}' --json > /dev/null
+$FLOWCTL epic close "$CLEAN_EP1" --json > /dev/null
 
-result="$(scripts/flowctl.py epic clean --json)"
+result="$($FLOWCTL epic clean --json)"
 "$PYTHON_BIN" - "$result" <<'PY'
 import json, sys
 data = json.loads(sys.argv[1])
@@ -1636,7 +1641,7 @@ Some review preamble text.
 More review text after.
 FINDINGS_EOF
 
-pf_result="$(scripts/flowctl.py parse-findings --file "$FINDINGS_FILE" --json)"
+pf_result="$($FLOWCTL parse-findings --file "$FINDINGS_FILE" --json)"
 pf_count="$(echo "$pf_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
 if [[ "$pf_count" == "2" ]]; then
   echo -e "${GREEN}✓${NC} parse-findings extracts findings from <findings> tag"
@@ -1650,7 +1655,7 @@ fi
 FINDINGS_EMPTY="$TEST_DIR/findings_empty.txt"
 echo "No findings here, just plain review text." > "$FINDINGS_EMPTY"
 
-pf_empty="$(scripts/flowctl.py parse-findings --file "$FINDINGS_EMPTY" --json)"
+pf_empty="$($FLOWCTL parse-findings --file "$FINDINGS_EMPTY" --json)"
 pf_empty_count="$(echo "$pf_empty" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
 pf_empty_warns="$(echo "$pf_empty" | "$PYTHON_BIN" -c 'import json,sys; w=json.load(sys.stdin).get("warnings",[]); print(len(w))')"
 if [[ "$pf_empty_count" == "0" ]] && [[ "$pf_empty_warns" -ge 1 ]]; then
@@ -1676,7 +1681,7 @@ cat > "$FINDINGS_MALFORMED" <<'FINDINGS_EOF'
 </findings>
 FINDINGS_EOF
 
-pf_mal="$(scripts/flowctl.py parse-findings --file "$FINDINGS_MALFORMED" --json)"
+pf_mal="$($FLOWCTL parse-findings --file "$FINDINGS_MALFORMED" --json)"
 pf_mal_count="$(echo "$pf_mal" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))')"
 if [[ "$pf_mal_count" == "1" ]]; then
   echo -e "${GREEN}✓${NC} parse-findings handles malformed JSON (trailing commas)"
@@ -1707,7 +1712,7 @@ cat > "$FINDINGS_REG" <<'FINDINGS_EOF'
 </findings>
 FINDINGS_EOF
 
-pf_reg="$(scripts/flowctl.py parse-findings --file "$FINDINGS_REG" --epic "$EPIC1" --register --source plan-review --json)"
+pf_reg="$($FLOWCTL parse-findings --file "$FINDINGS_REG" --epic "$EPIC1" --register --source plan-review --json)"
 pf_reg_registered="$(echo "$pf_reg" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("registered", 0))')"
 if [[ "$pf_reg_registered" == "1" ]]; then
   echo -e "${GREEN}✓${NC} parse-findings --register adds critical/major gaps (skips minor)"
@@ -1718,7 +1723,7 @@ else
 fi
 
 # Verify the gap was actually created
-gap_reg_check="$(scripts/flowctl.py gap list --epic "$EPIC1" --json | "$PYTHON_BIN" -c '
+gap_reg_check="$($FLOWCTL gap list --epic "$EPIC1" --json | "$PYTHON_BIN" -c '
 import json, sys
 data = json.load(sys.stdin)
 gaps = data.get("gaps", [])
@@ -1737,13 +1742,13 @@ fi
 echo -e "\n${YELLOW}=== status --interrupted ===${NC}"
 
 # Create a second epic with todo tasks to test interrupted detection
-EPIC_INT_JSON="$(scripts/flowctl.py epic create --title "Interrupted test epic" --json)"
+EPIC_INT_JSON="$($FLOWCTL epic create --title "Interrupted test epic" --json)"
 EPIC_INT="$(echo "$EPIC_INT_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-scripts/flowctl.py task create --epic "$EPIC_INT" --title "Interrupted task 1" --json > /dev/null
-scripts/flowctl.py task create --epic "$EPIC_INT" --title "Interrupted task 2" --json > /dev/null
+$FLOWCTL task create --epic "$EPIC_INT" --title "Interrupted task 1" --json > /dev/null
+$FLOWCTL task create --epic "$EPIC_INT" --title "Interrupted task 2" --json > /dev/null
 
 # Test --interrupted --json detects epic with todo tasks
-int_json="$(scripts/flowctl.py status --interrupted --json)"
+int_json="$($FLOWCTL status --interrupted --json)"
 int_count="$(echo "$int_json" | "$PYTHON_BIN" -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -1795,13 +1800,13 @@ fi
 echo -e "\n${YELLOW}=== epic set-auto-execute ===${NC}"
 
 # Create an epic with tasks for auto-execute testing
-EPIC_AE_JSON="$(scripts/flowctl.py epic create --title "Auto execute test" --json)"
+EPIC_AE_JSON="$($FLOWCTL epic create --title "Auto execute test" --json)"
 EPIC_AE="$(echo "$EPIC_AE_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-scripts/flowctl.py task create --epic "$EPIC_AE" --title "AE task 1" --json > /dev/null
-scripts/flowctl.py task create --epic "$EPIC_AE" --title "AE task 2" --json > /dev/null
+$FLOWCTL task create --epic "$EPIC_AE" --title "AE task 1" --json > /dev/null
+$FLOWCTL task create --epic "$EPIC_AE" --title "AE task 2" --json > /dev/null
 
 # Set pending marker
-ae_pending="$(scripts/flowctl.py epic set-auto-execute "$EPIC_AE" --pending --json)"
+ae_pending="$($FLOWCTL epic set-auto-execute "$EPIC_AE" --pending --json)"
 ae_pending_val="$(echo "$ae_pending" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["auto_execute_pending"])')"
 if [[ "$ae_pending_val" == "True" ]]; then
   echo -e "${GREEN}✓${NC} set-auto-execute --pending sets marker"
@@ -1812,7 +1817,7 @@ else
 fi
 
 # Verify --interrupted shows it with reason "planned_not_started"
-ae_int_json="$(scripts/flowctl.py status --interrupted --json)"
+ae_int_json="$($FLOWCTL status --interrupted --json)"
 ae_reason="$(echo "$ae_int_json" | "$PYTHON_BIN" -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -1829,7 +1834,7 @@ else
 fi
 
 # Clear marker with --done
-ae_done="$(scripts/flowctl.py epic set-auto-execute "$EPIC_AE" --done --json)"
+ae_done="$($FLOWCTL epic set-auto-execute "$EPIC_AE" --done --json)"
 ae_done_val="$(echo "$ae_done" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["auto_execute_pending"])')"
 if [[ "$ae_done_val" == "False" ]]; then
   echo -e "${GREEN}✓${NC} set-auto-execute --done clears marker"
@@ -1840,7 +1845,7 @@ else
 fi
 
 # Verify --interrupted now shows "partially_complete" reason (marker cleared)
-ae_int2_json="$(scripts/flowctl.py status --interrupted --json)"
+ae_int2_json="$($FLOWCTL status --interrupted --json)"
 ae_reason2="$(echo "$ae_int2_json" | "$PYTHON_BIN" -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -1862,7 +1867,7 @@ echo -e "${YELLOW}--- worker-prompt ---${NC}"
 cp -r "$PLUGIN_ROOT/agents" "$TEST_DIR/repo/agents"
 
 # Test: worker-prompt default output (bootstrap mode — full mode removed)
-wp_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --json)"
+wp_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" $FLOWCTL worker-prompt --task "${EPIC1}.1" --json)"
 wp_mode="$(echo "$wp_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["mode"])')"
 wp_tokens="$(echo "$wp_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["estimated_tokens"])')"
 if [[ "$wp_mode" == "bootstrap" ]] && [[ "$wp_tokens" -gt 0 ]] && [[ "$wp_tokens" -lt 300 ]]; then
@@ -1876,13 +1881,13 @@ fi
 echo -e "${YELLOW}--- worker-phase ---${NC}"
 
 # Create a fresh epic+task for phase testing
-EPIC_PH_JSON="$(scripts/flowctl.py epic create --title "Phase test" --json)"
+EPIC_PH_JSON="$($FLOWCTL epic create --title "Phase test" --json)"
 EPIC_PH="$(echo "$EPIC_PH_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-scripts/flowctl.py task create --epic "$EPIC_PH" --title "Phase task" --json >/dev/null
-scripts/flowctl.py start "${EPIC_PH}.1" --json >/dev/null
+$FLOWCTL task create --epic "$EPIC_PH" --title "Phase task" --json >/dev/null
+$FLOWCTL start "${EPIC_PH}.1" --json >/dev/null
 
 # Test: worker-phase next returns phase 0 initially (worktree+teams default)
-wph_next="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"
+wph_next="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_phase="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
 wph_done="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["all_done"])')"
 if [[ "$wph_phase" == "0" ]] && [[ "$wph_done" == "False" ]]; then
@@ -1895,8 +1900,8 @@ fi
 
 # Test: worker-phase done phase 0 → next returns phase 1
 wph_next1="$wph_next"
-scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase 0 --json >/dev/null
-wph_next1b="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"
+$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 0 --json >/dev/null
+wph_next1b="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_phase1b="$(echo "$wph_next1b" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
 if [[ "$wph_phase1b" == "1" ]]; then
   echo -e "${GREEN}✓${NC} worker-phase done→next: advances to phase 1"
@@ -1907,9 +1912,9 @@ else
 fi
 
 # Advance through phase 1 and 2 to test 2.5
-scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase 1 --json >/dev/null
-scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase 2 --json >/dev/null
-wph_next2_5="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"
+$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 1 --json >/dev/null
+$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 2 --json >/dev/null
+wph_next2_5="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_phase2_5="$(echo "$wph_next2_5" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
 if [[ "$wph_phase2_5" == "2.5" ]]; then
   echo -e "${GREEN}✓${NC} worker-phase done→next: advances to phase 2.5"
@@ -1920,7 +1925,7 @@ else
 fi
 
 # Test: worker-phase skip detection — try to complete phase 5 before phase 3
-wph_skip_err="$(scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase 5 --json 2>&1 || true)"
+wph_skip_err="$($FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 5 --json 2>&1 || true)"
 if echo "$wph_skip_err" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); assert d.get("error") or not d.get("success")' 2>/dev/null; then
   echo -e "${GREEN}✓${NC} worker-phase skip detection: rejects out-of-order phase"
   PASS=$((PASS + 1))
@@ -1951,7 +1956,7 @@ else
 fi
 
 # Test: worker-prompt --bootstrap outputs <300 tokens
-wp_boot_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" scripts/flowctl.py worker-prompt --task "${EPIC1}.1" --bootstrap --json)"
+wp_boot_json="$(CLAUDE_PLUGIN_ROOT="$TEST_DIR/repo" $FLOWCTL worker-prompt --task "${EPIC1}.1" --bootstrap --json)"
 wp_boot_tokens="$(echo "$wp_boot_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["estimated_tokens"])')"
 wp_boot_mode="$(echo "$wp_boot_json" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["mode"])')"
 if [[ "$wp_boot_mode" == "bootstrap" ]] && [[ "$wp_boot_tokens" -lt 300 ]]; then
@@ -1965,9 +1970,9 @@ fi
 # Test: complete all remaining default phases → all_done
 # Phases 0, 1, 2 already done above; complete remaining: 2.5, 3, 5, 6
 for phase in 2.5 3 5 6; do
-  scripts/flowctl.py worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --json >/dev/null
+  $FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --json >/dev/null
 done
-wph_final="$(scripts/flowctl.py worker-phase next --task "${EPIC_PH}.1" --json)"
+wph_final="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_all_done="$(echo "$wph_final" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["all_done"])')"
 if [[ "$wph_all_done" == "True" ]]; then
   echo -e "${GREEN}✓${NC} worker-phase lifecycle: all phases complete"

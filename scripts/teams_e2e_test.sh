@@ -3,10 +3,11 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-FLOWCTL="$SCRIPT_DIR/flowctl.py"
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FLOWCTL="$PLUGIN_ROOT/bin/flowctl"
 
 # Safety: refuse to run from plugin repo
-if [[ -f "$PWD/scripts/flowctl.py" ]]; then
+if [[ -f "$PWD/bin/flowctl" ]]; then
     echo "ERROR: refusing to run from main plugin repo. Run from any other directory." >&2
     exit 1
 fi

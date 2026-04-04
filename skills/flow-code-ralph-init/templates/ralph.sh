@@ -28,7 +28,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG="$SCRIPT_DIR/config.env"
 FLOWCTL="$SCRIPT_DIR/flowctl"
-FLOWCTL_PY="$SCRIPT_DIR/flowctl.py"
 
 fail() { echo "ralph: $*" >&2; exit 1; }
 
@@ -87,34 +86,8 @@ PY
   >> "$STRUCTURED_LOG"
 }
 
-# Ensure flowctl is runnable even when NTFS exec bit / shebang handling is flaky on Windows
-ensureflowctl_wrapper() {
-  # If flowctl exists and is executable, use it
-  if [[ -f "$FLOWCTL" && -x "$FLOWCTL" ]]; then
-    return 0
-  fi
-
-  # On Windows or if flowctl not executable, create a wrapper that calls Python explicitly
-  if [[ -f "$FLOWCTL_PY" ]]; then
-    local wrapper="$SCRIPT_DIR/flowctl-wrapper.sh"
-    cat > "$wrapper" <<SH
-#!/usr/bin/env bash
-set -euo pipefail
-DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-PY="\${PYTHON_BIN:-python3}"
-command -v "\$PY" >/dev/null 2>&1 || PY="python"
-exec "\$PY" "\$DIR/flowctl.py" "\$@"
-SH
-    chmod +x "$wrapper" 2>/dev/null || true
-    FLOWCTL="$wrapper"
-    export FLOWCTL
-    return 0
-  fi
-
-  fail "missing flowctl (expected $SCRIPT_DIR/flowctl or $SCRIPT_DIR/flowctl.py)"
-}
-
-ensureflowctl_wrapper
+# Ensure flowctl binary is available
+[[ -f "$FLOWCTL" && -x "$FLOWCTL" ]] || fail "missing flowctl binary at $FLOWCTL"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Presentation layer (human-readable output)

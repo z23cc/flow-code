@@ -4,6 +4,10 @@
 skills/.tasks/
 __pycache__/
 
+# Built binaries (distributed via GitHub Releases)
+bin/
+flowctl/target/
+
 # Upstream backups
 *.upstream
 

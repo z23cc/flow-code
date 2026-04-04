@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Comprehensive CI tests for flowctl.py and ralph.sh helpers
+# Comprehensive CI tests for flowctl and ralph.sh helpers
 # Runs on Linux, macOS, and Windows (Git Bash)
 set -euo pipefail
 
@@ -43,9 +43,19 @@ trap cleanup EXIT
 pass() { echo -e "${GREEN}✓${NC} $1"; PASS=$((PASS + 1)); }
 fail() { echo -e "${RED}✗${NC} $1"; FAIL=$((FAIL + 1)); }
 
+# Locate flowctl binary (Rust)
+if [[ -x "$PLUGIN_ROOT/bin/flowctl" ]]; then
+  FLOWCTL_BIN="$PLUGIN_ROOT/bin/flowctl"
+elif command -v flowctl >/dev/null 2>&1; then
+  FLOWCTL_BIN="$(command -v flowctl)"
+else
+  echo "ERROR: flowctl binary not found. Build with: cd flowctl && cargo build --release && cp target/release/flowctl ../bin/" >&2
+  exit 1
+fi
+
 # Helper to run flowctl
 flowctl() {
-  "$PYTHON_BIN" "$TEST_DIR/scripts/flowctl.py" "$@"
+  "$FLOWCTL_BIN" "$@"
 }
 
 echo -e "${YELLOW}=== flow-code CI tests ===${NC}"
@@ -61,8 +71,7 @@ git init -q
 git config user.email "ci@test.local"
 git config user.name "CI Test"
 
-cp "$PLUGIN_ROOT/scripts/flowctl.py" scripts/
-cp -r "$PLUGIN_ROOT/scripts/flowctl" scripts/
+# flowctl binary resolved above — no file copy needed
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Basic Commands

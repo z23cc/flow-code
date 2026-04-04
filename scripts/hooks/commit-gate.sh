@@ -43,7 +43,7 @@ COMMAND=$(echo "$PARSED" | cut -d'|' -f3-)
 if [ "$EVENT" = "PostToolUse" ]; then
     # Only care about flowctl guard commands
     case "$COMMAND" in
-        *flowctl*guard*|*flowctl.py*guard*)
+        *flowctl*guard*)
             GUARD_OK=$(echo "$INPUT" | python3 -c "
 import json, sys
 try:
@@ -80,10 +80,11 @@ case "$COMMAND" in
 esac
 
 # Check: is any task in_progress?
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/flowctl.py"
-[ -n "${DROID_PLUGIN_ROOT:-}${CLAUDE_PLUGIN_ROOT:-}" ] || exit 0
+PLUGIN_DIR="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}"
+[ -n "$PLUGIN_DIR" ] || exit 0
+FLOWCTL="$PLUGIN_DIR/bin/flowctl"
 
-IN_PROGRESS=$(python3 "$FLOWCTL" tasks --json 2>/dev/null | python3 -c "
+IN_PROGRESS=$("$FLOWCTL" tasks --json 2>/dev/null | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)

@@ -121,7 +121,7 @@ Write code before test? Delete it. Start over.
 
 - Skills live in `skills/flow-code-<name>/`
 - Register in `.claude-plugin/plugin.json` (update description + count)
-- If skill needs a flowctl command, add to the appropriate module in `scripts/flowctl/commands/`
+- If skill needs a flowctl command, add to the appropriate module in `flowctl/crates/flowctl-cli/src/commands/`
 - Sync to plugin cache + marketplaces after deployment
 - Add to README.md skills table
 

@@ -12,21 +12,15 @@ Flow-Code is a Claude Code plugin for structured, plan-first development. It pro
 commands/flow-code/*.md  → Slash command definitions (user-invocable entry points)
 skills/*/SKILL.md        → Skill implementations (loaded by Skill tool, never Read directly)
 agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
-scripts/flowctl.py       → Thin shim (~20 lines) — delegates to flowctl package
-scripts/flowctl/         → Core engine package — all .flow/ state management
-  __init__.py             → __version__ only
-  __main__.py             → python -m flowctl support
-  compat.py               → fcntl/Windows platform abstraction
-  cli.py                  → argparse setup + command dispatch
-  core/                   → Shared utilities (constants, io, ids, config, paths, state, git)
-  commands/               → Command handlers (admin, epic, task, workflow, query, memory, review, rp, stack, gap, findings)
+bin/flowctl               → Rust binary (built from flowctl/ workspace)
+flowctl/                  → Rust Cargo workspace (6 crates: core, db, scheduler, cli, daemon, tui)
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
 
-**Key invariant**: The `flowctl` package is the single source of truth for `.flow/` state. `flowctl.py` is a thin shim that delegates to it. It is NOT installed globally. Always invoke as:
+**Key invariant**: The `bin/flowctl` Rust binary is the single source of truth for `.flow/` state. Always invoke as:
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
 $FLOWCTL <command>
 ```
 
@@ -63,9 +57,8 @@ All tests create temp directories and clean up after themselves. They must NOT b
 ## Code Quality
 
 ```bash
-# Validate flowctl shim and package
-python3 -m py_compile scripts/flowctl.py
-find scripts/flowctl -name "*.py" -exec python3 -m py_compile {} \;
+# Build and test Rust flowctl
+cd flowctl && cargo build --release && cargo test --all
 
 # Validate JSON
 python3 -c "import json; json.load(open('hooks/hooks.json'))"

@@ -9,7 +9,7 @@ argument-hint: "[--json]"
 Run `flowctl queue` to show the status of all epics and their tasks, including dependency relationships, ready/blocked counts, and progress bars.
 
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/flowctl.py"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
 $FLOWCTL queue
 ```
 

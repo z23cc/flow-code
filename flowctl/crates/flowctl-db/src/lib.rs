@@ -5,9 +5,9 @@
 //!
 //! # Architecture
 //!
-//! - **Markdown is canonical, SQLite is cache.** The `flowctl reindex`
-//!   command can fully rebuild the indexed tables from Markdown frontmatter.
-//!   Runtime-only data (locks, heartbeats, events, metrics) is not recoverable.
+//! - **SQLite is the single source of truth.** All reads and writes go through
+//!   the repository layer. Markdown files are an export format (`flowctl export`).
+//!   `flowctl import` (reindex) rebuilds the DB from Markdown for migration.
 //!
 //! - **PRAGMAs are per-connection**, not in migration files. WAL mode,
 //!   busy_timeout, and foreign_keys are set on every connection open.
@@ -22,7 +22,8 @@ pub mod metrics;
 pub mod migration;
 pub mod pool;
 pub mod repo;
-pub mod sync;
+#[allow(dead_code)]
+mod sync; // Legacy dual-write module, kept for backward compatibility but not re-exported.
 
 pub use error::DbError;
 pub use pool::{cleanup, open, open_memory, resolve_db_path, resolve_state_dir};
@@ -31,6 +32,5 @@ pub use migration::{migrate_runtime_state, needs_reindex, has_legacy_state, Migr
 pub use repo::{EpicRepo, EvidenceRepo, EventRepo, EventRow, FileLockRepo, PhaseProgressRepo, RuntimeRepo, TaskRepo};
 pub use events::{EventLog, TokenRecord};
 pub use metrics::StatsQuery;
-pub use sync::{write_epic, write_task, write_task_with_legacy, check_staleness, refresh_if_stale, retry_pending, SyncStatus};
 
 pub use flowctl_core;

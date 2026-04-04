@@ -1,4 +1,4 @@
-//! Bidirectional Markdown-SQLite sync.
+//! Legacy bidirectional Markdown-SQLite sync (deprecated).
 //!
 //! **Invariant**: SQLite is updated first (in a transaction), then Markdown
 //! frontmatter is written. If the Markdown write fails after SQLite commit,

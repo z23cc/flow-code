@@ -20,10 +20,11 @@ use crate::lifecycle::DaemonRuntime;
 /// Shared application state for all handlers.
 pub type AppState = Arc<DaemonState>;
 
-/// Combined daemon state: runtime + event bus.
+/// Combined daemon state: runtime + event bus + shared DB connection.
 pub struct DaemonState {
     pub runtime: DaemonRuntime,
     pub event_bus: flowctl_scheduler::EventBus,
+    pub db: std::sync::Mutex<rusqlite::Connection>,
 }
 
 /// GET /api/v1/health -- simple liveness check.
@@ -68,35 +69,11 @@ pub async fn status_handler(State(state): State<AppState>) -> impl IntoResponse 
 ///
 /// Returns a JSON array of epics. On database errors, returns 500.
 pub async fn epics_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let db_path = state
-        .runtime
-        .paths
-        .state_dir
-        .parent()
-        .map(|flow_dir| flow_dir.join("flowctl.db"));
-
-    let Some(db_path) = db_path else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "cannot resolve db path"})),
-        );
-    };
-
-    match flowctl_db::open(&db_path) {
-        Ok(conn) => {
-            let repo = flowctl_db::EpicRepo::new(&conn);
-            match repo.list(None) {
-                Ok(epics) => (StatusCode::OK, Json(serde_json::to_value(&epics).unwrap())),
-                Err(e) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": e.to_string()})),
-                ),
-            }
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("db open failed: {e}")})),
-        ),
+    let conn = state.db.lock().unwrap();
+    let repo = flowctl_db::EpicRepo::new(&conn);
+    match repo.list(None) {
+        Ok(epics) => (StatusCode::OK, Json(serde_json::to_value(&epics).unwrap())),
+        Err(e) => db_error(&e.to_string()),
     }
 }
 
@@ -105,40 +82,16 @@ pub async fn tasks_handler(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<TasksQuery>,
 ) -> impl IntoResponse {
-    let db_path = state
-        .runtime
-        .paths
-        .state_dir
-        .parent()
-        .map(|flow_dir| flow_dir.join("flowctl.db"));
-
-    let Some(db_path) = db_path else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "cannot resolve db path"})),
-        );
+    let conn = state.db.lock().unwrap();
+    let repo = flowctl_db::TaskRepo::new(&conn);
+    let result = if let Some(ref epic_id) = params.epic_id {
+        repo.list_by_epic(epic_id)
+    } else {
+        repo.list_all(None, None)
     };
-
-    match flowctl_db::open(&db_path) {
-        Ok(conn) => {
-            let repo = flowctl_db::TaskRepo::new(&conn);
-            let result = if let Some(ref epic_id) = params.epic_id {
-                repo.list_by_epic(epic_id)
-            } else {
-                repo.list_all(None, None)
-            };
-            match result {
-                Ok(tasks) => (StatusCode::OK, Json(serde_json::to_value(&tasks).unwrap())),
-                Err(e) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": e.to_string()})),
-                ),
-            }
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("db open failed: {e}")})),
-        ),
+    match result {
+        Ok(tasks) => (StatusCode::OK, Json(serde_json::to_value(&tasks).unwrap())),
+        Err(e) => db_error(&e.to_string()),
     }
 }
 
@@ -155,10 +108,7 @@ pub async fn create_task_handler(
     State(state): State<AppState>,
     Json(body): Json<CreateTaskRequest>,
 ) -> impl IntoResponse {
-    let conn = match open_db(&state) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
+    let conn = state.db.lock().unwrap();
     let task = flowctl_core::types::Task {
         schema_version: 1,
         id: body.id.clone(),
@@ -188,10 +138,7 @@ pub async fn start_task_handler(
     State(state): State<AppState>,
     Json(body): Json<TaskIdRequest>,
 ) -> impl IntoResponse {
-    let conn = match open_db(&state) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
+    let conn = state.db.lock().unwrap();
     let repo = flowctl_db::TaskRepo::new(&conn);
     match repo.update_status(&body.task_id, flowctl_core::state_machine::Status::InProgress) {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true, "id": body.task_id}))),
@@ -204,10 +151,7 @@ pub async fn done_task_handler(
     State(state): State<AppState>,
     Json(body): Json<TaskIdRequest>,
 ) -> impl IntoResponse {
-    let conn = match open_db(&state) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
+    let conn = state.db.lock().unwrap();
     let repo = flowctl_db::TaskRepo::new(&conn);
     match repo.update_status(&body.task_id, flowctl_core::state_machine::Status::Done) {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true, "id": body.task_id}))),
@@ -229,16 +173,9 @@ pub struct TaskIdRequest {
     pub task_id: String,
 }
 
-/// Helper: open a DB connection from daemon state.
-fn open_db(state: &DaemonState) -> Result<rusqlite::Connection, (StatusCode, Json<serde_json::Value>)> {
-    let db_path = state.runtime.paths.state_dir.parent()
-        .map(|flow_dir| flow_dir.join("flowctl.db"));
-    let Some(db_path) = db_path else {
-        return Err((StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "cannot resolve db path"}))));
-    };
-    flowctl_db::open(&db_path).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("db open failed: {e}")})))
-    })
+/// Helper: acquire DB lock from shared state.
+fn db_error(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": msg})))
 }
 
 /// GET /api/v1/events -- WebSocket upgrade for live event streaming.

@@ -17,6 +17,22 @@ use crate::handlers::{
 };
 use crate::lifecycle::{set_socket_permissions, DaemonRuntime};
 
+/// Create shared app state with a DB connection.
+fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBus) -> Result<(AppState, tokio_util::sync::CancellationToken)> {
+    let db_path = runtime.paths.state_dir.parent()
+        .map(|flow_dir| flow_dir.join("flowctl.db"))
+        .context("cannot resolve db path")?;
+    let conn = flowctl_db::open(&db_path)
+        .with_context(|| format!("failed to open db: {}", db_path.display()))?;
+    let cancel = runtime.cancel.clone();
+    let state = Arc::new(DaemonState {
+        runtime,
+        event_bus,
+        db: std::sync::Mutex::new(conn),
+    });
+    Ok((state, cancel))
+}
+
 /// Build the Axum router with all daemon API routes.
 fn build_router(state: AppState) -> axum::Router {
     let cors = CorsLayer::new()
@@ -54,12 +70,7 @@ pub async fn serve(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBu
 
     info!("daemon API listening on {}", socket_path.display());
 
-    let cancel = runtime.cancel.clone();
-
-    let state: AppState = Arc::new(DaemonState {
-        runtime,
-        event_bus,
-    });
+    let (state, cancel) = create_state(runtime, event_bus)?;
 
     let router = build_router(state);
 
@@ -87,12 +98,7 @@ pub async fn serve_tcp(
 
     info!("daemon API listening on http://{addr}");
 
-    let cancel = runtime.cancel.clone();
-
-    let state: AppState = Arc::new(DaemonState {
-        runtime,
-        event_bus,
-    });
+    let (state, cancel) = create_state(runtime, event_bus)?;
 
     let router = build_router(state);
 
@@ -119,6 +125,8 @@ mod tests {
         let flow_dir = tmp.path().join(".flow");
         let paths = DaemonPaths::new(&flow_dir);
         paths.ensure_state_dir().unwrap();
+        // Create DB so create_state() works.
+        let _ = flowctl_db::open(&flow_dir);
         let runtime = DaemonRuntime::new(paths);
         let (event_bus, _critical_rx) = flowctl_scheduler::EventBus::with_default_capacity();
         (tmp, runtime, event_bus)

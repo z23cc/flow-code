@@ -66,9 +66,9 @@ $FLOWCTL codex plan-review "$EPIC_ID" --files "$CODE_FILES" --receipt "$RECEIPT_
 
 ```bash
 # Based on verdict
-$FLOWCTL epic review "$EPIC_ID" --status ship --json
+$FLOWCTL epic review "$EPIC_ID" ship --json
 # OR
-$FLOWCTL epic review "$EPIC_ID" --status needs_work --json
+$FLOWCTL epic review "$EPIC_ID" needs_work --json
 ```
 
 ### Step 3: Handle Verdict
@@ -280,10 +280,10 @@ fi
 Extract verdict from response, then:
 ```bash
 # If SHIP
-$FLOWCTL epic review <EPIC_ID> --status ship --json
+$FLOWCTL epic review <EPIC_ID> ship --json
 
 # If NEEDS_WORK or MAJOR_RETHINK
-$FLOWCTL epic review <EPIC_ID> --status needs_work --json
+$FLOWCTL epic review <EPIC_ID> needs_work --json
 ```
 
 If no verdict tag, output `<promise>RETRY</promise>` and stop.

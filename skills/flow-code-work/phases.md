@@ -353,7 +353,7 @@ Go to Phase 4 directly. No fallback to RP — different model family is the poin
 
 **After SHIP (or skip):**
 ```bash
-$FLOWCTL epic completion <epic-id> --status ship --json
+$FLOWCTL epic completion <epic-id> ship --json
 ```
 
 ---

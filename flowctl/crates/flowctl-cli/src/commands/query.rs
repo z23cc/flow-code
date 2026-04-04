@@ -354,7 +354,7 @@ pub fn cmd_show(json: bool, id: String) {
         let tasks = get_epic_tasks(&flow_dir, &id);
         let task_summaries: Vec<serde_json::Value> = tasks
             .iter()
-            .map(|t| task_summary_json(t))
+            .map(task_summary_json)
             .collect();
 
         if json {
@@ -479,7 +479,7 @@ pub fn cmd_tasks(
         domain.as_deref(),
     );
 
-    let tasks_out: Vec<serde_json::Value> = tasks.iter().map(|t| task_list_json(t)).collect();
+    let tasks_out: Vec<serde_json::Value> = tasks.iter().map(task_list_json).collect();
 
     if json {
         json_output(json!({

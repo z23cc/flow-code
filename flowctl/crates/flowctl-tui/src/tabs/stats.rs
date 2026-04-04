@@ -28,6 +28,12 @@ pub struct StatsTab {
     loaded: bool,
 }
 
+impl Default for StatsTab {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StatsTab {
     pub fn new() -> Self {
         Self {

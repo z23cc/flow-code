@@ -119,8 +119,8 @@ fn find_closing_delimiter(s: &str) -> Result<(&str, &str), CoreError> {
     }
 
     // Also handle the case where the YAML is empty and closing --- is the first line.
-    if s.starts_with("---\n") {
-        return Ok(("", &s[4..]));
+    if let Some(rest) = s.strip_prefix("---\n") {
+        return Ok(("", rest));
     }
     if s.starts_with("---") && s.len() == 3 {
         return Ok(("", ""));

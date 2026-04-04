@@ -148,6 +148,99 @@ pub struct TasksQuery {
     pub epic_id: Option<String>,
 }
 
+// ── Write endpoints ─────────────────────────────────────────────
+
+/// POST /api/v1/tasks/create -- create a new task.
+pub async fn create_task_handler(
+    State(state): State<AppState>,
+    Json(body): Json<CreateTaskRequest>,
+) -> impl IntoResponse {
+    let conn = match open_db(&state) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let task = flowctl_core::types::Task {
+        schema_version: 1,
+        id: body.id.clone(),
+        epic: body.epic_id.clone(),
+        title: body.title.clone(),
+        status: flowctl_core::state_machine::Status::Todo,
+        priority: None,
+        domain: flowctl_core::types::Domain::General,
+        depends_on: body.depends_on.unwrap_or_default(),
+        files: vec![],
+        r#impl: None,
+        review: None,
+        sync: None,
+        file_path: Some(format!("tasks/{}.md", body.id)),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    let repo = flowctl_db::TaskRepo::new(&conn);
+    match repo.upsert_with_body(&task, &body.body.unwrap_or_default()) {
+        Ok(()) => (StatusCode::CREATED, Json(serde_json::json!({"success": true, "id": body.id}))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
+
+/// POST /api/v1/tasks/start -- start a task.
+pub async fn start_task_handler(
+    State(state): State<AppState>,
+    Json(body): Json<TaskIdRequest>,
+) -> impl IntoResponse {
+    let conn = match open_db(&state) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let repo = flowctl_db::TaskRepo::new(&conn);
+    match repo.update_status(&body.task_id, flowctl_core::state_machine::Status::InProgress) {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true, "id": body.task_id}))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
+
+/// POST /api/v1/tasks/done -- complete a task.
+pub async fn done_task_handler(
+    State(state): State<AppState>,
+    Json(body): Json<TaskIdRequest>,
+) -> impl IntoResponse {
+    let conn = match open_db(&state) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let repo = flowctl_db::TaskRepo::new(&conn);
+    match repo.update_status(&body.task_id, flowctl_core::state_machine::Status::Done) {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true, "id": body.task_id}))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct CreateTaskRequest {
+    pub id: String,
+    pub epic_id: String,
+    pub title: String,
+    pub depends_on: Option<Vec<String>>,
+    pub body: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct TaskIdRequest {
+    pub task_id: String,
+}
+
+/// Helper: open a DB connection from daemon state.
+fn open_db(state: &DaemonState) -> Result<rusqlite::Connection, (StatusCode, Json<serde_json::Value>)> {
+    let db_path = state.runtime.paths.state_dir.parent()
+        .map(|flow_dir| flow_dir.join("flowctl.db"));
+    let Some(db_path) = db_path else {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "cannot resolve db path"}))));
+    };
+    flowctl_db::open(&db_path).map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("db open failed: {e}")})))
+    })
+}
+
 /// GET /api/v1/events -- WebSocket upgrade for live event streaming.
 pub async fn events_ws_handler(
     ws: WebSocketUpgrade,

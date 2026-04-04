@@ -217,10 +217,10 @@ fn normalize_repo_root(path: &str) -> Vec<String> {
     let mut roots = vec![real.clone()];
 
     // macOS /tmp symlink handling
-    if real.starts_with("/private/tmp/") {
-        roots.push(format!("/tmp/{}", &real["/private/tmp/".len()..]));
-    } else if real.starts_with("/tmp/") {
-        roots.push(format!("/private/tmp/{}", &real["/tmp/".len()..]));
+    if let Some(rest) = real.strip_prefix("/private/tmp/") {
+        roots.push(format!("/tmp/{rest}"));
+    } else if let Some(rest) = real.strip_prefix("/tmp/") {
+        roots.push(format!("/private/tmp/{rest}"));
     }
 
     // Git worktree -> main repo resolution
@@ -236,8 +236,8 @@ fn normalize_repo_root(path: &str) -> Vec<String> {
                         let main_repo = parent.to_string_lossy().to_string();
                         if main_repo != real {
                             roots.push(main_repo.clone());
-                            if main_repo.starts_with("/private/tmp/") {
-                                roots.push(format!("/tmp/{}", &main_repo["/private/tmp/".len()..]));
+                            if let Some(rest) = main_repo.strip_prefix("/private/tmp/") {
+                                roots.push(format!("/tmp/{rest}"));
                             }
                         }
                     }
@@ -589,6 +589,7 @@ fn cmd_select_add(window: i64, tab: &str, paths: &[String]) {
     print!("{stdout}");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_chat_send(
     json_mode: bool,
     window: i64,

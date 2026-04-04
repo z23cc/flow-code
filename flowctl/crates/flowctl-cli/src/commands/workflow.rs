@@ -517,8 +517,8 @@ pub fn cmd_ready(json_mode: bool, epic: String) {
         }
     }
 
-    ready.sort_by_key(|t| task_sort_key(t));
-    in_progress.sort_by_key(|t| task_sort_key(t));
+    ready.sort_by_key(task_sort_key);
+    in_progress.sort_by_key(task_sort_key);
     blocked.sort_by_key(|(t, _)| task_sort_key(t));
 
     if json_mode {

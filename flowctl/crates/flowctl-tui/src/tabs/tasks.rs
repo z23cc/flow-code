@@ -57,6 +57,12 @@ pub struct TasksTab {
     loaded: bool,
 }
 
+impl Default for TasksTab {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TasksTab {
     pub fn new() -> Self {
         Self {

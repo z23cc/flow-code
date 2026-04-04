@@ -50,6 +50,12 @@ pub struct DagTab {
     layout_nodes: Vec<LayoutNode>,
 }
 
+impl Default for DagTab {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DagTab {
     pub fn new() -> Self {
         Self {
@@ -150,6 +156,7 @@ impl DagTab {
     }
 
     /// Render the ASCII graph into cached lines.
+    #[allow(clippy::needless_range_loop)]
     fn render_graph(&mut self, _tasks: &[Task], dag: &TaskDag) {
         // Build a position map: id -> (col, row).
         let pos_map: HashMap<&str, (usize, usize)> = self
@@ -303,7 +310,7 @@ impl DagTab {
                     // Pad to column width.
                     let col_end = nx + col_widths[node.col];
                     if cursor < col_end {
-                        let pad: String = std::iter::repeat(' ').take(col_end - cursor).collect();
+                        let pad: String = " ".repeat(col_end - cursor);
                         spans.push(Span::raw(pad));
                         cursor = col_end;
                     }

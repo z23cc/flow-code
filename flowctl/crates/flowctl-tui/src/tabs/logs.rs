@@ -123,6 +123,12 @@ pub struct LogsTab {
     loaded: bool,
 }
 
+impl Default for LogsTab {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LogsTab {
     pub fn new() -> Self {
         Self {

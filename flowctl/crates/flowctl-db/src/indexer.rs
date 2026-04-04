@@ -197,8 +197,8 @@ fn index_epics(
             continue;
         }
 
-        let mut epic: Epic = match frontmatter::parse_frontmatter(&content) {
-            Ok(e) => e,
+        let doc: frontmatter::Document<Epic> = match frontmatter::parse(&content) {
+            Ok(d) => d,
             Err(e) => {
                 let msg = format!("invalid frontmatter in {}: {e}", path.display());
                 warn!("{}", msg);
@@ -207,6 +207,8 @@ fn index_epics(
                 continue;
             }
         };
+        let mut epic = doc.frontmatter;
+        let body = doc.body;
 
         // Check for duplicate IDs.
         if let Some(prev_path) = seen.get(&epic.id) {
@@ -221,7 +223,7 @@ fn index_epics(
         // Set the file_path to the relative path within .flow/.
         epic.file_path = Some(format!("epics/{}", path.file_name().unwrap().to_string_lossy()));
 
-        repo.upsert(&epic)?;
+        repo.upsert_with_body(&epic, &body)?;
         seen.insert(epic.id.clone(), path.clone());
         result.epics_indexed += 1;
     }
@@ -263,8 +265,8 @@ fn index_tasks(
             continue;
         }
 
-        let mut task: Task = match frontmatter::parse_frontmatter(&content) {
-            Ok(t) => t,
+        let doc: frontmatter::Document<Task> = match frontmatter::parse(&content) {
+            Ok(d) => d,
             Err(e) => {
                 let msg = format!("invalid frontmatter in {}: {e}", path.display());
                 warn!("{}", msg);
@@ -273,6 +275,8 @@ fn index_tasks(
                 continue;
             }
         };
+        let mut task = doc.frontmatter;
+        let body = doc.body;
 
         // Check for duplicate IDs.
         if let Some(prev_path) = seen.get(&task.id) {
@@ -300,7 +304,7 @@ fn index_tasks(
         // Set the file_path to the relative path within .flow/.
         task.file_path = Some(format!("tasks/{}", path.file_name().unwrap().to_string_lossy()));
 
-        task_repo.upsert(&task)?;
+        task_repo.upsert_with_body(&task, &body)?;
         seen.insert(task.id.clone(), path.clone());
         result.tasks_indexed += 1;
     }

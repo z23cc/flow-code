@@ -273,6 +273,7 @@ fn load_receipt(path: Option<&str>) -> (Option<String>, bool) {
 }
 
 /// Save receipt JSON for ralph-compatible review tracking.
+#[allow(clippy::too_many_arguments)]
 fn save_receipt(
     path: &str,
     review_type: &str,

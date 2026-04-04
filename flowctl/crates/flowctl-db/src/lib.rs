@@ -29,7 +29,7 @@ pub use pool::{cleanup, open, open_memory, resolve_db_path, resolve_state_dir};
 pub use indexer::{reindex, ReindexResult};
 pub use migration::{migrate_runtime_state, needs_reindex, has_legacy_state, MigrationResult};
 pub use repo::{EpicRepo, EvidenceRepo, EventRepo, EventRow, FileLockRepo, PhaseProgressRepo, RuntimeRepo, TaskRepo};
-pub use events::EventLog;
+pub use events::{EventLog, TokenRecord};
 pub use metrics::StatsQuery;
 pub use sync::{write_epic, write_task, write_task_with_legacy, check_staleness, refresh_if_stale, retry_pending, SyncStatus};
 

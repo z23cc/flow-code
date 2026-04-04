@@ -160,8 +160,16 @@ fn validate_epic_id(id: &str) {
     }
 }
 
-/// Load epic from Markdown frontmatter file, error_exit if not found or parse fails.
+/// Load epic document: DB first, markdown fallback.
 fn load_epic(epic_path: &Path, id: &str) -> frontmatter::Document<Epic> {
+    // Try DB first.
+    if let Some(conn) = try_open_db() {
+        let repo = flowctl_db::EpicRepo::new(&conn);
+        if let Ok((epic, body)) = repo.get_with_body(id) {
+            return frontmatter::Document { frontmatter: epic, body };
+        }
+    }
+    // Fallback to markdown.
     if !epic_path.exists() {
         error_exit(&format!("Epic {id} not found"));
     }
@@ -171,8 +179,16 @@ fn load_epic(epic_path: &Path, id: &str) -> frontmatter::Document<Epic> {
         .unwrap_or_else(|e| error_exit(&format!("Failed to parse epic {id}: {e}")))
 }
 
-/// Write an epic document back to its Markdown file.
+/// Write an epic document: DB first, then export markdown.
 fn save_epic(epic_path: &Path, doc: &frontmatter::Document<Epic>) {
+    // Write to DB.
+    if let Some(conn) = try_open_db() {
+        let repo = flowctl_db::EpicRepo::new(&conn);
+        if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
+            eprintln!("warning: DB write failed for {}: {e}", doc.frontmatter.id);
+        }
+    }
+    // Export to markdown.
     let content = frontmatter::write(doc)
         .unwrap_or_else(|e| error_exit(&format!("Failed to serialize epic: {e}")));
     if let Some(parent) = epic_path.parent() {
@@ -289,10 +305,7 @@ fn load_epic_raw(epic_path: &Path, id: &str) -> serde_json::Value {
 
     // Try frontmatter parse first
     if content.trim_start().starts_with("---") {
-        match frontmatter::parse::<serde_json::Value>(&content) {
-            Ok(doc) => return doc.frontmatter,
-            Err(_) => {}
-        }
+        if let Ok(doc) = frontmatter::parse::<serde_json::Value>(&content) { return doc.frontmatter }
     }
 
     // Fall back to raw JSON

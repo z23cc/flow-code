@@ -5,6 +5,19 @@ use rusqlite::{params, Connection};
 use crate::error::DbError;
 use crate::repo::EventRow;
 
+/// Token usage record for a task/phase.
+pub struct TokenRecord<'a> {
+    pub epic_id: &'a str,
+    pub task_id: Option<&'a str>,
+    pub phase: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read: i64,
+    pub cache_write: i64,
+    pub estimated_cost: Option<f64>,
+}
+
 /// Extended event queries beyond the basic EventRepo.
 pub struct EventLog<'a> {
     conn: &'a Connection,
@@ -86,22 +99,11 @@ impl<'a> EventLog<'a> {
     }
 
     /// Record token usage for a task/phase.
-    pub fn record_tokens(
-        &self,
-        epic_id: &str,
-        task_id: Option<&str>,
-        phase: Option<&str>,
-        model: Option<&str>,
-        input_tokens: i64,
-        output_tokens: i64,
-        cache_read: i64,
-        cache_write: i64,
-        estimated_cost: Option<f64>,
-    ) -> Result<i64, DbError> {
+    pub fn record_tokens(&self, rec: &TokenRecord<'_>) -> Result<i64, DbError> {
         self.conn.execute(
             "INSERT INTO token_usage (epic_id, task_id, phase, model, input_tokens, output_tokens, cache_read, cache_write, estimated_cost)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![epic_id, task_id, phase, model, input_tokens, output_tokens, cache_read, cache_write, estimated_cost],
+            params![rec.epic_id, rec.task_id, rec.phase, rec.model, rec.input_tokens, rec.output_tokens, rec.cache_read, rec.cache_write, rec.estimated_cost],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -154,7 +156,17 @@ mod tests {
     fn test_record_tokens() {
         let conn = setup();
         let log = EventLog::new(&conn);
-        let id = log.record_tokens("fn-1-test", Some("fn-1-test.1"), Some("impl"), Some("claude-sonnet-4-20250514"), 1000, 500, 200, 100, Some(0.015)).unwrap();
+        let id = log.record_tokens(&TokenRecord {
+            epic_id: "fn-1-test",
+            task_id: Some("fn-1-test.1"),
+            phase: Some("impl"),
+            model: Some("claude-sonnet-4-20250514"),
+            input_tokens: 1000,
+            output_tokens: 500,
+            cache_read: 200,
+            cache_write: 100,
+            estimated_cost: Some(0.015),
+        }).unwrap();
         assert!(id > 0);
 
         let total: i64 = conn.query_row(

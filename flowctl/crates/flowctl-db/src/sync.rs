@@ -262,8 +262,7 @@ pub fn retry_pending(conn: &Connection, flow_dir: &Path) -> Result<usize, DbErro
                         };
                         match frontmatter::write(&doc) {
                             Ok(content) => write_md_safe(&path, &content, None),
-                            Err(e) => Err(std::io::Error::new(
-                                std::io::ErrorKind::Other,
+                            Err(e) => Err(std::io::Error::other(
                                 e.to_string(),
                             )),
                         }
@@ -283,8 +282,7 @@ pub fn retry_pending(conn: &Connection, flow_dir: &Path) -> Result<usize, DbErro
                         };
                         match frontmatter::write(&doc) {
                             Ok(content) => write_md_safe(&path, &content, None),
-                            Err(e) => Err(std::io::Error::new(
-                                std::io::ErrorKind::Other,
+                            Err(e) => Err(std::io::Error::other(
                                 e.to_string(),
                             )),
                         }
@@ -342,8 +340,7 @@ fn write_md_safe(
     if let Some(pre) = pre_mtime {
         if let Some(current) = file_mtime(path) {
             if current != pre {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(std::io::Error::other(
                     format!(
                         "concurrent modification detected on {}",
                         path.display()
@@ -373,7 +370,7 @@ fn system_time_to_utc(st: SystemTime) -> DateTime<Utc> {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
     DateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos())
-        .unwrap_or_else(|| Utc::now())
+        .unwrap_or_else(Utc::now)
 }
 
 /// Get the `updated_at` value from a SQLite table.

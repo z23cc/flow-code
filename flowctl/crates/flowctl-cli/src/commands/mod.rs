@@ -12,5 +12,6 @@ pub mod ralph;
 pub mod rp;
 pub mod stack;
 pub mod stats;
+pub mod mcp;
 pub mod task;
 pub mod workflow;

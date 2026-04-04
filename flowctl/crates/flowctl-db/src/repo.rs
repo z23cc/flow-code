@@ -26,15 +26,21 @@ impl<'a> EpicRepo<'a> {
 
     /// Insert or replace an epic (used by reindex and create).
     pub fn upsert(&self, epic: &Epic) -> Result<(), DbError> {
+        self.upsert_with_body(epic, "")
+    }
+
+    /// Insert or replace an epic with its markdown body.
+    pub fn upsert_with_body(&self, epic: &Epic, body: &str) -> Result<(), DbError> {
         self.conn.execute(
-            "INSERT INTO epics (id, title, status, branch_name, plan_review, file_path, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO epics (id, title, status, branch_name, plan_review, file_path, body, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO UPDATE SET
                  title = excluded.title,
                  status = excluded.status,
                  branch_name = excluded.branch_name,
                  plan_review = excluded.plan_review,
                  file_path = excluded.file_path,
+                 body = CASE WHEN excluded.body = '' THEN epics.body ELSE excluded.body END,
                  updated_at = excluded.updated_at",
             params![
                 epic.id,
@@ -43,6 +49,7 @@ impl<'a> EpicRepo<'a> {
                 epic.branch_name,
                 epic.plan_review.to_string(),
                 epic.file_path.as_deref().unwrap_or(""),
+                body,
                 epic.created_at.to_rfc3339(),
                 epic.updated_at.to_rfc3339(),
             ],
@@ -65,14 +72,19 @@ impl<'a> EpicRepo<'a> {
 
     /// Get an epic by ID.
     pub fn get(&self, id: &str) -> Result<Epic, DbError> {
+        self.get_with_body(id).map(|(epic, _body)| epic)
+    }
+
+    /// Get an epic by ID, returning (Epic, body).
+    pub fn get_with_body(&self, id: &str) -> Result<(Epic, String), DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, status, branch_name, plan_review, file_path, created_at, updated_at
+            "SELECT id, title, status, branch_name, plan_review, file_path, created_at, updated_at, COALESCE(body, '')
              FROM epics WHERE id = ?1",
         )?;
 
-        let epic = stmt
+        let (epic, body) = stmt
             .query_row(params![id], |row| {
-                Ok(Epic {
+                Ok((Epic {
                     schema_version: 1,
                     id: row.get(0)?,
                     title: row.get(1)?,
@@ -87,7 +99,7 @@ impl<'a> EpicRepo<'a> {
                     file_path: row.get::<_, Option<String>>(5)?,
                     created_at: parse_datetime(&row.get::<_, String>(6)?),
                     updated_at: parse_datetime(&row.get::<_, String>(7)?),
-                })
+                }, row.get::<_, String>(8)?))
             })
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => DbError::NotFound {
@@ -99,10 +111,10 @@ impl<'a> EpicRepo<'a> {
 
         // Load dependencies.
         let deps = self.get_deps(&epic.id)?;
-        Ok(Epic {
+        Ok((Epic {
             depends_on_epics: deps,
             ..epic
-        })
+        }, body))
     }
 
     /// List all epics, optionally filtered by status.
@@ -174,15 +186,21 @@ impl<'a> TaskRepo<'a> {
 
     /// Insert or replace a task (used by reindex and create).
     pub fn upsert(&self, task: &Task) -> Result<(), DbError> {
+        self.upsert_with_body(task, "")
+    }
+
+    /// Insert or replace a task with its markdown body.
+    pub fn upsert_with_body(&self, task: &Task, body: &str) -> Result<(), DbError> {
         self.conn.execute(
-            "INSERT INTO tasks (id, epic_id, title, status, priority, domain, file_path, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO tasks (id, epic_id, title, status, priority, domain, file_path, body, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                  title = excluded.title,
                  status = excluded.status,
                  priority = excluded.priority,
                  domain = excluded.domain,
                  file_path = excluded.file_path,
+                 body = CASE WHEN excluded.body = '' THEN tasks.body ELSE excluded.body END,
                  updated_at = excluded.updated_at",
             params![
                 task.id,
@@ -192,6 +210,7 @@ impl<'a> TaskRepo<'a> {
                 task.sort_priority() as i64,
                 task.domain.to_string(),
                 task.file_path.as_deref().unwrap_or(""),
+                body,
                 task.created_at.to_rfc3339(),
                 task.updated_at.to_rfc3339(),
             ],
@@ -226,12 +245,17 @@ impl<'a> TaskRepo<'a> {
 
     /// Get a task by ID.
     pub fn get(&self, id: &str) -> Result<Task, DbError> {
+        self.get_with_body(id).map(|(task, _body)| task)
+    }
+
+    /// Get a task by ID, returning (Task, body).
+    pub fn get_with_body(&self, id: &str) -> Result<(Task, String), DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, epic_id, title, status, priority, domain, file_path, created_at, updated_at
+            "SELECT id, epic_id, title, status, priority, domain, file_path, created_at, updated_at, COALESCE(body, '')
              FROM tasks WHERE id = ?1",
         )?;
 
-        let task = stmt
+        let (task, body) = stmt
             .query_row(params![id], |row| {
                 let priority_val: i64 = row.get(4)?;
                 let priority = if priority_val == 999 {
@@ -240,7 +264,7 @@ impl<'a> TaskRepo<'a> {
                     Some(priority_val as u32)
                 };
 
-                Ok(Task {
+                Ok((Task {
                     schema_version: 1,
                     id: row.get(0)?,
                     epic: row.get(1)?,
@@ -256,7 +280,7 @@ impl<'a> TaskRepo<'a> {
                     file_path: row.get::<_, Option<String>>(6)?,
                     created_at: parse_datetime(&row.get::<_, String>(7)?),
                     updated_at: parse_datetime(&row.get::<_, String>(8)?),
-                })
+                }, row.get::<_, String>(9)?))
             })
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => DbError::NotFound {
@@ -268,11 +292,11 @@ impl<'a> TaskRepo<'a> {
 
         let deps = self.get_deps(&task.id)?;
         let files = self.get_files(&task.id)?;
-        Ok(Task {
+        Ok((Task {
             depends_on: deps,
             files,
             ..task
-        })
+        }, body))
     }
 
     /// List tasks for an epic.

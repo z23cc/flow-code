@@ -143,12 +143,11 @@ impl Scheduler {
             }
 
             // Re-dispatch if task is UpForRetry (retry after failure).
-            if self.statuses.get(&result.task_id).copied() == Some(Status::UpForRetry) {
-                if !self.cancel.is_cancelled() && !self.circuit_breaker.is_open() {
+            if self.statuses.get(&result.task_id).copied() == Some(Status::UpForRetry)
+                && !self.cancel.is_cancelled() && !self.circuit_breaker.is_open() {
                     self.dispatch_task(&result.task_id, &semaphore, &result_tx, &executor);
                     in_flight += 1;
                 }
-            }
 
             // Discover newly-ready tasks.
             let newly_ready = self.dag.complete(&result.task_id, &self.statuses);

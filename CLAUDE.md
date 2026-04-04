@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Is This
 
-Flow-Code is a Claude Code plugin for structured, plan-first development. It provides slash commands (`/flow-code:plan`, `/flow-code:work`, etc.), skills, and agents that orchestrate task tracking via a `.flow/` directory. Zero external dependencies — pure Python + Bash.
+Flow-Code is a Claude Code plugin for structured, plan-first development. It provides slash commands (`/flow-code:plan`, `/flow-code:work`, etc.), skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with SQLite storage, HTTP daemon, and MCP server support.
 
 ## Core Architecture
 
@@ -17,6 +17,8 @@ flowctl/                  → Rust Cargo workspace (6 crates: core, db, schedule
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
+
+**Skills**: 8 core + 16 extensions. See `docs/skills.md` for the full classification. Core workflow: plan → plan-review → work → impl-review → epic-review.
 
 **Key invariant**: The `bin/flowctl` Rust binary is the single source of truth for `.flow/` state. Always invoke as:
 ```bash

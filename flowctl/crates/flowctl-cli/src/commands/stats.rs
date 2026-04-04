@@ -240,11 +240,11 @@ fn cmd_bottlenecks(json_flag: bool, limit: usize) {
     } else if bottlenecks.is_empty() {
         println!("No bottleneck data.");
     } else {
-        println!("{:<25} {:<10} {:>10} {}", "TASK", "STATUS", "DURATION", "TITLE");
+        println!("{:<25} {:<10} {:>10} TITLE", "TASK", "STATUS", "DURATION");
         println!("{}", "-".repeat(70));
         for b in &bottlenecks {
             let duration = b.duration_secs
-                .map(|s| format_duration(s))
+                .map(format_duration)
                 .unwrap_or_else(|| "-".to_string());
             let suffix = b.blocked_reason.as_ref()
                 .map(|r| format!(" [blocked: {}]", truncate(r, 30)))

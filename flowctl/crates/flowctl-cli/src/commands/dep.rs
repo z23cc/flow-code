@@ -48,9 +48,23 @@ fn ensure_flow_exists() -> PathBuf {
     flow_dir
 }
 
-/// Read a task's Markdown document (frontmatter + body).
+/// Try to open a DB connection.
+fn try_open_db() -> Option<rusqlite::Connection> {
+    let cwd = env::current_dir().ok()?;
+    flowctl_db::open(&cwd).ok()
+}
+
+/// Read a task document: DB first, markdown fallback.
 fn read_task_doc(flow_dir: &Path, task_id: &str) -> (PathBuf, frontmatter::Document<Task>) {
     let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
+    // Try DB first.
+    if let Some(conn) = try_open_db() {
+        let repo = flowctl_db::TaskRepo::new(&conn);
+        if let Ok((task, body)) = repo.get_with_body(task_id) {
+            return (task_path, frontmatter::Document { frontmatter: task, body });
+        }
+    }
+    // Fallback to markdown.
     if !task_path.exists() {
         error_exit(&format!("Task not found: {}", task_id));
     }
@@ -61,8 +75,16 @@ fn read_task_doc(flow_dir: &Path, task_id: &str) -> (PathBuf, frontmatter::Docum
     (task_path, doc)
 }
 
-/// Write a task's Markdown document back to disk.
+/// Write a task document: DB first, then export markdown.
 fn write_task_doc(path: &Path, doc: &frontmatter::Document<Task>) {
+    // Write to DB.
+    if let Some(conn) = try_open_db() {
+        let repo = flowctl_db::TaskRepo::new(&conn);
+        if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
+            eprintln!("warning: DB write failed for {}: {e}", doc.frontmatter.id);
+        }
+    }
+    // Export to markdown.
     let content = frontmatter::write(doc)
         .unwrap_or_else(|e| error_exit(&format!("Cannot serialize task: {}", e)));
     fs::write(path, content)
@@ -172,16 +194,14 @@ fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str) {
         } else {
             println!("Dependency {} removed from {}", depends_on, task_id);
         }
+    } else if json {
+        json_output(json!({
+            "task": task_id,
+            "depends_on": doc.frontmatter.depends_on,
+            "removed": false,
+            "message": format!("{} not in dependencies", depends_on),
+        }));
     } else {
-        if json {
-            json_output(json!({
-                "task": task_id,
-                "depends_on": doc.frontmatter.depends_on,
-                "removed": false,
-                "message": format!("{} not in dependencies", depends_on),
-            }));
-        } else {
-            println!("{} is not a dependency of {}", depends_on, task_id);
-        }
+        println!("{} is not a dependency of {}", depends_on, task_id);
     }
 }

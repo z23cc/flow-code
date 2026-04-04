@@ -19,6 +19,8 @@ ratatui = { workspace = true }
 crossterm = { workspace = true }
 tokio = { workspace = true }
 nucleo = { workspace = true }
+tokio-tungstenite = "0.28"
+futures-util = "0.3"
 
 [dev-dependencies]
 insta = "1"

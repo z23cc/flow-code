@@ -217,8 +217,16 @@ fn create_task_spec(id: &str, title: &str, acceptance: Option<&str>) -> String {
     )
 }
 
-/// Load a task from its Markdown frontmatter file.
-fn load_task_md(flow_dir: &Path, task_id: &str) -> Task {
+/// Load a task: DB first, markdown fallback.
+fn load_task_md(_flow_dir: &Path, task_id: &str) -> Task {
+    if let Some(conn) = try_open_db() {
+        let repo = flowctl_db::TaskRepo::new(&conn);
+        if let Ok(task) = repo.get(task_id) {
+            return task;
+        }
+    }
+    // Fallback to markdown.
+    let flow_dir = _flow_dir;
     let spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
     if !spec_path.exists() {
         error_exit(&format!("Task {} not found", task_id));
@@ -230,8 +238,15 @@ fn load_task_md(flow_dir: &Path, task_id: &str) -> Task {
     doc.frontmatter
 }
 
-/// Load an epic from its Markdown frontmatter file.
-fn load_epic_md(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
+/// Load an epic: DB first, markdown fallback.
+fn load_epic_md(_flow_dir: &Path, epic_id: &str) -> Option<Epic> {
+    if let Some(conn) = try_open_db() {
+        let repo = flowctl_db::EpicRepo::new(&conn);
+        if let Ok(epic) = repo.get(epic_id) {
+            return Some(epic);
+        }
+    }
+    let flow_dir = _flow_dir;
     let spec_path = flow_dir.join(EPICS_DIR).join(format!("{}.md", epic_id));
     if !spec_path.exists() {
         return None;
@@ -241,8 +256,18 @@ fn load_epic_md(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
     Some(doc.frontmatter)
 }
 
-/// Load task's full Markdown document (frontmatter + body).
+/// Load task's full document (frontmatter + body): DB first, markdown fallback.
 fn load_task_doc(flow_dir: &Path, task_id: &str) -> frontmatter::Document<Task> {
+    if let Some(conn) = try_open_db() {
+        let repo = flowctl_db::TaskRepo::new(&conn);
+        if let Ok((task, body)) = repo.get_with_body(task_id) {
+            return frontmatter::Document {
+                frontmatter: task,
+                body,
+            };
+        }
+    }
+    // Fallback to markdown.
     let spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
     if !spec_path.exists() {
         error_exit(&format!("Task {} not found", task_id));
@@ -253,8 +278,16 @@ fn load_task_doc(flow_dir: &Path, task_id: &str) -> frontmatter::Document<Task> 
         .unwrap_or_else(|e| error_exit(&format!("Failed to parse task {}: {e}", task_id)))
 }
 
-/// Write a task document (frontmatter + body) to disk.
+/// Write a task document: DB first, then export markdown.
 fn write_task_doc(flow_dir: &Path, task_id: &str, doc: &frontmatter::Document<Task>) {
+    // Write to DB.
+    if let Some(conn) = try_open_db() {
+        let repo = flowctl_db::TaskRepo::new(&conn);
+        if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
+            eprintln!("warning: DB write failed for {task_id}: {e}");
+        }
+    }
+    // Export to markdown.
     let spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
     let content = frontmatter::write(doc)
         .unwrap_or_else(|e| error_exit(&format!("Failed to serialize task {}: {e}", task_id)));
@@ -422,6 +455,7 @@ pub fn dispatch(cmd: &TaskCmd, json: bool) {
 
 // ── Command implementations ─────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_task_create(
     json_mode: bool,
     epic_id: &str,
@@ -489,7 +523,7 @@ fn cmd_task_create(
     }
 
     // Read acceptance from file if provided
-    let acceptance = acceptance_file.map(|f| read_file_or_stdin(f));
+    let acceptance = acceptance_file.map(read_file_or_stdin);
 
     // Parse files
     let file_list: Vec<String> = match files {
@@ -501,7 +535,7 @@ fn cmd_task_create(
         _ => vec![],
     };
 
-    let domain_enum = domain.map(|d| parse_domain(d)).unwrap_or(Domain::General);
+    let domain_enum = domain.map(parse_domain).unwrap_or(Domain::General);
     let now = Utc::now();
 
     // Create Task struct

@@ -334,12 +334,38 @@ enum Commands {
         force: bool,
     },
 
+    // ── MCP Server ───────────────────────────────────────────────────
+    /// Start as MCP (Model Context Protocol) server on stdio.
+    Mcp,
+
+    // ── Data exchange ────────────────────────────────────────────────
+    /// Export epics/tasks from DB to Markdown files.
+    Export {
+        /// Epic ID to export (or omit for all).
+        #[arg(long)]
+        epic: Option<String>,
+        /// Output format.
+        #[arg(long, default_value = "md")]
+        format: String,
+    },
+    /// Import epics/tasks from Markdown files into DB (alias for reindex).
+    Import,
+
     // ── Shell completions ────────────────────────────────────────────
     /// Generate shell completions.
     Completions {
         /// Shell to generate completions for.
         #[arg(value_enum)]
         shell: Shell,
+    },
+
+    // ── Daemon ───────────────────────────────────────────────────────
+    /// Start the daemon process (HTTP API + scheduler + event bus).
+    #[cfg(feature = "daemon")]
+    Serve {
+        /// Port override (default: Unix socket).
+        #[arg(long)]
+        port: Option<u16>,
     },
 
     // ── TUI dashboard ───────────────────────────────────────────────
@@ -448,10 +474,71 @@ fn main() {
         Commands::Block { id, reason_file } => workflow::cmd_block(json, id, reason_file),
         Commands::Fail { id, reason, force } => workflow::cmd_fail(json, id, reason, force),
 
+        // MCP Server
+        Commands::Mcp => commands::mcp::run(),
+
+        // Data exchange
+        Commands::Export { epic, format } => admin::cmd_export(json, epic, format),
+        Commands::Import => admin::cmd_import(json),
+
         // Shell completions
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             generate(shell, &mut cmd, "flowctl", &mut std::io::stdout());
+        }
+
+        // Daemon
+        #[cfg(feature = "daemon")]
+        Commands::Serve { port: _ } => {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+            rt.block_on(async {
+                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                let flow_dir = cwd.join(flowctl_core::types::FLOW_DIR);
+                if !flow_dir.exists() {
+                    eprintln!("error: .flow/ does not exist. Run 'flowctl init' first.");
+                    std::process::exit(1);
+                }
+
+                let paths = flowctl_daemon::lifecycle::DaemonPaths::new(&flow_dir);
+                if let Err(e) = paths.ensure_state_dir() {
+                    eprintln!("error: failed to create state dir: {e}");
+                    std::process::exit(1);
+                }
+
+                // Acquire PID lock.
+                if let Err(e) = flowctl_daemon::lifecycle::acquire_pid_lock(&paths) {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
+                }
+
+                // Clean up orphaned socket from previous run.
+                let _ = flowctl_daemon::lifecycle::cleanup_orphaned_socket(&paths);
+
+                let runtime = flowctl_daemon::lifecycle::DaemonRuntime::new(paths.clone());
+                let cancel = runtime.cancel.clone();
+
+                let (event_bus, _critical_rx) = flowctl_scheduler::EventBus::with_default_capacity();
+
+                // Handle Ctrl+C.
+                let cancel_clone = cancel.clone();
+                tokio::spawn(async move {
+                    tokio::signal::ctrl_c().await.ok();
+                    eprintln!("\nShutting down daemon...");
+                    cancel_clone.cancel();
+                });
+
+                println!("flowctl daemon starting on {}", paths.socket_file.display());
+
+                if let Err(e) = flowctl_daemon::server::serve(runtime, event_bus).await {
+                    eprintln!("daemon error: {e}");
+                    std::process::exit(1);
+                }
+
+                // Cleanup.
+                let _ = std::fs::remove_file(&paths.socket_file);
+                let _ = std::fs::remove_file(&paths.pid_file);
+                println!("daemon stopped.");
+            });
         }
 
         // TUI dashboard
@@ -459,7 +546,19 @@ fn main() {
         Commands::Tui => {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(async {
+                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                let flow_dir = cwd.join(flowctl_core::types::FLOW_DIR);
+                let socket_path = flow_dir.join(".state").join("flowctl.sock");
+
                 let mut app = flowctl_tui::App::new();
+                let data_source = app.detect_daemon(Some(&flow_dir));
+
+                if data_source == flowctl_tui::app::DataSource::DaemonEvents {
+                    eprintln!("Connecting to daemon via WebSocket...");
+                    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+                    let _ws_handle = flowctl_tui::ws_client::spawn_ws_listener(&socket_path, tx);
+                }
+
                 if let Err(e) = app.run().await {
                     eprintln!("TUI error: {e}");
                     std::process::exit(1);

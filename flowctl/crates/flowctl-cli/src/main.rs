@@ -17,6 +17,7 @@ use commands::{
     dep::DepCmd,
     epic::EpicCmd,
     gap::GapCmd,
+    hook::HookCmd,
     memory::MemoryCmd,
     query,
     ralph::RalphCmd,
@@ -212,6 +213,11 @@ enum Commands {
     Codex {
         #[command(subcommand)]
         cmd: CodexCmd,
+    },
+    /// Claude Code hook scripts (auto-memory, ralph-guard).
+    Hook {
+        #[command(subcommand)]
+        cmd: HookCmd,
     },
     /// Stats dashboard: summary, trends, tokens, DORA metrics.
     Stats {
@@ -477,6 +483,7 @@ fn main() {
         Commands::Ralph { cmd } => commands::ralph::dispatch(&cmd, json),
         Commands::Rp { cmd } => commands::rp::dispatch(&cmd, json),
         Commands::Codex { cmd } => commands::codex::dispatch(&cmd, json),
+        Commands::Hook { cmd } => commands::hook::dispatch(&cmd),
         Commands::Stats { cmd } => commands::stats::dispatch(&cmd, json),
         Commands::WorkerPhase { cmd } => workflow::dispatch_worker_phase(&cmd, json),
 

@@ -71,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -d .flow ] || python3 \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/auto-memory.py\"",
+            "command": "[ ! -d .flow ] || \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook auto-memory",
             "timeout": 45
           }
         ],

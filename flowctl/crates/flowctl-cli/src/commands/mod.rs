@@ -7,6 +7,7 @@ pub mod codex;
 pub mod dep;
 pub mod epic;
 pub mod gap;
+pub mod hook;
 pub mod memory;
 pub mod query;
 pub mod ralph;

@@ -226,6 +226,63 @@ impl TaskDag {
         }
     }
 
+    /// Compute the weighted critical path (longest path through the DAG).
+    ///
+    /// Each task's weight is looked up in `weights`; tasks not present default
+    /// to 1.0. Returns task IDs on the longest-weighted path from any source
+    /// to any sink, in topological order.
+    ///
+    /// This is the standard CPM (Critical Path Method) forward pass: for each
+    /// node in topological order, propagate `dist[u] + weight(v)` to each
+    /// successor v, then trace back from the node with the maximum distance.
+    pub fn critical_path_weighted(&self, weights: &HashMap<String, f64>) -> Vec<String> {
+        if self.graph.node_count() == 0 {
+            return vec![];
+        }
+
+        let topo_order = self.topological_sort();
+
+        // Forward pass: dist[v] = longest weighted path ending at v (inclusive).
+        let mut dist: HashMap<NodeIndex, f64> = HashMap::new();
+        let mut pred: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+
+        for &ni in &topo_order {
+            let id = &self.graph[ni];
+            let w = weights.get(id.as_str()).copied().unwrap_or(1.0);
+            dist.insert(ni, w); // base: just own weight
+        }
+
+        for &ni in &topo_order {
+            let current_dist = dist[&ni];
+            for downstream in self.graph.neighbors_directed(ni, Direction::Outgoing) {
+                let downstream_id = &self.graph[downstream];
+                let downstream_w = weights.get(downstream_id.as_str()).copied().unwrap_or(1.0);
+                let new_dist = current_dist + downstream_w;
+                if new_dist > dist[&downstream] {
+                    dist.insert(downstream, new_dist);
+                    pred.insert(downstream, ni);
+                }
+            }
+        }
+
+        // Find the node with the maximum distance (end of critical path).
+        let (&end_node, _) = dist
+            .iter()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap();
+
+        // Trace back.
+        let mut path = vec![end_node];
+        let mut current = end_node;
+        while let Some(&p) = pred.get(&current) {
+            path.push(p);
+            current = p;
+        }
+        path.reverse();
+
+        path.iter().map(|&ni| self.graph[ni].clone()).collect()
+    }
+
     /// Compute the critical path (longest path through the DAG).
     ///
     /// Each task has unit weight (1). Returns task IDs on the longest path
@@ -270,6 +327,43 @@ impl TaskDag {
         path.reverse();
 
         path.iter().map(|&ni| self.graph[ni].clone()).collect()
+    }
+
+    /// Compute CPM distances for all tasks (longest weighted path ending at each node).
+    ///
+    /// Returns a map from task ID to its CPM distance. Tasks on the critical path
+    /// have the highest values. The scheduler uses these to prioritize dispatch:
+    /// higher CPM distance = more downstream work depends on this task.
+    pub fn cpm_priorities(&self, weights: &HashMap<String, f64>) -> HashMap<String, f64> {
+        if self.graph.node_count() == 0 {
+            return HashMap::new();
+        }
+
+        let topo_order = self.topological_sort();
+        let mut dist: HashMap<NodeIndex, f64> = HashMap::new();
+
+        for &ni in &topo_order {
+            let id = &self.graph[ni];
+            let w = weights.get(id.as_str()).copied().unwrap_or(1.0);
+            dist.insert(ni, w);
+        }
+
+        for &ni in &topo_order {
+            let current_dist = dist[&ni];
+            for downstream in self.graph.neighbors_directed(ni, Direction::Outgoing) {
+                let downstream_id = &self.graph[downstream];
+                let downstream_w = weights.get(downstream_id.as_str()).copied().unwrap_or(1.0);
+                let new_dist = current_dist + downstream_w;
+                if new_dist > dist[&downstream] {
+                    dist.insert(downstream, new_dist);
+                }
+            }
+        }
+
+        // Map back to task IDs.
+        dist.iter()
+            .map(|(&ni, &d)| (self.graph[ni].clone(), d))
+            .collect()
     }
 
     /// Split a task into multiple new tasks, re-wiring dependencies.
@@ -379,6 +473,14 @@ impl TaskDag {
             }
         }
         order
+    }
+
+    /// Return task IDs in topological order.
+    pub fn topological_sort_ids(&self) -> Vec<String> {
+        self.topological_sort()
+            .iter()
+            .map(|&ni| self.graph[ni].clone())
+            .collect()
     }
 
     /// Number of tasks in the DAG.
@@ -812,6 +914,115 @@ mod tests {
         let dag = TaskDag::from_tasks(&tasks).unwrap();
         let cp = dag.critical_path();
         assert_eq!(cp, vec!["a", "b", "c", "d"]);
+    }
+
+    // ── critical_path_weighted ────────────────────────────────────────
+
+    #[test]
+    fn test_critical_path_weighted_linear() {
+        // a(3) -> b(1) -> c(5) = total 9
+        let tasks = vec![
+            make_task("a", &[]),
+            make_task("b", &["a"]),
+            make_task("c", &["b"]),
+        ];
+        let dag = TaskDag::from_tasks(&tasks).unwrap();
+        let weights: HashMap<String, f64> = [
+            ("a".to_string(), 3.0),
+            ("b".to_string(), 1.0),
+            ("c".to_string(), 5.0),
+        ]
+        .into_iter()
+        .collect();
+        let cp = dag.critical_path_weighted(&weights);
+        assert_eq!(cp, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_critical_path_weighted_diamond() {
+        //   a(1)
+        //  / \
+        // b(10) c(1)
+        //  \ /
+        //   d(1)
+        // Path a->b->d = 12, a->c->d = 3. Critical path is a->b->d.
+        let tasks = vec![
+            make_task("a", &[]),
+            make_task("b", &["a"]),
+            make_task("c", &["a"]),
+            make_task("d", &["b", "c"]),
+        ];
+        let dag = TaskDag::from_tasks(&tasks).unwrap();
+        let weights: HashMap<String, f64> = [
+            ("a".to_string(), 1.0),
+            ("b".to_string(), 10.0),
+            ("c".to_string(), 1.0),
+            ("d".to_string(), 1.0),
+        ]
+        .into_iter()
+        .collect();
+        let cp = dag.critical_path_weighted(&weights);
+        assert_eq!(cp, vec!["a", "b", "d"]);
+    }
+
+    #[test]
+    fn test_critical_path_weighted_empty() {
+        let dag = TaskDag::from_tasks(&[]).unwrap();
+        let weights: HashMap<String, f64> = HashMap::new();
+        assert!(dag.critical_path_weighted(&weights).is_empty());
+    }
+
+    #[test]
+    fn test_critical_path_weighted_single() {
+        let dag = TaskDag::from_tasks(&[make_task("a", &[])]).unwrap();
+        let weights: HashMap<String, f64> = [("a".to_string(), 42.0)].into_iter().collect();
+        let cp = dag.critical_path_weighted(&weights);
+        assert_eq!(cp, vec!["a"]);
+    }
+
+    #[test]
+    fn test_critical_path_weighted_defaults_to_unit() {
+        // Without weights, should behave like critical_path().
+        let tasks = vec![
+            make_task("a", &[]),
+            make_task("b", &["a"]),
+            make_task("c", &["b"]),
+        ];
+        let dag = TaskDag::from_tasks(&tasks).unwrap();
+        let empty_weights: HashMap<String, f64> = HashMap::new();
+        let cp_weighted = dag.critical_path_weighted(&empty_weights);
+        let cp_unit = dag.critical_path();
+        assert_eq!(cp_weighted, cp_unit);
+    }
+
+    // ── cpm_priorities ─────────────────────────────────────────────
+
+    #[test]
+    fn test_cpm_priorities_diamond() {
+        let tasks = vec![
+            make_task("a", &[]),
+            make_task("b", &["a"]),
+            make_task("c", &["a"]),
+            make_task("d", &["b", "c"]),
+        ];
+        let dag = TaskDag::from_tasks(&tasks).unwrap();
+        let weights: HashMap<String, f64> = [
+            ("a".to_string(), 1.0),
+            ("b".to_string(), 10.0),
+            ("c".to_string(), 1.0),
+            ("d".to_string(), 1.0),
+        ]
+        .into_iter()
+        .collect();
+        let priorities = dag.cpm_priorities(&weights);
+        // d should have dist = 1+10+1 = 12 (through b path)
+        assert!((priorities["d"] - 12.0).abs() < f64::EPSILON);
+        // b should have dist = 1+10 = 11
+        assert!((priorities["b"] - 11.0).abs() < f64::EPSILON);
+        // c should have dist = 1+1 = 2 (only if reached via a, but c has no
+        // longer upstream path). Actually c's dist starts as 1.0, then a's
+        // propagation sets it to 1+1=2 only if 2 > 1, which it is.
+        assert!((priorities["c"] - 2.0).abs() < f64::EPSILON);
     }
 
     // ── split_task ──────────────────────────────────────────────────

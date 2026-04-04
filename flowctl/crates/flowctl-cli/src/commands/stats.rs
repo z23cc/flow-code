@@ -328,6 +328,185 @@ fn cmd_cleanup(json_flag: bool) {
     }
 }
 
+// ── DAG rendering ────────────────────────────────────────────────────
+
+pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
+    let conn = open_db_or_exit();
+    let task_repo = flowctl_db::TaskRepo::new(&conn);
+
+    // Find epic: use provided ID or find the first open epic
+    let epic_id = match epic_id {
+        Some(id) => id,
+        None => {
+            let epic_repo = flowctl_db::EpicRepo::new(&conn);
+            match epic_repo.list(Some("open")) {
+                Ok(epics) if !epics.is_empty() => epics[0].id.clone(),
+                _ => error_exit("No open epic found. Use --epic <id> to specify."),
+            }
+        }
+    };
+
+    let tasks = match task_repo.list_by_epic(&epic_id) {
+        Ok(t) if !t.is_empty() => t,
+        Ok(_) => error_exit(&format!("No tasks found for epic {}", epic_id)),
+        Err(e) => error_exit(&format!("Failed to load tasks: {}", e)),
+    };
+
+    let dag = match flowctl_core::TaskDag::from_tasks(&tasks) {
+        Ok(d) => d,
+        Err(e) => error_exit(&format!("Failed to build DAG: {}", e)),
+    };
+
+    // Assign layers via longest-path from sources
+    let topo = dag.topological_sort_ids();
+    let mut layer_of: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for id in &topo {
+        let deps = dag.dependencies(id);
+        let my_layer = if deps.is_empty() {
+            0
+        } else {
+            deps.iter()
+                .filter_map(|d| layer_of.get(d))
+                .max()
+                .map(|m| m + 1)
+                .unwrap_or(0)
+        };
+        layer_of.insert(id.clone(), my_layer);
+    }
+
+    let max_layer = layer_of.values().copied().max().unwrap_or(0);
+
+    if should_json(json_flag) {
+        let layers: Vec<serde_json::Value> = (0..=max_layer)
+            .map(|layer| {
+                let nodes: Vec<serde_json::Value> = tasks
+                    .iter()
+                    .filter(|t| layer_of.get(&t.id) == Some(&layer))
+                    .map(|t| {
+                        json!({
+                            "id": t.id,
+                            "status": t.status.to_string(),
+                            "deps": dag.dependencies(&t.id),
+                        })
+                    })
+                    .collect();
+                json!({"layer": layer, "nodes": nodes})
+            })
+            .collect();
+        json_output(json!({"epic": epic_id, "layers": layers}));
+        return;
+    }
+
+    // ASCII rendering
+    println!("DAG for {}", epic_id);
+    println!();
+
+    for layer in 0..=max_layer {
+        let mut nodes_in_layer: Vec<&flowctl_core::types::Task> = tasks
+            .iter()
+            .filter(|t| layer_of.get(&t.id) == Some(&layer))
+            .collect();
+        nodes_in_layer.sort_by(|a, b| a.id.cmp(&b.id));
+
+        for task in &nodes_in_layer {
+            let status_icon = match task.status {
+                flowctl_core::Status::Done => "done",
+                flowctl_core::Status::InProgress => " >> ",
+                flowctl_core::Status::Blocked => "blck",
+                flowctl_core::Status::Todo => "todo",
+                _ => " ?? ",
+            };
+            // Short ID: take just the task number suffix
+            let short_id = task.id.rsplit('.').next().unwrap_or(&task.id);
+            let label = format!(".{} [{}]", short_id, status_icon);
+            let indent = "  ".repeat(layer);
+            let connector = if layer > 0 { "\u{2514}\u{2500}\u{2500} " } else { "" };
+            println!("{}{}\u{250c}\u{2500}{}\u{2500}\u{2510}", indent, connector, "\u{2500}".repeat(label.len()), );
+            println!("{}{}\u{2502} {} \u{2502}", indent, if layer > 0 { "    " } else { "" }, label);
+            println!("{}{}\u{2514}\u{2500}{}\u{2500}\u{2518}", indent, if layer > 0 { "    " } else { "" }, "\u{2500}".repeat(label.len()));
+        }
+
+        // Draw arrows between layers
+        if layer < max_layer {
+            let next_layer_nodes: Vec<&flowctl_core::types::Task> = tasks
+                .iter()
+                .filter(|t| layer_of.get(&t.id) == Some(&(layer + 1)))
+                .collect();
+            if !next_layer_nodes.is_empty() {
+                let indent = "  ".repeat(layer + 1);
+                println!("{}\u{2502}", indent);
+                println!("{}\u{2193}", indent);
+            }
+        }
+    }
+}
+
+// ── Estimate command ─────────────────────────────────────────────────
+
+pub fn cmd_estimate(json_flag: bool, epic_id: &str) {
+    let conn = open_db_or_exit();
+    let task_repo = flowctl_db::TaskRepo::new(&conn);
+    let runtime_repo = flowctl_db::RuntimeRepo::new(&conn);
+
+    let tasks = match task_repo.list_by_epic(epic_id) {
+        Ok(t) => t,
+        Err(e) => error_exit(&format!("Failed to load tasks: {}", e)),
+    };
+
+    if tasks.is_empty() {
+        error_exit(&format!("No tasks found for epic {}", epic_id));
+    }
+
+    // Collect durations from completed tasks
+    let mut completed_durations: Vec<u64> = Vec::new();
+    let mut incomplete_count = 0u32;
+
+    for task in &tasks {
+        if task.status == flowctl_core::Status::Done {
+            if let Ok(Some(rt)) = runtime_repo.get(&task.id) {
+                if let Some(dur) = rt.duration_secs {
+                    completed_durations.push(dur);
+                }
+            }
+        } else if task.status != flowctl_core::state_machine::Status::Skipped {
+            incomplete_count += 1;
+        }
+    }
+
+    let avg_secs = if completed_durations.is_empty() {
+        0u64
+    } else {
+        completed_durations.iter().sum::<u64>() / completed_durations.len() as u64
+    };
+
+    let estimated_remaining_secs = avg_secs * incomplete_count as u64;
+    let done_count = completed_durations.len();
+
+    if should_json(json_flag) {
+        json_output(json!({
+            "epic": epic_id,
+            "total_tasks": tasks.len(),
+            "done_tasks": done_count,
+            "incomplete_tasks": incomplete_count,
+            "avg_duration_secs": avg_secs,
+            "estimated_remaining_secs": estimated_remaining_secs,
+        }));
+    } else {
+        let mins = estimated_remaining_secs / 60;
+        let secs = estimated_remaining_secs % 60;
+        println!(
+            "Estimated remaining: {}m {}s ({} tasks, avg {}s/task)",
+            mins, secs, incomplete_count, avg_secs
+        );
+        println!(
+            "  Done: {}/{}, Remaining: {}",
+            done_count,
+            tasks.len(),
+            incomplete_count
+        );
+    }
+}
+
 // ── Formatting helpers ────────────────────────────────────────────────
 
 fn format_tokens(n: i64) -> String {

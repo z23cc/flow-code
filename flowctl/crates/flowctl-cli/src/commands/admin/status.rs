@@ -33,9 +33,13 @@ pub fn cmd_status(json: bool, interrupted: bool) {
             return;
         }
 
+        let daemon_alive = is_daemon_heartbeat_alive(&flow_dir);
         let interrupted_epics = find_interrupted_epics(&flow_dir);
         if json {
-            json_output(json!({"interrupted": interrupted_epics}));
+            json_output(json!({
+                "interrupted": interrupted_epics,
+                "daemon_running": daemon_alive,
+            }));
         } else if interrupted_epics.is_empty() {
             println!("No interrupted work found.");
         } else {
@@ -68,10 +72,32 @@ pub fn cmd_status(json: bool, interrupted: bool) {
                     total,
                     remaining.join(", ")
                 );
-                println!(
-                    "    Resume:   {}",
-                    ep["suggested"].as_str().unwrap_or("")
-                );
+
+                // Smart recovery: if tasks are in_progress but no daemon is running,
+                // output specific restart commands for stale tasks.
+                if in_prog > 0 && !daemon_alive {
+                    let stale_tasks = ep.get("stale_task_ids")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    if !stale_tasks.is_empty() {
+                        println!("    Recovery (no daemon heartbeat):");
+                        for tid in &stale_tasks {
+                            if let Some(id) = tid.as_str() {
+                                println!("      Run: flowctl restart {id}");
+                            }
+                        }
+                        println!(
+                            "      Then: /flow-code:work {}",
+                            ep["id"].as_str().unwrap_or("")
+                        );
+                    }
+                } else {
+                    println!(
+                        "    Resume:   {}",
+                        ep["suggested"].as_str().unwrap_or("")
+                    );
+                }
                 println!();
             }
         }
@@ -216,6 +242,29 @@ fn status_from_db() -> Option<(serde_json::Value, serde_json::Value)> {
     ))
 }
 
+/// Check if the daemon is running by reading `.flow/.state/flowctl.pid`
+/// and verifying the process is alive. Returns false if no PID file,
+/// PID is invalid, or the process is dead.
+fn is_daemon_heartbeat_alive(flow_dir: &Path) -> bool {
+    let pid_file = flow_dir.join(".state").join("flowctl.pid");
+    let content = match fs::read_to_string(&pid_file) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let pid_str = content.trim();
+    if pid_str.parse::<u32>().is_err() {
+        return false;
+    }
+    // Use `kill -0 <pid>` to check process existence without sending a signal.
+    Command::new("kill")
+        .args(["-0", pid_str])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Find open epics with undone tasks (interrupted work).
 fn find_interrupted_epics(flow_dir: &Path) -> Vec<serde_json::Value> {
     let mut interrupted = Vec::new();
@@ -257,13 +306,14 @@ fn find_interrupted_epics(flow_dir: &Path) -> Vec<serde_json::Value> {
             continue;
         }
 
-        // Count tasks for this epic
+        // Count tasks for this epic and collect in_progress task IDs
         let mut counts = std::collections::HashMap::new();
         counts.insert("todo", 0u64);
         counts.insert("in_progress", 0u64);
         counts.insert("done", 0u64);
         counts.insert("blocked", 0u64);
         counts.insert("skipped", 0u64);
+        let mut stale_task_ids: Vec<String> = Vec::new();
 
         if tasks_dir.is_dir() {
             if let Ok(task_entries) = fs::read_dir(&tasks_dir) {
@@ -284,6 +334,9 @@ fn find_interrupted_epics(flow_dir: &Path) -> Vec<serde_json::Value> {
                                 continue;
                             }
                             let status_key = task.status.to_string();
+                            if status_key == "in_progress" {
+                                stale_task_ids.push(task.id.clone());
+                            }
                             if let Some(count) = counts.get_mut(status_key.as_str()) {
                                 *count += 1;
                             }
@@ -292,6 +345,7 @@ fn find_interrupted_epics(flow_dir: &Path) -> Vec<serde_json::Value> {
                 }
             }
         }
+        stale_task_ids.sort();
 
         let total: u64 = counts.values().sum();
         if total == 0 {
@@ -314,6 +368,7 @@ fn find_interrupted_epics(flow_dir: &Path) -> Vec<serde_json::Value> {
                 "in_progress": in_progress,
                 "blocked": blocked,
                 "skipped": skipped,
+                "stale_task_ids": stale_task_ids,
                 "reason": if done == 0 && in_progress == 0 { "planned_not_started" } else { "partially_complete" },
                 "suggested": format!("/flow-code:work {}", epic.id),
             }));
@@ -670,7 +725,7 @@ pub fn cmd_doctor(json_mode: bool) {
                         checks.push(json!({"name": "config", "status": "fail", "message": "config.json is not a JSON object"}));
                     } else {
                         let known_keys: std::collections::HashSet<&str> =
-                            ["memory", "planSync", "review", "scouts", "stack"]
+                            ["memory", "notifications", "planSync", "review", "scouts", "stack"]
                                 .iter()
                                 .copied()
                                 .collect();

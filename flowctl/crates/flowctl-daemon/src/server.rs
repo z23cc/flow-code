@@ -30,7 +30,7 @@ pub fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventB
     let state = Arc::new(DaemonState {
         runtime,
         event_bus,
-        db: std::sync::Mutex::new(conn),
+        db: Arc::new(std::sync::Mutex::new(conn)),
     });
     Ok((state, cancel))
 }
@@ -49,6 +49,8 @@ pub fn build_router(state: AppState) -> axum::Router {
         .route("/api/v1/status", get(handlers::status_handler))
         .route("/api/v1/epics", get(handlers::epics_handler))
         .route("/api/v1/tasks", get(handlers::tasks_handler))
+        .route("/api/v1/dag", get(handlers::dag_handler))
+        .route("/api/v1/dag/mutate", post(handlers::dag_mutate_handler))
         .route("/api/v1/tasks/create", post(handlers::create_task_handler))
         .route("/api/v1/tasks/start", post(handlers::start_task_handler))
         .route("/api/v1/tasks/done", post(handlers::done_task_handler))

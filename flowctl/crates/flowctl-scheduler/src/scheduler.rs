@@ -17,6 +17,40 @@ use flowctl_core::state_machine::Status;
 
 use crate::circuit_breaker::CircuitBreaker;
 
+/// Per-domain historical performance data used for adaptive parallelism.
+#[derive(Debug, Clone)]
+pub struct DomainPerf {
+    /// Number of completed tasks with duration history.
+    pub completed_count: i64,
+    /// Average task duration in seconds.
+    pub avg_duration_secs: f64,
+}
+
+/// Configuration for domain-based adaptive parallelism.
+///
+/// When a domain has >= `min_samples` completed tasks with duration history,
+/// the scheduler adjusts the effective semaphore size for tasks in that domain.
+/// Domains below the threshold use the static `SchedulerConfig::max_parallel`.
+#[derive(Debug, Clone)]
+pub struct AdaptiveConfig {
+    /// Minimum completed tasks before adaptive sizing kicks in.
+    pub min_samples: i64,
+    /// Absolute floor for computed parallelism (never go below this).
+    pub min_parallel: usize,
+    /// Absolute ceiling for computed parallelism (never exceed this).
+    pub max_parallel: usize,
+}
+
+impl Default for AdaptiveConfig {
+    fn default() -> Self {
+        Self {
+            min_samples: 5,
+            min_parallel: 1,
+            max_parallel: 8,
+        }
+    }
+}
+
 /// Result of a single task execution.
 #[derive(Debug, Clone)]
 pub struct TaskResult {
@@ -53,6 +87,10 @@ pub type TaskExecutor = Arc<dyn Fn(String) -> TaskResult + Send + Sync>;
 
 /// DAG scheduler: discovers ready tasks, dispatches them with bounded
 /// parallelism, and feeds completions back to discover the next wave.
+///
+/// When CPM weights are provided, ready tasks are dispatched in descending
+/// order of their CPM distance (longest remaining path). This ensures that
+/// tasks on the critical path are started first, minimizing total makespan.
 pub struct Scheduler {
     /// The task dependency graph.
     dag: TaskDag,
@@ -66,6 +104,15 @@ pub struct Scheduler {
     cancel: CancellationToken,
     /// Circuit breaker for consecutive-failure detection.
     circuit_breaker: CircuitBreaker,
+    /// CPM priorities: task_id -> distance on longest weighted path.
+    /// Tasks with higher values are dispatched first.
+    cpm_priorities: HashMap<String, f64>,
+    /// Per-domain historical performance for adaptive parallelism.
+    domain_perf: HashMap<String, DomainPerf>,
+    /// Adaptive parallelism config. `None` means use static `max_parallel`.
+    adaptive_config: Option<AdaptiveConfig>,
+    /// Task-id to domain mapping (set alongside domain_perf).
+    task_domains: HashMap<String, String>,
 }
 
 impl Scheduler {
@@ -84,7 +131,92 @@ impl Scheduler {
             config,
             cancel,
             circuit_breaker,
+            cpm_priorities: HashMap::new(),
+            domain_perf: HashMap::new(),
+            adaptive_config: None,
+            task_domains: HashMap::new(),
         }
+    }
+
+    /// Set CPM weights and compute dispatch priorities.
+    ///
+    /// Call this before `run()` to enable CPM-based dispatch ordering.
+    /// Tasks with higher CPM distance (more downstream work) are dispatched first.
+    pub fn set_cpm_weights(&mut self, weights: &HashMap<String, f64>) {
+        self.cpm_priorities = self.dag.cpm_priorities(weights);
+    }
+
+    /// Enable adaptive parallelism with per-domain performance data.
+    ///
+    /// Call this before `run()`. For each domain with enough history
+    /// (>= `adaptive_config.min_samples`), the scheduler will compute an
+    /// effective parallelism level based on average task duration:
+    ///
+    /// - Short-duration domains (fast tasks) get higher parallelism.
+    /// - Long-duration domains (slow tasks) get lower parallelism.
+    ///
+    /// `task_domains` maps task_id -> domain string so the scheduler knows
+    /// which domain each task belongs to at dispatch time.
+    pub fn set_adaptive(
+        &mut self,
+        config: AdaptiveConfig,
+        domain_perf: HashMap<String, DomainPerf>,
+        task_domains: HashMap<String, String>,
+    ) {
+        self.domain_perf = domain_perf;
+        self.task_domains = task_domains;
+        self.adaptive_config = Some(config);
+    }
+
+    /// Compute effective parallelism for a domain.
+    ///
+    /// If adaptive is not configured or the domain lacks sufficient samples,
+    /// returns `self.config.max_parallel` (the static fallback).
+    ///
+    /// The heuristic: normalize domain durations relative to the global mean
+    /// across all warm domains. Domains with below-average duration get more
+    /// slots; above-average get fewer. The ratio is clamped to
+    /// `[adaptive.min_parallel, adaptive.max_parallel]`.
+    fn effective_parallelism(&self, domain: Option<&str>) -> usize {
+        let adaptive = match &self.adaptive_config {
+            Some(c) => c,
+            None => return self.config.max_parallel,
+        };
+
+        let domain_key = match domain {
+            Some(d) => d,
+            None => return self.config.max_parallel,
+        };
+
+        let perf = match self.domain_perf.get(domain_key) {
+            Some(p) if p.completed_count >= adaptive.min_samples => p,
+            _ => return self.config.max_parallel, // cold start
+        };
+
+        // Global mean across all warm domains.
+        let warm: Vec<&DomainPerf> = self
+            .domain_perf
+            .values()
+            .filter(|p| p.completed_count >= adaptive.min_samples)
+            .collect();
+
+        if warm.is_empty() {
+            return self.config.max_parallel;
+        }
+
+        let global_mean: f64 =
+            warm.iter().map(|p| p.avg_duration_secs).sum::<f64>() / warm.len() as f64;
+
+        if global_mean <= 0.0 || perf.avg_duration_secs <= 0.0 {
+            return self.config.max_parallel;
+        }
+
+        // ratio > 1 means domain is faster than average -> more slots.
+        let ratio = global_mean / perf.avg_duration_secs;
+        let base = self.config.max_parallel as f64;
+        let computed = (base * ratio).round() as usize;
+
+        computed.clamp(adaptive.min_parallel, adaptive.max_parallel)
     }
 
     /// Run the scheduling loop to completion.
@@ -96,21 +228,26 @@ impl Scheduler {
         F: Fn(String, CancellationToken) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = TaskResult> + Send + 'static,
     {
-        let semaphore = Arc::new(Semaphore::new(self.config.max_parallel));
+        // Build per-domain semaphores when adaptive config is present,
+        // otherwise a single shared semaphore for all tasks.
+        let domain_semaphores = self.build_domain_semaphores();
+        let default_semaphore = Arc::new(Semaphore::new(self.config.max_parallel));
         let (result_tx, mut result_rx) = mpsc::unbounded_channel::<TaskResult>();
 
         let executor = Arc::new(executor);
         let mut in_flight: usize = 0;
 
-        // Initial wave: discover all ready tasks.
-        let ready = self.dag.ready_tasks(&self.statuses);
+        // Initial wave: discover all ready tasks, sorted by CPM priority (highest first).
+        let mut ready = self.dag.ready_tasks(&self.statuses);
+        self.sort_by_cpm(&mut ready);
         for task_id in ready {
             if self.cancel.is_cancelled() || self.circuit_breaker.is_open() {
                 break;
             }
+            let sem = self.semaphore_for_task(&task_id, &domain_semaphores, &default_semaphore);
             self.dispatch_task(
                 &task_id,
-                &semaphore,
+                &sem,
                 &result_tx,
                 &executor,
             );
@@ -145,12 +282,14 @@ impl Scheduler {
             // Re-dispatch if task is UpForRetry (retry after failure).
             if self.statuses.get(&result.task_id).copied() == Some(Status::UpForRetry)
                 && !self.cancel.is_cancelled() && !self.circuit_breaker.is_open() {
-                    self.dispatch_task(&result.task_id, &semaphore, &result_tx, &executor);
+                    let sem = self.semaphore_for_task(&result.task_id, &domain_semaphores, &default_semaphore);
+                    self.dispatch_task(&result.task_id, &sem, &result_tx, &executor);
                     in_flight += 1;
                 }
 
-            // Discover newly-ready tasks.
-            let newly_ready = self.dag.complete(&result.task_id, &self.statuses);
+            // Discover newly-ready tasks, sorted by CPM priority.
+            let mut newly_ready = self.dag.complete(&result.task_id, &self.statuses);
+            self.sort_by_cpm(&mut newly_ready);
             for task_id in newly_ready {
                 if self.cancel.is_cancelled() || self.circuit_breaker.is_open() {
                     break;
@@ -158,9 +297,10 @@ impl Scheduler {
                 // Dispatch if task is Todo or UpForRetry (retry after failure).
                 let status = self.statuses.get(&task_id).copied().unwrap_or(Status::Todo);
                 if status == Status::Todo || status == Status::UpForRetry {
+                    let sem = self.semaphore_for_task(&task_id, &domain_semaphores, &default_semaphore);
                     self.dispatch_task(
                         &task_id,
-                        &semaphore,
+                        &sem,
                         &result_tx,
                         &executor,
                     );
@@ -170,6 +310,39 @@ impl Scheduler {
         }
 
         self.statuses.clone()
+    }
+
+    /// Build per-domain semaphores based on adaptive config and domain perf data.
+    /// Returns an empty map when adaptive is not configured.
+    fn build_domain_semaphores(&self) -> HashMap<String, Arc<Semaphore>> {
+        let mut map = HashMap::new();
+        if self.adaptive_config.is_none() {
+            return map;
+        }
+        // Create a semaphore for each domain that has perf data.
+        let domains: std::collections::HashSet<&String> = self.task_domains.values().collect();
+        for domain in domains {
+            let par = self.effective_parallelism(Some(domain));
+            debug!(domain = %domain, parallelism = par, "adaptive semaphore");
+            map.insert(domain.clone(), Arc::new(Semaphore::new(par)));
+        }
+        map
+    }
+
+    /// Pick the right semaphore for a task: domain-specific if available,
+    /// otherwise the default.
+    fn semaphore_for_task(
+        &self,
+        task_id: &str,
+        domain_semaphores: &HashMap<String, Arc<Semaphore>>,
+        default: &Arc<Semaphore>,
+    ) -> Arc<Semaphore> {
+        if let Some(domain) = self.task_domains.get(task_id) {
+            if let Some(sem) = domain_semaphores.get(domain) {
+                return sem.clone();
+            }
+        }
+        default.clone()
     }
 
     /// Dispatch a single task as a tokio::spawn with semaphore-bounded parallelism.
@@ -246,6 +419,20 @@ impl Scheduler {
                 }
             }
         }
+    }
+
+    /// Sort task IDs by CPM priority (descending). Tasks with higher CPM
+    /// distance are placed first so they get dispatched/semaphore-acquired
+    /// earlier, reducing total makespan.
+    fn sort_by_cpm(&self, tasks: &mut [String]) {
+        if self.cpm_priorities.is_empty() {
+            return; // No CPM data — keep default alphabetical order.
+        }
+        tasks.sort_by(|a, b| {
+            let pa = self.cpm_priorities.get(a).copied().unwrap_or(0.0);
+            let pb = self.cpm_priorities.get(b).copied().unwrap_or(0.0);
+            pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
 
     /// Get a snapshot of current statuses.
@@ -435,5 +622,142 @@ mod tests {
             .await;
 
         assert!(peak.load(Ordering::SeqCst) <= 2);
+    }
+
+    #[test]
+    fn test_effective_parallelism_cold_start() {
+        let tasks = vec![make_task("a", &[])];
+        let dag = TaskDag::from_tasks(&tasks).unwrap();
+        let statuses = status_map(&[("a", Status::Todo)]);
+        let cancel = CancellationToken::new();
+        let cb = CircuitBreaker::new(5);
+        let config = SchedulerConfig { max_parallel: 4, max_retries: 0 };
+
+        let mut scheduler = Scheduler::new(dag, statuses, config, cancel, cb);
+
+        // No adaptive config -> always returns static max_parallel.
+        assert_eq!(scheduler.effective_parallelism(Some("backend")), 4);
+
+        // With adaptive config but no perf data -> cold start fallback.
+        scheduler.set_adaptive(
+            AdaptiveConfig::default(),
+            HashMap::new(),
+            HashMap::new(),
+        );
+        assert_eq!(scheduler.effective_parallelism(Some("backend")), 4);
+    }
+
+    #[test]
+    fn test_effective_parallelism_warm_domains() {
+        let tasks = vec![make_task("a", &[])];
+        let dag = TaskDag::from_tasks(&tasks).unwrap();
+        let statuses = status_map(&[("a", Status::Todo)]);
+        let cancel = CancellationToken::new();
+        let cb = CircuitBreaker::new(5);
+        let config = SchedulerConfig { max_parallel: 4, max_retries: 0 };
+
+        let mut scheduler = Scheduler::new(dag, statuses, config, cancel, cb);
+
+        let mut domain_perf = HashMap::new();
+        // "frontend" tasks are fast (avg 30s), "backend" tasks are slow (avg 120s).
+        domain_perf.insert("frontend".to_string(), DomainPerf {
+            completed_count: 10,
+            avg_duration_secs: 30.0,
+        });
+        domain_perf.insert("backend".to_string(), DomainPerf {
+            completed_count: 8,
+            avg_duration_secs: 120.0,
+        });
+
+        let task_domains = HashMap::from([
+            ("a".to_string(), "frontend".to_string()),
+        ]);
+
+        scheduler.set_adaptive(
+            AdaptiveConfig {
+                min_samples: 5,
+                min_parallel: 1,
+                max_parallel: 8,
+            },
+            domain_perf,
+            task_domains,
+        );
+
+        // Global mean = (30 + 120) / 2 = 75.
+        // Frontend ratio = 75/30 = 2.5, computed = 4 * 2.5 = 10 -> clamped to 8.
+        assert_eq!(scheduler.effective_parallelism(Some("frontend")), 8);
+        // Backend ratio = 75/120 = 0.625, computed = 4 * 0.625 = 2.5 -> round = 3.
+        assert_eq!(scheduler.effective_parallelism(Some("backend")), 3);
+    }
+
+    #[test]
+    fn test_effective_parallelism_below_threshold() {
+        let tasks = vec![make_task("a", &[])];
+        let dag = TaskDag::from_tasks(&tasks).unwrap();
+        let statuses = status_map(&[("a", Status::Todo)]);
+        let cancel = CancellationToken::new();
+        let cb = CircuitBreaker::new(5);
+        let config = SchedulerConfig { max_parallel: 4, max_retries: 0 };
+
+        let mut scheduler = Scheduler::new(dag, statuses, config, cancel, cb);
+
+        let mut domain_perf = HashMap::new();
+        // Only 3 samples — below default min_samples of 5.
+        domain_perf.insert("testing".to_string(), DomainPerf {
+            completed_count: 3,
+            avg_duration_secs: 60.0,
+        });
+
+        scheduler.set_adaptive(
+            AdaptiveConfig::default(),
+            domain_perf,
+            HashMap::new(),
+        );
+
+        // Below threshold -> cold start fallback.
+        assert_eq!(scheduler.effective_parallelism(Some("testing")), 4);
+    }
+
+    #[tokio::test]
+    async fn test_adaptive_scheduler_runs_to_completion() {
+        // Verify the scheduler completes all tasks when adaptive is enabled.
+        let tasks = vec![
+            make_task("a", &[]),
+            make_task("b", &[]),
+            make_task("c", &["a"]),
+        ];
+        let dag = TaskDag::from_tasks(&tasks).unwrap();
+        let statuses = status_map(&[
+            ("a", Status::Todo),
+            ("b", Status::Todo),
+            ("c", Status::Todo),
+        ]);
+        let cancel = CancellationToken::new();
+        let cb = CircuitBreaker::new(5);
+        let config = SchedulerConfig { max_parallel: 4, max_retries: 0 };
+
+        let mut scheduler = Scheduler::new(dag, statuses, config, cancel, cb);
+
+        let mut domain_perf = HashMap::new();
+        domain_perf.insert("general".to_string(), DomainPerf {
+            completed_count: 10,
+            avg_duration_secs: 60.0,
+        });
+        let task_domains = HashMap::from([
+            ("a".to_string(), "general".to_string()),
+            ("b".to_string(), "general".to_string()),
+            ("c".to_string(), "general".to_string()),
+        ]);
+        scheduler.set_adaptive(AdaptiveConfig::default(), domain_perf, task_domains);
+
+        let final_statuses = scheduler
+            .run(|task_id, _cancel| async move {
+                TaskResult { task_id, success: true, error: None }
+            })
+            .await;
+
+        assert_eq!(final_statuses["a"], Status::Done);
+        assert_eq!(final_statuses["b"], Status::Done);
+        assert_eq!(final_statuses["c"], Status::Done);
     }
 }

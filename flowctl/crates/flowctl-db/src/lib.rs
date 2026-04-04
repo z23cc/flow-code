@@ -28,7 +28,7 @@ pub use pool::{cleanup, open, open_memory, resolve_db_path, resolve_state_dir};
 pub use indexer::{reindex, ReindexResult};
 pub use migration::{migrate_runtime_state, needs_reindex, has_legacy_state, MigrationResult};
 pub use repo::{EpicRepo, EvidenceRepo, EventRepo, EventRow, FileLockRepo, PhaseProgressRepo, RuntimeRepo, TaskRepo};
-pub use events::{EventLog, TokenRecord};
+pub use events::{EventLog, TaskTokenSummary, TokenRecord, TokenUsageRow};
 pub use metrics::StatsQuery;
 
 pub use flowctl_core;

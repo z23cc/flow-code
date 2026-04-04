@@ -23,6 +23,10 @@ pub fn EpicDetailPage() -> impl IntoView {
             <div class="flex items-center gap-3 mb-6">
                 <a href="/" class="text-gray-400 hover:text-white">"← Back"</a>
                 <h1 class="text-2xl font-bold">{move || epic_id()}</h1>
+                <a href={move || format!("/dag/{}", epic_id())}
+                   class="ml-auto px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded">
+                    "DAG View"
+                </a>
             </div>
             <Suspense fallback=move || view! { <p class="text-gray-400">"Loading tasks..."</p> }>
                 {move || {

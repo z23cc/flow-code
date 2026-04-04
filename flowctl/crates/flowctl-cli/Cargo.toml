@@ -17,6 +17,7 @@ daemon = ["dep:flowctl-daemon", "dep:flowctl-web", "dep:tokio", "dep:leptos", "d
 [dependencies]
 flowctl-core = { workspace = true }
 flowctl-db = { workspace = true }
+flowctl-service = { workspace = true }
 rusqlite = { workspace = true }
 flowctl-scheduler = { workspace = true }
 flowctl-daemon = { path = "../flowctl-daemon", features = ["daemon"], optional = true }
@@ -44,3 +45,7 @@ which = { workspace = true }
 trycmd = { workspace = true }
 tempfile = "3"
 serde_json = { workspace = true }
+flowctl-core = { workspace = true }
+flowctl-db = { workspace = true }
+flowctl-service = { workspace = true }
+rusqlite = { workspace = true }

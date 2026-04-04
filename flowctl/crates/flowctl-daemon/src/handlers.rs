@@ -15,7 +15,10 @@ use tracing::{debug, info, warn};
 
 use flowctl_core::id::is_task_id;
 use flowctl_core::state_machine::{Status, Transition};
+use flowctl_core::types::FLOW_DIR;
 use flowctl_scheduler::TimestampedEvent;
+use flowctl_service::lifecycle::{DoneTaskRequest, StartTaskRequest};
+use flowctl_service::ServiceError;
 
 use crate::lifecycle::DaemonRuntime;
 
@@ -57,7 +60,7 @@ pub type AppState = Arc<DaemonState>;
 pub struct DaemonState {
     pub runtime: DaemonRuntime,
     pub event_bus: flowctl_scheduler::EventBus,
-    pub db: std::sync::Mutex<rusqlite::Connection>,
+    pub db: Arc<std::sync::Mutex<rusqlite::Connection>>,
 }
 
 impl DaemonState {
@@ -184,56 +187,75 @@ pub async fn create_task_handler(
     ))
 }
 
-/// POST /api/v1/tasks/start -- start a task (validates state transition).
+/// POST /api/v1/tasks/start -- start a task via service layer.
 pub async fn start_task_handler(
     State(state): State<AppState>,
     Json(body): Json<TaskIdRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::TaskRepo::new(&conn);
+    let task_id = body.task_id.clone();
+    let db = state.db.clone();
 
-    // Get current task to validate transition.
-    let task = repo
-        .get(&body.task_id)
-        .map_err(|_| AppError::InvalidInput(format!("task not found: {}", body.task_id)))?;
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = db
+            .lock()
+            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
+        let flow_dir = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(FLOW_DIR);
+        let req = StartTaskRequest {
+            task_id,
+            force: false,
+            actor: "daemon".to_string(),
+        };
+        flowctl_service::lifecycle::start_task(Some(&conn), &flow_dir, req)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
-    Transition::new(task.status, Status::InProgress).map_err(|e| {
-        AppError::InvalidTransition(format!(
-            "cannot start task '{}': {}",
-            body.task_id, e
-        ))
-    })?;
-
-    repo.update_status(&body.task_id, Status::InProgress)?;
-    Ok(Json(
-        serde_json::json!({"success": true, "id": body.task_id}),
-    ))
+    match result {
+        Ok(resp) => Ok(Json(
+            serde_json::json!({"success": true, "id": resp.task_id}),
+        )),
+        Err(e) => Err(service_error_to_app_error(e)),
+    }
 }
 
-/// POST /api/v1/tasks/done -- complete a task (validates state transition).
+/// POST /api/v1/tasks/done -- complete a task via service layer.
 pub async fn done_task_handler(
     State(state): State<AppState>,
-    Json(body): Json<TaskIdRequest>,
+    Json(body): Json<TaskDoneRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::TaskRepo::new(&conn);
+    let task_id = body.task_id.clone();
+    let summary = body.summary.clone();
+    let db = state.db.clone();
 
-    // Get current task to validate transition.
-    let task = repo
-        .get(&body.task_id)
-        .map_err(|_| AppError::InvalidInput(format!("task not found: {}", body.task_id)))?;
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = db
+            .lock()
+            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
+        let flow_dir = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(FLOW_DIR);
+        let req = DoneTaskRequest {
+            task_id,
+            summary,
+            summary_file: None,
+            evidence_json: None,
+            evidence_inline: None,
+            force: true,
+            actor: "daemon".to_string(),
+        };
+        flowctl_service::lifecycle::done_task(Some(&conn), &flow_dir, req)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
-    Transition::new(task.status, Status::Done).map_err(|e| {
-        AppError::InvalidTransition(format!(
-            "cannot complete task '{}': {}",
-            body.task_id, e
-        ))
-    })?;
-
-    repo.update_status(&body.task_id, Status::Done)?;
-    Ok(Json(
-        serde_json::json!({"success": true, "id": body.task_id}),
-    ))
+    match result {
+        Ok(resp) => Ok(Json(
+            serde_json::json!({"success": true, "id": resp.task_id}),
+        )),
+        Err(e) => Err(service_error_to_app_error(e)),
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -248,6 +270,350 @@ pub struct CreateTaskRequest {
 #[derive(Debug, serde::Deserialize)]
 pub struct TaskIdRequest {
     pub task_id: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct TaskDoneRequest {
+    pub task_id: String,
+    pub summary: Option<String>,
+}
+
+/// Query parameters for the tokens endpoint.
+#[derive(Debug, serde::Deserialize)]
+pub struct TokensQuery {
+    pub epic_id: Option<String>,
+    pub task_id: Option<String>,
+}
+
+/// GET /api/v1/tokens -- token usage, filtered by epic_id or task_id.
+pub async fn tokens_handler(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<TokensQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
+    let log = flowctl_db::EventLog::new(&conn);
+
+    if let Some(ref task_id) = params.task_id {
+        let rows = log.tokens_by_task(task_id)?;
+        let value = serde_json::to_value(&rows)
+            .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
+        Ok(Json(value))
+    } else if let Some(ref epic_id) = params.epic_id {
+        let summaries = log.tokens_by_epic(epic_id)?;
+        let value = serde_json::to_value(&summaries)
+            .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
+        Ok(Json(value))
+    } else {
+        Err(AppError::InvalidInput(
+            "either epic_id or task_id query parameter is required".to_string(),
+        ))
+    }
+}
+
+/// Map service-layer errors to HTTP-appropriate AppErrors.
+fn service_error_to_app_error(e: ServiceError) -> AppError {
+    match e {
+        ServiceError::TaskNotFound(msg) => AppError::InvalidInput(msg),
+        ServiceError::EpicNotFound(msg) => AppError::InvalidInput(msg),
+        ServiceError::InvalidTransition(msg) => AppError::InvalidTransition(msg),
+        ServiceError::DependencyUnsatisfied { task, dependency } => {
+            AppError::InvalidInput(format!("task {task} blocked by {dependency}"))
+        }
+        ServiceError::CrossActorViolation(msg) => AppError::InvalidInput(msg),
+        ServiceError::ValidationError(msg) => AppError::InvalidInput(msg),
+        ServiceError::DbError(e) => AppError::Db(e.to_string()),
+        ServiceError::IoError(e) => AppError::Internal(e.to_string()),
+        ServiceError::CoreError(e) => AppError::Internal(e.to_string()),
+    }
+}
+
+/// Query parameters for the DAG endpoint.
+#[derive(Debug, serde::Deserialize)]
+pub struct DagQuery {
+    pub epic_id: String,
+}
+
+/// A node in the DAG visualization.
+#[derive(Debug, serde::Serialize)]
+pub struct DagNode {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub x: f64,
+    pub y: f64,
+}
+
+/// An edge in the DAG visualization.
+#[derive(Debug, serde::Serialize)]
+pub struct DagEdge {
+    pub from: String,
+    pub to: String,
+}
+
+/// Response for the DAG endpoint.
+#[derive(Debug, serde::Serialize)]
+pub struct DagResponse {
+    pub nodes: Vec<DagNode>,
+    pub edges: Vec<DagEdge>,
+}
+
+/// GET /api/v1/dag?epic_id=X -- returns DAG layout for visualization.
+///
+/// Builds the task dependency graph using petgraph, then computes a simplified
+/// Sugiyama layout (layer assignment via longest-path + node positioning) server-side.
+pub async fn dag_handler(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<DagQuery>,
+) -> Result<Json<DagResponse>, AppError> {
+    let conn = state.db_lock()?;
+    let repo = flowctl_db::TaskRepo::new(&conn);
+    let tasks = repo.list_by_epic(&params.epic_id)?;
+
+    if tasks.is_empty() {
+        return Ok(Json(DagResponse {
+            nodes: vec![],
+            edges: vec![],
+        }));
+    }
+
+    // Build DAG from tasks.
+    let dag = flowctl_core::TaskDag::from_tasks(&tasks)
+        .map_err(|e| AppError::Internal(format!("DAG build error: {e}")))?;
+
+    // Map task IDs to their tasks for title/status lookup.
+    let task_map: std::collections::HashMap<&str, &flowctl_core::types::Task> =
+        tasks.iter().map(|t| (t.id.as_str(), t)).collect();
+
+    // Build node index → task ID mapping from topo order.
+    let task_ids = dag.task_ids();
+
+    // Compute layers via longest-path from roots.
+    let mut layer: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for id in &task_ids {
+        let deps = dag.dependencies(id);
+        if deps.is_empty() {
+            layer.insert(id.clone(), 0);
+        } else {
+            let max_dep_layer = deps
+                .iter()
+                .map(|d| layer.get(d.as_str()).copied().unwrap_or(0))
+                .max()
+                .unwrap_or(0);
+            layer.insert(id.clone(), max_dep_layer + 1);
+        }
+    }
+
+    // Group nodes by layer for horizontal positioning.
+    let max_layer = layer.values().copied().max().unwrap_or(0);
+    let mut layers: Vec<Vec<String>> = vec![vec![]; max_layer + 1];
+    for (id, &l) in &layer {
+        layers[l].push(id.clone());
+    }
+    // Sort within each layer for determinism.
+    for l in &mut layers {
+        l.sort();
+    }
+
+    // Compute x,y positions: layers go left-to-right, nodes within a layer are stacked vertically.
+    let node_spacing_x = 200.0;
+    let node_spacing_y = 100.0;
+
+    let mut nodes = Vec::with_capacity(tasks.len());
+    for (layer_idx, layer_nodes) in layers.iter().enumerate() {
+        let layer_height = layer_nodes.len() as f64 * node_spacing_y;
+        let y_offset = -layer_height / 2.0 + node_spacing_y / 2.0;
+        for (pos, id) in layer_nodes.iter().enumerate() {
+            let task = task_map.get(id.as_str());
+            nodes.push(DagNode {
+                id: id.clone(),
+                title: task.map(|t| t.title.clone()).unwrap_or_default(),
+                status: task
+                    .map(|t| format!("{:?}", t.status).to_lowercase())
+                    .unwrap_or_else(|| "todo".to_string()),
+                x: layer_idx as f64 * node_spacing_x,
+                y: y_offset + pos as f64 * node_spacing_y,
+            });
+        }
+    }
+
+    // Build edges from dependency relationships.
+    let mut edges = Vec::new();
+    for id in &task_ids {
+        for dep in dag.dependencies(id) {
+            edges.push(DagEdge {
+                from: dep,
+                to: id.clone(),
+            });
+        }
+    }
+
+    Ok(Json(DagResponse { nodes, edges }))
+}
+
+// ── DAG mutation endpoint ───────────────────────────────────────
+
+/// Request body for POST /api/v1/dag/mutate.
+#[derive(Debug, serde::Deserialize)]
+pub struct DagMutateRequest {
+    pub action: String,
+    pub params: serde_json::Value,
+    /// Optimistic lock: client sends the `updated_at` timestamp it last saw.
+    pub version: String,
+}
+
+/// POST /api/v1/dag/mutate -- apply a DAG mutation with optimistic locking.
+///
+/// Supported actions:
+/// - `add_dep`: params `{task_id, depends_on}`
+/// - `remove_dep`: params `{task_id, depends_on}`
+/// - `retry_task`: params `{task_id}`
+/// - `skip_task`: params `{task_id}`
+///
+/// Returns 409 on version conflict, broadcasts refresh event on success.
+pub async fn dag_mutate_handler(
+    State(state): State<AppState>,
+    Json(body): Json<DagMutateRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
+    let repo = flowctl_db::TaskRepo::new(&conn);
+
+    match body.action.as_str() {
+        "add_dep" => {
+            let task_id = body.params.get("task_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::InvalidInput("missing params.task_id".into()))?;
+            let depends_on = body.params.get("depends_on")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::InvalidInput("missing params.depends_on".into()))?;
+
+            let task = repo.get(task_id)
+                .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+            let _dep = repo.get(depends_on)
+                .map_err(|_| AppError::InvalidInput(format!("dependency task not found: {depends_on}")))?;
+
+            check_version(&task, &body.version)?;
+
+            // Cycle check: build hypothetical task list with new dep.
+            let epic_tasks = repo.list_by_epic(&task.epic)?;
+            let test_tasks: Vec<flowctl_core::types::Task> = epic_tasks.into_iter().map(|mut t| {
+                if t.id == task_id && !t.depends_on.contains(&depends_on.to_string()) {
+                    t.depends_on.push(depends_on.to_string());
+                }
+                t
+            }).collect();
+
+            if let Err(e) = flowctl_core::TaskDag::from_tasks(&test_tasks) {
+                return Err(AppError::InvalidInput(format!("would create cycle: {e}")));
+            }
+
+            conn.execute(
+                "INSERT OR IGNORE INTO task_deps (task_id, depends_on) VALUES (?1, ?2)",
+                rusqlite::params![task_id, depends_on],
+            ).map_err(|e| AppError::Db(e.to_string()))?;
+            touch_updated_at(&conn, task_id)?;
+
+            state.event_bus.emit(flowctl_scheduler::FlowEvent::TaskReady {
+                task_id: task_id.to_string(),
+                epic_id: task.epic.clone(),
+            });
+
+            Ok(Json(serde_json::json!({"success": true, "action": "add_dep"})))
+        }
+
+        "remove_dep" => {
+            let task_id = body.params.get("task_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::InvalidInput("missing params.task_id".into()))?;
+            let depends_on = body.params.get("depends_on")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::InvalidInput("missing params.depends_on".into()))?;
+
+            let task = repo.get(task_id)
+                .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+            check_version(&task, &body.version)?;
+
+            conn.execute(
+                "DELETE FROM task_deps WHERE task_id = ?1 AND depends_on = ?2",
+                rusqlite::params![task_id, depends_on],
+            ).map_err(|e| AppError::Db(e.to_string()))?;
+            touch_updated_at(&conn, task_id)?;
+
+            state.event_bus.emit(flowctl_scheduler::FlowEvent::TaskReady {
+                task_id: task_id.to_string(),
+                epic_id: task.epic.clone(),
+            });
+
+            Ok(Json(serde_json::json!({"success": true, "action": "remove_dep"})))
+        }
+
+        "retry_task" => {
+            let task_id = body.params.get("task_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::InvalidInput("missing params.task_id".into()))?;
+
+            let task = repo.get(task_id)
+                .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+            check_version(&task, &body.version)?;
+
+            Transition::new(task.status, Status::Todo).map_err(|e| {
+                AppError::InvalidTransition(format!("cannot retry task '{}': {}", task_id, e))
+            })?;
+
+            repo.update_status(task_id, Status::Todo)?;
+
+            state.event_bus.emit(flowctl_scheduler::FlowEvent::TaskReady {
+                task_id: task_id.to_string(),
+                epic_id: task.epic.clone(),
+            });
+
+            Ok(Json(serde_json::json!({"success": true, "action": "retry_task"})))
+        }
+
+        "skip_task" => {
+            let task_id = body.params.get("task_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| AppError::InvalidInput("missing params.task_id".into()))?;
+
+            let task = repo.get(task_id)
+                .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+            check_version(&task, &body.version)?;
+
+            Transition::new(task.status, Status::Skipped).map_err(|e| {
+                AppError::InvalidTransition(format!("cannot skip task '{}': {}", task_id, e))
+            })?;
+
+            repo.update_status(task_id, Status::Skipped)?;
+
+            state.event_bus.emit(flowctl_scheduler::FlowEvent::TaskReady {
+                task_id: task_id.to_string(),
+                epic_id: task.epic.clone(),
+            });
+
+            Ok(Json(serde_json::json!({"success": true, "action": "skip_task"})))
+        }
+
+        other => Err(AppError::InvalidInput(format!("unknown action: {other}"))),
+    }
+}
+
+/// Check optimistic lock version against the task's `updated_at`.
+fn check_version(task: &flowctl_core::types::Task, version: &str) -> Result<(), AppError> {
+    let task_version = task.updated_at.to_rfc3339();
+    if task_version != version {
+        return Err(AppError::InvalidTransition(format!(
+            "version conflict: expected {version}, got {task_version}"
+        )));
+    }
+    Ok(())
+}
+
+/// Update the `updated_at` timestamp for a task.
+fn touch_updated_at(conn: &rusqlite::Connection, task_id: &str) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE tasks SET updated_at = ?1 WHERE id = ?2",
+        rusqlite::params![chrono::Utc::now().to_rfc3339(), task_id],
+    ).map_err(|e| AppError::Db(e.to_string()))?;
+    Ok(())
 }
 
 /// GET /api/v1/events -- WebSocket upgrade for live event streaming.

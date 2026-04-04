@@ -15,10 +15,12 @@ daemon = [
     "dep:tower-http",
     "dep:nix",
 ]
+webhook = ["dep:reqwest"]
 
 [dependencies]
 flowctl-core = { workspace = true }
 flowctl-db = { workspace = true }
+flowctl-service = { workspace = true }
 flowctl-scheduler = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
@@ -34,6 +36,7 @@ tokio-util = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 tower-http = { version = "0.6", features = ["cors"], optional = true }
 nix = { workspace = true, optional = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"

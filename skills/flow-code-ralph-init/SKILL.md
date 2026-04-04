@@ -61,9 +61,7 @@ Scaffold or update repo-local Ralph harness. Opt-in only.
    cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-ralph-init/templates/prompt_completion.md" scripts/ralph/
    cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-ralph-init/templates/watch-filter.py" scripts/ralph/
    cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl" scripts/ralph/flowctl
-   mkdir -p scripts/ralph/hooks
-   cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/ralph-guard.py" scripts/ralph/hooks/
-   chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl scripts/ralph/hooks/ralph-guard.py
+   chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl
 
    # Restore config.env
    cp /tmp/ralph-config-backup.env scripts/ralph/config.env
@@ -71,11 +69,10 @@ Scaffold or update repo-local Ralph harness. Opt-in only.
 
    **If UPDATE_MODE=0 (fresh install):**
    ```bash
-   mkdir -p scripts/ralph/runs scripts/ralph/hooks
+   mkdir -p scripts/ralph/runs
    cp -R "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-ralph-init/templates/." scripts/ralph/
    cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl" scripts/ralph/flowctl
-   cp "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/ralph-guard.py" scripts/ralph/hooks/
-   chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl scripts/ralph/hooks/ralph-guard.py
+   chmod +x scripts/ralph/ralph.sh scripts/ralph/ralph_once.sh scripts/ralph/flowctl
    ```
    Note: `cp -R templates/.` copies all files including dotfiles (.gitignore).
 

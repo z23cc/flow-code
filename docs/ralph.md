@@ -716,7 +716,7 @@ Plugin hooks enforce workflow rules deterministically.
 ```
 plugins/flow-code/
   hooks/hooks.json              # Config
-  scripts/hooks/ralph-guard.py  # Logic
+  bin/flowctl hook ralph-guard  # Logic
 ```
 
 **Disable temporarily:** Unset `FLOW_RALPH`

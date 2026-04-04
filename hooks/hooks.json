@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -f scripts/ralph/hooks/ralph-guard.py ] || scripts/ralph/hooks/ralph-guard.py",
+            "command": "\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook ralph-guard",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -f scripts/ralph/hooks/ralph-guard.py ] || scripts/ralph/hooks/ralph-guard.py",
+            "command": "\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook ralph-guard",
             "timeout": 5
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -f scripts/ralph/hooks/ralph-guard.py ] || scripts/ralph/hooks/ralph-guard.py",
+            "command": "\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook ralph-guard",
             "timeout": 5
           }
         ]
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -f scripts/ralph/hooks/ralph-guard.py ] || scripts/ralph/hooks/ralph-guard.py",
+            "command": "\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook ralph-guard",
             "timeout": 5
           }
         ]
@@ -83,7 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -f scripts/ralph/hooks/ralph-guard.py ] || scripts/ralph/hooks/ralph-guard.py",
+            "command": "\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook ralph-guard",
             "timeout": 5
           }
         ]

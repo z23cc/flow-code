@@ -146,8 +146,8 @@ flow-code/
 │   │           ├── __init__.py, commands.py, prompts.py
 │   │           ├── adversarial.py, checkpoint.py, codex_utils.py
 │   ├── hooks/
-│   │   ├── auto-memory.py        # Stop hook: Gemini transcript → .flow/memory/
-│   │   └── ralph-guard.py        # Ralph workflow enforcer
+│   │   ├── flowctl hook auto-memory  # Stop hook: transcript → .flow/memory/
+│   │   └── flowctl hook ralph-guard  # Ralph workflow enforcer (Rust)
 │   ├── smoke_test.sh             # Quick flowctl sanity test
 │   ├── ci_test.sh                # Comprehensive CI test suite
 │   └── ralph_*.sh                # Ralph smoke/e2e test scripts
@@ -212,17 +212,17 @@ flow-code/
 
 ```
 PreToolUse (Bash|Execute, Edit|Write)
-    └── ralph-guard.py — blocks invalid commands during Ralph runs
+    └── flowctl hook ralph-guard — blocks invalid commands during Ralph runs
 
 PostToolUse (Bash|Execute)
-    └── ralph-guard.py — tracks state (verdicts, receipts, done calls)
+    └── flowctl hook ralph-guard — tracks state (verdicts, receipts, done calls)
 
 Stop
-    ├── ralph-guard.py — blocks stop if receipt missing
-    └── auto-memory.py — extracts learnings via Gemini → .flow/memory/
+    ├── flowctl hook ralph-guard — blocks stop if receipt missing
+    └── flowctl hook auto-memory — extracts learnings via Gemini → .flow/memory/
 
 SubagentStop
-    └── ralph-guard.py — same as Stop
+    └── flowctl hook ralph-guard — same as Stop
 ```
 
 All hooks are conditional — no-op if guard/memory files don't exist.
@@ -329,7 +329,7 @@ sequenceDiagram
 
 - `flowctl.py` uses `datetime.utcnow()` (deprecated in Python 3.12+) — expect DeprecationWarning
 - `which flowctl` will always fail — it's bundled, not installed globally
-- Ralph hooks only activate when `FLOW_RALPH=1` AND `scripts/ralph/hooks/ralph-guard.py` exists
+- Ralph hooks only activate when `FLOW_RALPH=1` AND `bin/flowctl` exists
 - Auto-memory hook timeout is 45s (Gemini call) — can slow session exit
 - `scan-codebase.py` requires `tiktoken` — use `uv run` for auto-install or `pip install tiktoken`
 - Worker has `disallowedTools: Task` — cannot spawn sub-agents (prevents infinite nesting)

@@ -1,0 +1,4 @@
+bin.name = "flowctl"
+args = ["--json", "validate", "--all"]
+status.code = 0
+stdout = "..."

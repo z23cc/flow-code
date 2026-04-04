@@ -1,0 +1,25 @@
+---
+source: crates/flowctl-tui/tests/snapshot_tests.rs
+assertion_line: 182
+expression: output
+---
+┌ Logs ────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  No log events                                                               │
+│                                                                              │
+│  Events from flowctl operations will appear here                             │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘

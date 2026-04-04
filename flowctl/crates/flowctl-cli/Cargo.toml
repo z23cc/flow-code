@@ -1,0 +1,40 @@
+[package]
+name = "flowctl-cli"
+version = "0.1.0"
+description = "CLI entry point for flowctl"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "flowctl"
+path = "src/main.rs"
+
+[features]
+default = []
+tui = ["dep:flowctl-tui", "dep:tokio"]
+
+[dependencies]
+flowctl-core = { workspace = true }
+flowctl-db = { workspace = true }
+rusqlite = { workspace = true }
+flowctl-scheduler = { workspace = true }
+flowctl-tui = { path = "../flowctl-tui", optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+miette = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, optional = true }
+regex = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+which = { workspace = true }
+
+[dev-dependencies]
+trycmd = { workspace = true }
+tempfile = "3"
+serde_json = { workspace = true }

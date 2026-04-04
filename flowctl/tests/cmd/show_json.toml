@@ -1,0 +1,7 @@
+# Show with invalid ID format (not fn-N-slug pattern)
+bin.name = "flowctl"
+args = ["--json", "show", "test-epic-1"]
+status.code = 1
+stderr = """
+...
+"""

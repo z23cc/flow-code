@@ -1,0 +1,7 @@
+# Init creates or confirms .flow/ directory
+bin.name = "flowctl"
+args = ["init"]
+status.code = 0
+stdout = """
+...
+"""

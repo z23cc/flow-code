@@ -1,0 +1,31 @@
+# cargo-dist workspace configuration
+# https://opensource.axo.dev/cargo-dist/
+
+[workspace]
+members = ["./"]
+
+[dist]
+# Target platforms
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+
+# CI backend
+ci = "github"
+
+# Archive format per platform
+unix-archive = ".tar.gz"
+windows-archive = ".zip"
+
+# Install via shell script
+installers = ["shell"]
+
+# Enable checksums for all artifacts
+checksum = "sha256"
+
+# Build only the flowctl binary
+dist = true

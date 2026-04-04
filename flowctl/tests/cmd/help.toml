@@ -1,0 +1,11 @@
+bin.name = "flowctl"
+args = ["--help"]
+status.code = 0
+stdout = """
+Development orchestration engine
+
+Usage: flowctl [OPTIONS] <COMMAND>
+
+Commands:
+...
+"""

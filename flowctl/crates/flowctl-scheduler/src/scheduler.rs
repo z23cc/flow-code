@@ -142,14 +142,23 @@ impl Scheduler {
                 break;
             }
 
+            // Re-dispatch if task is UpForRetry (retry after failure).
+            if self.statuses.get(&result.task_id).copied() == Some(Status::UpForRetry) {
+                if !self.cancel.is_cancelled() && !self.circuit_breaker.is_open() {
+                    self.dispatch_task(&result.task_id, &semaphore, &result_tx, &executor);
+                    in_flight += 1;
+                }
+            }
+
             // Discover newly-ready tasks.
             let newly_ready = self.dag.complete(&result.task_id, &self.statuses);
             for task_id in newly_ready {
                 if self.cancel.is_cancelled() || self.circuit_breaker.is_open() {
                     break;
                 }
-                // Only dispatch if the task is actually Todo.
-                if self.statuses.get(&task_id).copied().unwrap_or(Status::Todo) == Status::Todo {
+                // Dispatch if task is Todo or UpForRetry (retry after failure).
+                let status = self.statuses.get(&task_id).copied().unwrap_or(Status::Todo);
+                if status == Status::Todo || status == Status::UpForRetry {
                     self.dispatch_task(
                         &task_id,
                         &semaphore,
@@ -220,8 +229,8 @@ impl Scheduler {
                     "task failed, marking up_for_retry"
                 );
                 self.statuses.insert(result.task_id.clone(), Status::UpForRetry);
-                // Reset to Todo so it can be re-dispatched.
-                self.statuses.insert(result.task_id.clone(), Status::Todo);
+                // UpForRetry is recognized by dispatch_ready as dispatchable
+                // (transitions UpForRetry → InProgress on next dispatch cycle).
             } else {
                 warn!(
                     task_id = %result.task_id,

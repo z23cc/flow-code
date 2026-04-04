@@ -45,19 +45,22 @@ pub fn write_epic(
     epic: &Epic,
     body: &str,
 ) -> Result<SyncStatus, DbError> {
+    // Capture mtime BEFORE SQLite transaction for concurrent modification check.
+    let file_path = epic_md_path(flow_dir, &epic.id);
+    let pre_mtime = file_mtime(&file_path);
+
     // Step 1: Update SQLite in a transaction.
     let repo = EpicRepo::new(conn);
     repo.upsert(epic)?;
 
     // Step 2: Write Markdown frontmatter.
-    let file_path = epic_md_path(flow_dir, &epic.id);
     let doc = frontmatter::Document {
         frontmatter: epic.clone(),
         body: body.to_string(),
     };
 
     match frontmatter::write(&doc) {
-        Ok(content) => match write_md_safe(&file_path, &content) {
+        Ok(content) => match write_md_safe(&file_path, &content, pre_mtime) {
             Ok(()) => {
                 clear_pending_sync(conn, &epic.id);
                 Ok(SyncStatus::Synced)
@@ -85,19 +88,22 @@ pub fn write_task(
     task: &Task,
     body: &str,
 ) -> Result<SyncStatus, DbError> {
+    // Capture mtime BEFORE SQLite transaction for concurrent modification check.
+    let file_path = task_md_path(flow_dir, &task.id);
+    let pre_mtime = file_mtime(&file_path);
+
     // Step 1: Update SQLite.
     let repo = TaskRepo::new(conn);
     repo.upsert(task)?;
 
     // Step 2: Write Markdown.
-    let file_path = task_md_path(flow_dir, &task.id);
     let doc = frontmatter::Document {
         frontmatter: task.clone(),
         body: body.to_string(),
     };
 
     match frontmatter::write(&doc) {
-        Ok(content) => match write_md_safe(&file_path, &content) {
+        Ok(content) => match write_md_safe(&file_path, &content, pre_mtime) {
             Ok(()) => {
                 clear_pending_sync(conn, &task.id);
                 Ok(SyncStatus::Synced)
@@ -255,7 +261,7 @@ pub fn retry_pending(conn: &Connection, flow_dir: &Path) -> Result<usize, DbErro
                             body,
                         };
                         match frontmatter::write(&doc) {
-                            Ok(content) => write_md_safe(&path, &content),
+                            Ok(content) => write_md_safe(&path, &content, None),
                             Err(e) => Err(std::io::Error::new(
                                 std::io::ErrorKind::Other,
                                 e.to_string(),
@@ -276,7 +282,7 @@ pub fn retry_pending(conn: &Connection, flow_dir: &Path) -> Result<usize, DbErro
                             body,
                         };
                         match frontmatter::write(&doc) {
-                            Ok(content) => write_md_safe(&path, &content),
+                            Ok(content) => write_md_safe(&path, &content, None),
                             Err(e) => Err(std::io::Error::new(
                                 std::io::ErrorKind::Other,
                                 e.to_string(),
@@ -320,17 +326,19 @@ fn task_md_path(flow_dir: &Path, id: &str) -> std::path::PathBuf {
 ///
 /// Reads the file's current mtime before writing. If another process
 /// modified the file between our read and write, we detect it.
-fn write_md_safe(path: &Path, content: &str) -> Result<(), std::io::Error> {
-    // Capture pre-write mtime if file exists.
-    let pre_mtime = file_mtime(path);
-
+fn write_md_safe(
+    path: &Path,
+    content: &str,
+    pre_mtime: Option<DateTime<Utc>>,
+) -> Result<(), std::io::Error> {
     // Ensure parent directory exists.
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
 
-    // Check for concurrent modification: if mtime changed since we last
-    // read, another process may have modified the file.
+    // Check for concurrent modification: if mtime changed since we
+    // captured it (before the SQLite transaction), another process
+    // may have modified the file.
     if let Some(pre) = pre_mtime {
         if let Some(current) = file_mtime(path) {
             if current != pre {
@@ -345,7 +353,10 @@ fn write_md_safe(path: &Path, content: &str) -> Result<(), std::io::Error> {
         }
     }
 
-    fs::write(path, content)
+    // Write to temp file then rename for atomicity.
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, content)?;
+    fs::rename(&tmp, path)
 }
 
 /// Get file modification time as DateTime<Utc>.

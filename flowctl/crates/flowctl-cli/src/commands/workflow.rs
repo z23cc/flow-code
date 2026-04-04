@@ -15,7 +15,7 @@ use crate::output::{error_exit, json_output};
 
 use flowctl_core::frontmatter;
 use flowctl_core::id::{epic_id_from_task, is_epic_id, is_task_id, parse_id};
-use flowctl_core::state_machine::Status;
+use flowctl_core::state_machine::{Status, Transition};
 use flowctl_core::types::{
     Epic, EpicStatus, Evidence, RuntimeState, Task, EPICS_DIR, FLOW_DIR, REVIEWS_DIR, TASKS_DIR,
 };
@@ -1001,16 +1001,11 @@ pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>
     let existing_rt = get_runtime(&id);
     let existing_assignee = existing_rt.as_ref().and_then(|rt| rt.assignee.clone());
 
-    // Cannot start done task
-    if task.status == Status::Done {
-        error_exit(&format!("Cannot start task {}: status is 'done'.", id));
-    }
-
-    // Blocked requires --force
-    if task.status == Status::Blocked && !force {
+    // Validate state machine transition (unless --force)
+    if !force && !Transition::is_valid(task.status, Status::InProgress) {
         error_exit(&format!(
-            "Cannot start task {}: status is 'blocked'. Use --force to override.",
-            id
+            "Cannot start task {}: invalid transition '{}' → 'in_progress'. Use --force to override.",
+            id, task.status
         ));
     }
 

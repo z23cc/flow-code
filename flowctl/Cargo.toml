@@ -1,0 +1,77 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/flowctl-core",
+    "crates/flowctl-db",
+    "crates/flowctl-scheduler",
+    "crates/flowctl-cli",
+    "crates/flowctl-daemon",
+    "crates/flowctl-tui",
+]
+
+# ── Shared package metadata (nushell convention) ──────────────────────
+[workspace.package]
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+repository = "https://github.com/anthropics/flow-code"
+
+# ── Shared dependencies (nushell convention) ──────────────────────────
+# Define all deps once here; crates reference via `dep.workspace = true`
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Regex
+regex = "1"
+
+# Logging
+tracing = "0.1"
+
+# DAG (scheduler + TUI)
+petgraph = "0.7"
+
+# SQLite (db crate)
+rusqlite = { version = "0.34", features = ["bundled"] }
+
+# CLI (cli crate)
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+
+# TUI (tui crate)
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Async runtime (daemon + scheduler)
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+
+# HTTP (daemon)
+axum = "0.8"
+
+# File watching (daemon)
+notify = "7"
+
+# Unix process management
+nix = { version = "0.30", features = ["signal", "process"] }
+
+# Internal crate references
+flowctl-core = { path = "crates/flowctl-core" }
+flowctl-db = { path = "crates/flowctl-db" }
+flowctl-scheduler = { path = "crates/flowctl-scheduler" }
+
+# ── Release profile (size-optimized) ─────────────────────────────────
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

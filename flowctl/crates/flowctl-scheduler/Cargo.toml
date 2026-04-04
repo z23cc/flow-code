@@ -1,0 +1,19 @@
+[package]
+name = "flowctl-scheduler"
+version = "0.1.0"
+description = "DAG scheduler and event bus for flowctl"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+flowctl-core = { workspace = true }
+flowctl-db = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+petgraph = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }

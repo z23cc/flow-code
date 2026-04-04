@@ -21,12 +21,24 @@ pub enum HookCmd {
     AutoMemory,
     /// Enforce Ralph workflow rules (Pre/PostToolUse, Stop hooks).
     RalphGuard,
+    /// Gate git commit on flowctl guard pass (Pre/PostToolUse hook).
+    CommitGate,
+    /// Inject .flow/ state into compaction context (PreCompact hook).
+    PreCompact,
+    /// Inject active task context for subagents (SubagentStart hook).
+    SubagentContext,
+    /// Sync Claude task completion with .flow/ state (TaskCompleted hook).
+    TaskCompleted,
 }
 
 pub fn dispatch(cmd: &HookCmd) {
     match cmd {
         HookCmd::AutoMemory => cmd_auto_memory(),
         HookCmd::RalphGuard => cmd_ralph_guard(),
+        HookCmd::CommitGate => cmd_commit_gate(),
+        HookCmd::PreCompact => cmd_pre_compact(),
+        HookCmd::SubagentContext => cmd_subagent_context(),
+        HookCmd::TaskCompleted => cmd_task_completed(),
     }
 }
 
@@ -1239,6 +1251,487 @@ fn parse_receipt_path(receipt_path: &str) -> (String, String) {
 
     // Fallback
     ("impl_review".into(), "UNKNOWN".into())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Commit Gate
+// ═══════════════════════════════════════════════════════════════════════
+
+fn cmd_commit_gate() {
+    let flow_dir = get_flow_dir();
+    if !flow_dir.exists() {
+        std::process::exit(0);
+    }
+
+    let data = read_stdin_json();
+    let event = data
+        .get("hook_event_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let session_id = data
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let command = data
+        .get("tool_input")
+        .and_then(|v| v.get("command"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Subagent workers bypass
+    if session_id.contains('@') {
+        std::process::exit(0);
+    }
+
+    let state_file = commit_gate_state_file(&flow_dir);
+
+    // PostToolUse: track guard pass
+    if event == "PostToolUse" {
+        if command.contains("flowctl") && command.contains("guard") {
+            let response_text = match data.get("tool_response") {
+                Some(Value::Object(map)) => map
+                    .get("stdout")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| {
+                        serde_json::to_string(&Value::Object(map.clone())).unwrap_or_default()
+                    }),
+                Some(Value::String(s)) => s.clone(),
+                Some(other) => serde_json::to_string(other).unwrap_or_default(),
+                None => String::new(),
+            };
+            let text_lower = response_text.to_lowercase();
+            let guard_ok = (text_lower.contains("guards passed") && !text_lower.contains("failed"))
+                || text_lower.contains("nothing to run")
+                || text_lower.contains("no stack detected");
+            if guard_ok {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let _ = fs::write(&state_file, now.to_string());
+            }
+        }
+        std::process::exit(0);
+    }
+
+    // PreToolUse: gate git commit
+    if event != "PreToolUse" {
+        std::process::exit(0);
+    }
+    if !command.contains("git") || !command.contains("commit") {
+        std::process::exit(0);
+    }
+    // More precise: must be "git commit" (not "git show commit" etc.)
+    let git_commit_re = Regex::new(r"\bgit\s+commit\b").unwrap();
+    if !git_commit_re.is_match(command) {
+        std::process::exit(0);
+    }
+
+    // Check: any task in_progress?
+    let flowctl = match self_exe() {
+        Some(f) => f,
+        None => std::process::exit(0),
+    };
+    let result = Command::new(&flowctl)
+        .args(["tasks", "--json"])
+        .output();
+    let has_active = match result {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            if let Ok(val) = serde_json::from_str::<Value>(&stdout) {
+                val.get("tasks")
+                    .and_then(|v| v.as_array())
+                    .map(|tasks| {
+                        tasks
+                            .iter()
+                            .any(|t| t.get("status").and_then(|s| s.as_str()) == Some("in_progress"))
+                    })
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        }
+        _ => false,
+    };
+
+    if !has_active {
+        std::process::exit(0);
+    }
+
+    // Check guard evidence
+    if state_file.exists() {
+        if let Ok(content) = fs::read_to_string(&state_file) {
+            if let Ok(guard_time) = content.trim().parse::<u64>() {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                if now.saturating_sub(guard_time) < 600 {
+                    let _ = fs::remove_file(&state_file);
+                    std::process::exit(0);
+                }
+            }
+        }
+    }
+
+    // Block
+    output_block("BLOCKED: git commit requires passing guard first.\nRun: flowctl guard");
+}
+
+fn commit_gate_state_file(flow_dir: &Path) -> PathBuf {
+    let canonical = fs::canonicalize(flow_dir)
+        .unwrap_or_else(|_| flow_dir.to_path_buf());
+    let hash = md5_hex(canonical.to_string_lossy().as_bytes());
+    PathBuf::from(format!(
+        "{}/flow-commit-gate-{hash}",
+        env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into())
+    ))
+}
+
+fn md5_hex(data: &[u8]) -> String {
+    // Simple MD5 — we only need a stable hash for temp filenames.
+    // Use Command to call md5/md5sum for cross-platform compat.
+    use std::io::Write;
+    let input_str = String::from_utf8_lossy(data).to_string();
+    // Try md5 -qs (macOS)
+    let result = Command::new("md5")
+        .args(["-qs", &input_str])
+        .output();
+    if let Ok(o) = result {
+        if o.status.success() {
+            return String::from_utf8_lossy(&o.stdout).trim().to_string();
+        }
+    }
+    // Try md5sum (Linux)
+    let mut child = match Command::new("md5sum")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return "default".into(),
+    };
+    if let Some(ref mut stdin) = child.stdin {
+        let _ = stdin.write_all(data);
+    }
+    match child.wait_with_output() {
+        Ok(o) if o.status.success() => {
+            let out = String::from_utf8_lossy(&o.stdout);
+            out.split_whitespace().next().unwrap_or("default").to_string()
+        }
+        _ => "default".into(),
+    }
+}
+
+/// Get current executable path for subprocess calls.
+fn self_exe() -> Option<PathBuf> {
+    std::env::current_exe().ok().and_then(|p| {
+        if p.exists() {
+            Some(p)
+        } else {
+            find_flowctl_for_guard()
+        }
+    })
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Pre-Compact
+// ═══════════════════════════════════════════════════════════════════════
+
+fn cmd_pre_compact() {
+    let flow_dir = get_flow_dir();
+    if !flow_dir.exists() {
+        std::process::exit(0);
+    }
+
+    let flowctl = match self_exe() {
+        Some(f) => f,
+        None => std::process::exit(0),
+    };
+
+    let mut lines: Vec<String> = Vec::new();
+
+    // 1. Active epics and their progress
+    if let Some(epics_val) = run_flowctl(&flowctl, &["epics", "--json"]) {
+        if let Some(epics) = epics_val.get("epics").and_then(|v| v.as_array()) {
+            for e in epics {
+                let eid = match e.get("id").and_then(|v| v.as_str()) {
+                    Some(id) => id,
+                    None => continue,
+                };
+                let status = e
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("open");
+                if status == "done" {
+                    continue;
+                }
+
+                if let Some(tasks_val) =
+                    run_flowctl(&flowctl, &["tasks", "--epic", eid, "--json"])
+                {
+                    if let Some(tasks) = tasks_val.get("tasks").and_then(|v| v.as_array()) {
+                        let mut counts: HashMap<String, usize> = HashMap::new();
+                        for t in tasks {
+                            let s = t
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("todo");
+                            *counts.entry(s.to_string()).or_insert(0) += 1;
+                        }
+                        let mut progress_parts: Vec<String> =
+                            counts.iter().map(|(s, c)| format!("{s}={c}")).collect();
+                        progress_parts.sort();
+                        lines.push(format!("Epic {eid}: {}", progress_parts.join(" ")));
+
+                        // Show in-progress tasks
+                        for t in tasks {
+                            if t.get("status").and_then(|v| v.as_str()) == Some("in_progress") {
+                                let tid = t
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("?");
+                                let title = t
+                                    .get("title")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let files = t
+                                    .get("files")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .take(3)
+                                            .filter_map(|f| f.as_str())
+                                            .collect::<Vec<_>>()
+                                            .join(",")
+                                    })
+                                    .unwrap_or_default();
+                                let files_str = if files.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" files=[{files}]")
+                                };
+                                lines.push(format!(
+                                    "  IN_PROGRESS: {tid} \"{title}\"{files_str}"
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Active file locks
+            if let Some(locks_val) = run_flowctl(&flowctl, &["lock-check", "--json"]) {
+                let count = locks_val
+                    .get("count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if count > 0 {
+                    lines.push(format!("File locks ({count} active):"));
+                    if let Some(locks) = locks_val.get("locks").and_then(|v| v.as_object()) {
+                        let mut sorted_keys: Vec<&String> = locks.keys().collect();
+                        sorted_keys.sort();
+                        for f in sorted_keys {
+                            if let Some(info) = locks.get(f) {
+                                let task_id = info
+                                    .get("task_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("?");
+                                lines.push(format!("  {f} -> {task_id}"));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Ready tasks
+            for e in epics {
+                if e.get("status").and_then(|v| v.as_str()) == Some("done") {
+                    continue;
+                }
+                let eid = match e.get("id").and_then(|v| v.as_str()) {
+                    Some(id) => id,
+                    None => continue,
+                };
+                if let Some(ready_val) =
+                    run_flowctl(&flowctl, &["ready", "--epic", eid, "--json"])
+                {
+                    if let Some(ready) = ready_val.get("ready").and_then(|v| v.as_array()) {
+                        if !ready.is_empty() {
+                            let ids: Vec<&str> = ready
+                                .iter()
+                                .take(5)
+                                .filter_map(|t| t.get("id").and_then(|v| v.as_str()))
+                                .collect();
+                            lines.push(format!("Ready: {}", ids.join(", ")));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !lines.is_empty() {
+        println!("[flow-code state]");
+        for line in &lines {
+            println!("{line}");
+        }
+        println!("[/flow-code state]");
+    }
+
+    std::process::exit(0);
+}
+
+fn run_flowctl(flowctl: &Path, args: &[&str]) -> Option<Value> {
+    let result = Command::new(flowctl)
+        .args(args)
+        .output();
+    match result {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            serde_json::from_str(stdout.trim()).ok()
+        }
+        _ => None,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Subagent Context
+// ═══════════════════════════════════════════════════════════════════════
+
+fn cmd_subagent_context() {
+    let flow_dir = get_flow_dir();
+    if !flow_dir.exists() {
+        std::process::exit(0);
+    }
+
+    let flowctl = match self_exe() {
+        Some(f) => f,
+        None => std::process::exit(0),
+    };
+
+    if let Some(val) = run_flowctl(&flowctl, &["tasks", "--status", "in_progress", "--json"]) {
+        let json_str = serde_json::to_string(&val).unwrap_or_default();
+        if json_str != "[]" && !json_str.is_empty() {
+            println!("Active flow-code tasks: {json_str}");
+        }
+    }
+
+    std::process::exit(0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Task Completed
+// ═══════════════════════════════════════════════════════════════════════
+
+fn cmd_task_completed() {
+    let flow_dir = get_flow_dir();
+    if !flow_dir.exists() {
+        std::process::exit(0);
+    }
+
+    let data = read_stdin_json();
+    let teammate_name = data
+        .get("teammate_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let team_name = data
+        .get("team_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let task_subject = data
+        .get("task_subject")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Extract flow task ID from teammate_name (e.g., "worker-fn-1-add-auth.2" -> "fn-1-add-auth.2")
+    let mut flow_task_id = if !teammate_name.is_empty() {
+        teammate_name.strip_prefix("worker-").unwrap_or(teammate_name).to_string()
+    } else {
+        String::new()
+    };
+
+    // Fallback: try to extract from task_subject
+    if flow_task_id.is_empty() || !flow_task_id.starts_with("fn-") {
+        let task_id_re = Regex::new(r"fn-[a-z0-9-]+\.\d+").unwrap();
+        if let Some(m) = task_id_re.find(task_subject) {
+            flow_task_id = m.as_str().to_string();
+        }
+    }
+
+    // Ensure hooks-log directory exists
+    let log_dir = flow_dir.join("hooks-log");
+    let _ = fs::create_dir_all(&log_dir);
+
+    // Log the event
+    let timestamp = chrono_utc_now();
+    let event_json = json!({
+        "event": "task_completed",
+        "time": timestamp,
+        "teammate": teammate_name,
+        "team": team_name,
+        "flow_task": flow_task_id,
+        "subject": task_subject,
+    });
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("events.jsonl"))
+        .and_then(|mut f| {
+            use std::io::Write;
+            writeln!(f, "{}", serde_json::to_string(&event_json).unwrap_or_default())
+        });
+
+    // If we identified a flow task, unlock its files
+    if !flow_task_id.is_empty() && flow_task_id.starts_with("fn-") {
+        let flowctl = match self_exe() {
+            Some(f) => f,
+            None => std::process::exit(0),
+        };
+
+        // Check if task exists and is in_progress or done
+        if let Some(show_val) = run_flowctl(&flowctl, &["show", &flow_task_id, "--json"]) {
+            let status = show_val
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if status == "in_progress" || status == "done" {
+                let _ = Command::new(&flowctl)
+                    .args(["unlock", "--task", &flow_task_id, "--json"])
+                    .output();
+
+                let unlock_json = json!({
+                    "event": "files_unlocked",
+                    "time": timestamp,
+                    "task": flow_task_id,
+                });
+                let _ = fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(log_dir.join("events.jsonl"))
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        writeln!(f, "{}", serde_json::to_string(&unlock_json).unwrap_or_default())
+                    });
+            }
+        }
+    }
+
+    std::process::exit(0);
+}
+
+/// Simple UTC timestamp without pulling in chrono crate.
+fn chrono_utc_now() -> String {
+    let output = Command::new("date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        }
+        _ => "1970-01-01T00:00:00Z".into(),
+    }
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────

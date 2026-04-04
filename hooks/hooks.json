@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -d .flow ] || bash \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/commit-gate.sh\"",
+            "command": "[ ! -d .flow ] || \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook commit-gate",
             "timeout": 10
           }
         ],
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -d .flow ] || bash \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/hooks/commit-gate.sh\"",
+            "command": "[ ! -d .flow ] || \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook commit-gate",
             "timeout": 10
           }
         ],
@@ -95,7 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/subagent-context.sh\" ] || bash \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/subagent-context.sh\"",
+            "command": "[ ! -d .flow ] || \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook subagent-context",
             "timeout": 5
           }
         ]
@@ -107,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/pre-compact.sh\" ] || bash \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/pre-compact.sh\"",
+            "command": "[ ! -d .flow ] || \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook pre-compact",
             "timeout": 10
           }
         ]
@@ -119,7 +119,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ ! -f \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/task-completed.sh\" ] || bash \"${CLAUDE_PLUGIN_ROOT:-${DROID_PLUGIN_ROOT}}/scripts/hooks/task-completed.sh\"",
+            "command": "[ ! -d .flow ] || \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook task-completed",
             "timeout": 5
           }
         ]

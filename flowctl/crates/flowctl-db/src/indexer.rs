@@ -163,8 +163,12 @@ fn clear_indexed_tables(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
-/// Scan `.flow/epics/*.md`, parse frontmatter, insert into DB.
+/// Scan `.flow/epics/*.md` and `.flow/epics/*.json`, parse into DB.
 /// Returns a map of epic ID -> file path for duplicate detection.
+///
+/// Supports two formats:
+/// - `.md` with YAML frontmatter (Rust flowctl native format)
+/// - `.json` (Python flowctl legacy format)
 fn index_epics(
     conn: &Connection,
     epics_dir: &Path,
@@ -173,9 +177,9 @@ fn index_epics(
     let repo = EpicRepo::new(conn);
     let mut seen: HashMap<String, PathBuf> = HashMap::new();
 
-    let entries = read_md_files(epics_dir);
-
-    for path in entries {
+    // Process .md files (Rust native format).
+    let md_entries = read_md_files(epics_dir);
+    for path in md_entries {
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
@@ -187,7 +191,6 @@ fn index_epics(
             }
         };
 
-        // Validate filename stem is a valid epic ID.
         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
         if !is_epic_id(stem) {
             let msg = format!("skipping non-epic file: {}", path.display());
@@ -210,7 +213,6 @@ fn index_epics(
         let mut epic = doc.frontmatter;
         let body = doc.body;
 
-        // Check for duplicate IDs.
         if let Some(prev_path) = seen.get(&epic.id) {
             return Err(DbError::Constraint(format!(
                 "duplicate epic ID '{}' in {} and {}",
@@ -220,10 +222,50 @@ fn index_epics(
             )));
         }
 
-        // Set the file_path to the relative path within .flow/.
         epic.file_path = Some(format!("epics/{}", path.file_name().unwrap().to_string_lossy()));
-
         repo.upsert_with_body(&epic, &body)?;
+        seen.insert(epic.id.clone(), path.clone());
+        result.epics_indexed += 1;
+    }
+
+    // Process .json files (Python legacy format).
+    let json_entries = read_json_files(epics_dir);
+    for path in json_entries {
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                let msg = format!("failed to read {}: {e}", path.display());
+                warn!("{}", msg);
+                result.warnings.push(msg);
+                result.files_skipped += 1;
+                continue;
+            }
+        };
+
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        if !is_epic_id(stem) {
+            result.files_skipped += 1;
+            continue;
+        }
+
+        // Skip if we already indexed this epic from a .md file.
+        if seen.contains_key(stem) {
+            continue;
+        }
+
+        let mut epic = match try_parse_json_epic(&content) {
+            Ok(e) => e,
+            Err(e) => {
+                let msg = format!("invalid JSON epic in {}: {e}", path.display());
+                warn!("{}", msg);
+                result.warnings.push(msg);
+                result.files_skipped += 1;
+                continue;
+            }
+        };
+
+        epic.file_path = Some(format!("epics/{}", path.file_name().unwrap().to_string_lossy()));
+        repo.upsert_with_body(&epic, "")?;
         seen.insert(epic.id.clone(), path.clone());
         result.epics_indexed += 1;
     }
@@ -265,18 +307,31 @@ fn index_tasks(
             continue;
         }
 
-        let doc: frontmatter::Document<Task> = match frontmatter::parse(&content) {
-            Ok(d) => d,
-            Err(e) => {
-                let msg = format!("invalid frontmatter in {}: {e}", path.display());
-                warn!("{}", msg);
-                result.warnings.push(msg);
-                result.files_skipped += 1;
-                continue;
+        // Try YAML frontmatter first (Rust native), fall back to Python format.
+        let (mut task, body) = if content.starts_with("---") {
+            match frontmatter::parse::<Task>(&content) {
+                Ok(doc) => (doc.frontmatter, doc.body),
+                Err(e) => {
+                    let msg = format!("invalid frontmatter in {}: {e}", path.display());
+                    warn!("{}", msg);
+                    result.warnings.push(msg);
+                    result.files_skipped += 1;
+                    continue;
+                }
+            }
+        } else {
+            // Try Python format: "# task-id Title\n..."
+            match try_parse_python_task_md(&content, stem) {
+                Ok((t, b)) => (t, b),
+                Err(e) => {
+                    let msg = format!("cannot parse Python-format task {}: {e}", path.display());
+                    warn!("{}", msg);
+                    result.warnings.push(msg);
+                    result.files_skipped += 1;
+                    continue;
+                }
             }
         };
-        let mut task = doc.frontmatter;
-        let body = doc.body;
 
         // Check for duplicate IDs.
         if let Some(prev_path) = seen.get(&task.id) {
@@ -414,6 +469,121 @@ fn read_md_files(dir: &Path) -> Vec<PathBuf> {
     };
     files.sort();
     files
+}
+
+/// Read all `.json` files in a directory, sorted by name for deterministic ordering.
+fn read_json_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = match fs::read_dir(dir) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    files.sort();
+    files
+}
+
+/// Try to parse a Python-format JSON epic file into an Epic struct.
+///
+/// Python flowctl stores epics as `.json` files with a different field naming
+/// convention (e.g., `plan_review_status` instead of `plan_review`).
+fn try_parse_json_epic(content: &str) -> Result<Epic, String> {
+    let v: serde_json::Value = serde_json::from_str(content).map_err(|e| e.to_string())?;
+    let obj = v.as_object().ok_or("not an object")?;
+
+    let id = obj.get("id").and_then(|v| v.as_str()).ok_or("missing id")?;
+    let title = obj.get("title").and_then(|v| v.as_str()).unwrap_or(id);
+    let status_str = obj.get("status").and_then(|v| v.as_str()).unwrap_or("open");
+    let status = match status_str {
+        "closed" | "done" => flowctl_core::types::EpicStatus::Done,
+        _ => flowctl_core::types::EpicStatus::Open,
+    };
+    let branch_name = obj.get("branch_name").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let created_at = obj
+        .get("created_at")
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .unwrap_or_else(chrono::Utc::now);
+    let updated_at = obj
+        .get("updated_at")
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .unwrap_or(created_at);
+
+    Ok(Epic {
+        schema_version: 1,
+        id: id.to_string(),
+        title: title.to_string(),
+        status,
+        branch_name,
+        plan_review: Default::default(),
+        completion_review: Default::default(),
+        depends_on_epics: vec![],
+        default_impl: None,
+        default_review: None,
+        default_sync: None,
+        file_path: None,
+        created_at,
+        updated_at,
+    })
+}
+
+/// Try to parse a Python-format task markdown file.
+///
+/// Python flowctl writes task `.md` files without YAML frontmatter. Format:
+/// ```text
+/// # task-id Title
+///
+/// ## Description
+/// ...
+/// ```
+fn try_parse_python_task_md(content: &str, filename_stem: &str) -> Result<(Task, String), String> {
+    // Extract title from first line: "# fn-1-slug.1 Title text"
+    let first_line = content.lines().next().unwrap_or("");
+    let title = if first_line.starts_with("# ") {
+        let after_hash = first_line.trim_start_matches("# ");
+        // Skip the task ID part (first word)
+        after_hash.splitn(2, ' ').nth(1).unwrap_or(filename_stem).to_string()
+    } else {
+        filename_stem.to_string()
+    };
+
+    // Extract epic ID from task ID
+    let epic_id = flowctl_core::id::epic_id_from_task(filename_stem)
+        .map_err(|e| format!("cannot extract epic from {}: {e}", filename_stem))?;
+
+    // Check for "## Done summary" section to determine status
+    let status = if content.contains("## Done summary") && !content.contains("## Done summary\nTBD") {
+        flowctl_core::state_machine::Status::Done
+    } else {
+        flowctl_core::state_machine::Status::Todo
+    };
+
+    // The body is everything after the first line
+    let body = content.lines().skip(1).collect::<Vec<_>>().join("\n");
+
+    let task = Task {
+        schema_version: 1,
+        id: filename_stem.to_string(),
+        epic: epic_id,
+        title,
+        status,
+        priority: None,
+        domain: flowctl_core::types::Domain::General,
+        depends_on: vec![],
+        files: vec![],
+        r#impl: None,
+        review: None,
+        sync: None,
+        file_path: Some(format!("tasks/{}.md", filename_stem)),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    Ok((task, body))
 }
 
 #[cfg(test)]

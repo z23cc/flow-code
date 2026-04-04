@@ -14,7 +14,7 @@ use crate::state_machine::Status;
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// Supported schema versions for backward compatibility.
-pub const SUPPORTED_SCHEMA_VERSIONS: &[u32] = &[1];
+pub const SUPPORTED_SCHEMA_VERSIONS: &[u32] = &[1, 2];
 
 /// Directory names within `.flow/`.
 pub const FLOW_DIR: &str = ".flow";

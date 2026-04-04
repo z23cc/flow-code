@@ -8,7 +8,7 @@ use crate::output::{error_exit, json_output};
 
 use flowctl_core::types::{
     CONFIG_FILE, EPICS_DIR, MEMORY_DIR, META_FILE, REVIEWS_DIR, SCHEMA_VERSION,
-    SPECS_DIR, TASKS_DIR,
+    SPECS_DIR, SUPPORTED_SCHEMA_VERSIONS, TASKS_DIR,
 };
 
 use super::{deep_merge, get_default_config, get_flow_dir, write_json_file};
@@ -93,11 +93,11 @@ pub fn cmd_detect(json: bool) {
             match fs::read_to_string(&meta_path) {
                 Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
                     Ok(meta) => {
-                        let version = meta.get("schema_version").and_then(|v| v.as_u64());
-                        if version != Some(SCHEMA_VERSION as u64) {
+                        let version = meta.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        if !SUPPORTED_SCHEMA_VERSIONS.contains(&version) {
                             issues.push(format!(
-                                "schema_version unsupported (expected {}, got {:?})",
-                                SCHEMA_VERSION, version
+                                "schema_version unsupported (supported {:?}, got {})",
+                                SUPPORTED_SCHEMA_VERSIONS, version
                             ));
                         }
                     }

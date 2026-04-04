@@ -408,6 +408,17 @@ enum Commands {
 }
 
 fn main() {
+    // Exit cleanly on broken pipe (e.g., `flowctl ... | head -1`)
+    // instead of panicking with "failed printing to stdout".
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = info.to_string();
+        if msg.contains("Broken pipe") || msg.contains("os error 32") {
+            std::process::exit(0);
+        }
+        default_hook(info);
+    }));
+
     miette::set_hook(Box::new(|_| {
         Box::new(
             miette::MietteHandlerOpts::new()

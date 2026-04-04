@@ -368,10 +368,6 @@ enum Commands {
         port: Option<u16>,
     },
 
-    // ── TUI dashboard ───────────────────────────────────────────────
-    /// Launch interactive TUI dashboard.
-    #[cfg(feature = "tui")]
-    Tui,
 }
 
 fn main() {
@@ -569,30 +565,6 @@ fn main() {
             });
         }
 
-        // TUI dashboard
-        #[cfg(feature = "tui")]
-        Commands::Tui => {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-            rt.block_on(async {
-                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                let flow_dir = cwd.join(flowctl_core::types::FLOW_DIR);
-                let socket_path = flow_dir.join(".state").join("flowctl.sock");
-
-                let mut app = flowctl_tui::App::new();
-                let data_source = app.detect_daemon(Some(&flow_dir));
-
-                if data_source == flowctl_tui::app::DataSource::DaemonEvents {
-                    eprintln!("Connecting to daemon via WebSocket...");
-                    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-                    let _ws_handle = flowctl_tui::ws_client::spawn_ws_listener(&socket_path, tx);
-                }
-
-                if let Err(e) = app.run().await {
-                    eprintln!("TUI error: {e}");
-                    std::process::exit(1);
-                }
-            });
-        }
     }
 }
 

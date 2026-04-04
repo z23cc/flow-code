@@ -13,7 +13,6 @@ path = "src/main.rs"
 [features]
 default = []
 daemon = ["dep:flowctl-daemon", "dep:flowctl-web", "dep:tokio", "dep:leptos", "dep:leptos_axum", "dep:axum"]
-tui = ["dep:flowctl-tui", "dep:tokio"]
 
 [dependencies]
 flowctl-core = { workspace = true }
@@ -22,7 +21,7 @@ rusqlite = { workspace = true }
 flowctl-scheduler = { workspace = true }
 flowctl-daemon = { path = "../flowctl-daemon", features = ["daemon"], optional = true }
 flowctl-web = { path = "../flowctl-web", features = ["ssr"], optional = true }
-flowctl-tui = { path = "../flowctl-tui", optional = true }
+
 leptos = { version = "0.8", features = ["ssr"], optional = true }
 leptos_axum = { version = "0.8", optional = true }
 axum = { workspace = true, optional = true }

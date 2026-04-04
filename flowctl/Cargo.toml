@@ -6,7 +6,6 @@ members = [
     "crates/flowctl-scheduler",
     "crates/flowctl-cli",
     "crates/flowctl-daemon",
-    "crates/flowctl-tui",
     "crates/flowctl-web",
 ]
 
@@ -52,11 +51,6 @@ include_dir = "0.7"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 miette = { version = "7", features = ["fancy"] }
-
-# TUI (tui crate)
-ratatui = "0.29"
-crossterm = "0.28"
-nucleo = "0.5"
 
 # Async runtime (daemon + scheduler)
 tokio = { version = "1", features = ["full"] }

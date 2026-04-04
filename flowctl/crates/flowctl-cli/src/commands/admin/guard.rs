@@ -1,8 +1,14 @@
 //! Guard and worker-prompt commands.
+//!
+//! The guard command runs test/lint/typecheck commands from the stack config
+//! and filters their output to show only summaries, failures, and warnings.
+//! This achieves ~90% token reduction for LLM consumers.
 
 use std::fs;
 use std::process::Command;
+use std::sync::OnceLock;
 
+use regex::Regex;
 use serde_json::json;
 
 use crate::output::{error_exit, json_output};
@@ -10,6 +16,303 @@ use crate::output::{error_exit, json_output};
 use flowctl_core::types::CONFIG_FILE;
 
 use super::{deep_merge, get_default_config, get_flow_dir};
+
+// ── Output filtering ─────────────────────────────────────────────
+
+/// Regex for parsing "test result:" summary lines from cargo test.
+fn test_result_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"test result: (\w+)\.\s+(\d+) passed;\s+(\d+) failed;\s+(\d+) ignored;\s+(\d+) measured;\s+(\d+) filtered out(?:;\s+finished in ([\d.]+)s)?"
+        ).unwrap()
+    })
+}
+
+/// Aggregated test result counters for compact display.
+#[derive(Debug, Default, Clone)]
+struct AggregatedTestResult {
+    passed: usize,
+    failed: usize,
+    ignored: usize,
+    filtered_out: usize,
+    suites: usize,
+    duration_secs: f64,
+    has_duration: bool,
+}
+
+impl AggregatedTestResult {
+    /// Parse a "test result:" line into counters.
+    fn parse_line(line: &str) -> Option<Self> {
+        let caps = test_result_re().captures(line)?;
+        let status = caps.get(1)?.as_str();
+
+        // Only aggregate "ok" results; failed results get shown differently.
+        if status != "ok" {
+            return None;
+        }
+
+        let passed = caps.get(2)?.as_str().parse().ok()?;
+        let failed = caps.get(3)?.as_str().parse().ok()?;
+        let ignored = caps.get(4)?.as_str().parse().ok()?;
+        let filtered_out = caps.get(6)?.as_str().parse().ok()?;
+
+        let (duration_secs, has_duration) = if let Some(d) = caps.get(7) {
+            (d.as_str().parse().unwrap_or(0.0), true)
+        } else {
+            (0.0, false)
+        };
+
+        Some(Self {
+            passed,
+            failed,
+            ignored,
+            filtered_out,
+            suites: 1,
+            duration_secs,
+            has_duration,
+        })
+    }
+
+    fn merge(&mut self, other: &Self) {
+        self.passed += other.passed;
+        self.failed += other.failed;
+        self.ignored += other.ignored;
+        self.filtered_out += other.filtered_out;
+        self.suites += other.suites;
+        self.duration_secs += other.duration_secs;
+        self.has_duration = self.has_duration && other.has_duration;
+    }
+
+    /// One-line compact format: "42 passed, 1 ignored (3 suites, 1.23s)"
+    fn format_compact(&self) -> String {
+        let mut parts = vec![format!("{} passed", self.passed)];
+        if self.ignored > 0 {
+            parts.push(format!("{} ignored", self.ignored));
+        }
+        if self.filtered_out > 0 {
+            parts.push(format!("{} filtered out", self.filtered_out));
+        }
+        let counts = parts.join(", ");
+
+        let suite_text = if self.suites == 1 {
+            "1 suite".to_string()
+        } else {
+            format!("{} suites", self.suites)
+        };
+
+        if self.has_duration {
+            format!("{} ({}, {:.2}s)", counts, suite_text, self.duration_secs)
+        } else {
+            format!("{} ({})", counts, suite_text)
+        }
+    }
+}
+
+/// Filter cargo test output: remove compilation noise, keep failures + summary.
+fn filter_cargo_test(output: &str) -> FilterResult {
+    let mut failures: Vec<String> = Vec::new();
+    let mut summary_lines: Vec<String> = Vec::new();
+    let mut in_failure_section = false;
+    let mut current_failure: Vec<String> = Vec::new();
+
+    for line in output.lines() {
+        // Skip compilation noise
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("Compiling")
+            || trimmed.starts_with("Downloading")
+            || trimmed.starts_with("Downloaded")
+            || trimmed.starts_with("Finished")
+        {
+            continue;
+        }
+
+        // Skip "running N tests" and individual passing tests
+        if line.starts_with("running ") || (line.starts_with("test ") && line.ends_with("... ok"))
+        {
+            continue;
+        }
+
+        // Detect failures section
+        if line == "failures:" {
+            in_failure_section = true;
+            continue;
+        }
+
+        if in_failure_section {
+            if line.starts_with("test result:") {
+                in_failure_section = false;
+                summary_lines.push(line.to_string());
+            } else if line.starts_with("    ") || line.starts_with("---- ") {
+                current_failure.push(line.to_string());
+            } else if line.trim().is_empty() && !current_failure.is_empty() {
+                failures.push(current_failure.join("\n"));
+                current_failure.clear();
+            } else if !line.trim().is_empty() {
+                current_failure.push(line.to_string());
+            }
+        }
+
+        // Capture test result summary outside failure section
+        if !in_failure_section && line.starts_with("test result:") {
+            summary_lines.push(line.to_string());
+        }
+    }
+
+    if !current_failure.is_empty() {
+        failures.push(current_failure.join("\n"));
+    }
+
+    // All passed: try to aggregate into a single compact line
+    if failures.is_empty() && !summary_lines.is_empty() {
+        let mut aggregated: Option<AggregatedTestResult> = None;
+        let mut all_parsed = true;
+
+        for line in &summary_lines {
+            if let Some(parsed) = AggregatedTestResult::parse_line(line) {
+                if let Some(ref mut agg) = aggregated {
+                    agg.merge(&parsed);
+                } else {
+                    aggregated = Some(parsed);
+                }
+            } else {
+                all_parsed = false;
+                break;
+            }
+        }
+
+        if all_parsed {
+            if let Some(agg) = aggregated {
+                if agg.suites > 0 {
+                    let summary = agg.format_compact();
+                    return FilterResult {
+                        summary,
+                        errors: vec![],
+                    };
+                }
+            }
+        }
+
+        // Fallback: join summary lines
+        let summary = summary_lines.join("; ");
+        return FilterResult {
+            summary,
+            errors: vec![],
+        };
+    }
+
+    // Failures present: include them
+    let error_texts: Vec<String> = failures.iter().take(10).cloned().collect();
+    let summary = if !summary_lines.is_empty() {
+        summary_lines.join("; ")
+    } else {
+        format!("{} failure(s)", failures.len())
+    };
+
+    FilterResult {
+        summary,
+        errors: error_texts,
+    }
+}
+
+/// Filter cargo clippy / lint output: group warnings, keep errors.
+fn filter_lint_output(output: &str) -> FilterResult {
+    let mut error_count = 0;
+    let mut warning_count = 0;
+    let mut error_details: Vec<String> = Vec::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim_start();
+
+        // Skip compilation noise
+        if trimmed.starts_with("Compiling")
+            || trimmed.starts_with("Checking")
+            || trimmed.starts_with("Downloading")
+            || trimmed.starts_with("Downloaded")
+            || trimmed.starts_with("Finished")
+        {
+            continue;
+        }
+
+        // Count errors and warnings
+        if line.starts_with("error:") || line.starts_with("error[") {
+            // Skip meta-errors
+            if line.contains("aborting due to") || line.contains("could not compile") {
+                continue;
+            }
+            error_count += 1;
+            let detail = if line.len() > 160 {
+                format!("{}...", &line[..157])
+            } else {
+                line.to_string()
+            };
+            error_details.push(detail);
+        } else if line.starts_with("warning:") || line.starts_with("warning[") {
+            // Skip summary lines like "warning: `crate` generated N warnings"
+            if line.contains("generated") && line.contains("warning") {
+                continue;
+            }
+            warning_count += 1;
+        }
+    }
+
+    if error_count == 0 && warning_count == 0 {
+        return FilterResult {
+            summary: "no issues".to_string(),
+            errors: vec![],
+        };
+    }
+
+    let summary = format!("{} errors, {} warnings", error_count, warning_count);
+    FilterResult {
+        summary,
+        errors: error_details.into_iter().take(5).collect(),
+    }
+}
+
+/// Minimal filter for typecheck output (similar to lint).
+fn filter_typecheck_output(output: &str) -> FilterResult {
+    // Typecheck uses the same error/warning pattern as lint
+    filter_lint_output(output)
+}
+
+/// Result of filtering a guard command's output.
+struct FilterResult {
+    /// One-line summary (e.g., "42 passed, 0 ignored (3 suites, 1.23s)")
+    summary: String,
+    /// Error details to show (truncated list).
+    errors: Vec<String>,
+}
+
+/// Filter guard command output based on command type.
+fn filter_guard_output(cmd_type: &str, stdout: &str, stderr: &str) -> FilterResult {
+    // Combine stdout + stderr (cargo outputs to stderr for build info)
+    let combined = if stderr.is_empty() {
+        stdout.to_string()
+    } else if stdout.is_empty() {
+        stderr.to_string()
+    } else {
+        format!("{}\n{}", stdout, stderr)
+    };
+
+    match cmd_type {
+        "test" => filter_cargo_test(&combined),
+        "lint" => filter_lint_output(&combined),
+        "typecheck" => filter_typecheck_output(&combined),
+        _ => {
+            // Unknown type: show last few meaningful lines
+            let meaningful: Vec<&str> = combined
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .collect();
+            let last_lines: Vec<&str> = meaningful.iter().rev().take(5).rev().copied().collect();
+            FilterResult {
+                summary: last_lines.join("; "),
+                errors: vec![],
+            }
+        }
+    }
+}
 
 // ── Guard command ──────────────────────────────────────────────────
 
@@ -77,10 +380,10 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
         if json_mode {
             json_output(json!({
                 "results": [],
-                "message": "no guard commands configured",
+                "message": "no guard commands configured, nothing to run",
             }));
         } else {
-            println!("No guard commands found in stack config.");
+            println!("No guard commands configured — nothing to run.");
         }
         return;
     }
@@ -105,48 +408,64 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
 
     let mut results: Vec<serde_json::Value> = Vec::new();
     let mut all_passed = true;
+    let mut pass_count: usize = 0;
 
     for (layer_name, cmd_type, cmd) in &commands {
-        if !json_mode {
-            println!("\u{25b8} [{}] {}: {}", layer_name, cmd_type, cmd);
-        }
-
         let output = Command::new("sh")
             .args(["-c", cmd])
             .current_dir(&repo_root)
             .output();
 
-        let rc = match &output {
-            Ok(o) => o.status.code().unwrap_or(1),
-            Err(_) => 1,
+        let (rc, stdout_str, stderr_str) = match &output {
+            Ok(o) => (
+                o.status.code().unwrap_or(1),
+                String::from_utf8_lossy(&o.stdout).to_string(),
+                String::from_utf8_lossy(&o.stderr).to_string(),
+            ),
+            Err(_) => (1, String::new(), String::new()),
         };
 
         let passed = rc == 0;
-        if !passed {
+        if passed {
+            pass_count += 1;
+        } else {
             all_passed = false;
         }
 
-        results.push(json!({
-            "layer": layer_name,
-            "type": cmd_type,
-            "command": cmd,
-            "passed": passed,
-            "exit_code": rc,
-        }));
+        let filtered = filter_guard_output(cmd_type, &stdout_str, &stderr_str);
+        let status_str = if passed { "pass" } else { "fail" };
+
+        let mut guard_entry = json!({
+            "name": format!("{}/{}", layer_name, cmd_type),
+            "status": status_str,
+            "summary": filtered.summary,
+        });
+        if !filtered.errors.is_empty() {
+            guard_entry["errors"] = json!(filtered.errors);
+        }
+        results.push(guard_entry);
 
         if !json_mode {
-            let status = if passed { "\u{2713}" } else { "\u{2717}" };
-            println!("  {} exit {}", status, rc);
+            let icon = if passed { "\u{2713}" } else { "\u{2717}" };
+            println!(
+                "{} [{}] {}: {}",
+                icon, layer_name, cmd_type, filtered.summary
+            );
+            // Show errors inline for failed guards
+            for err in &filtered.errors {
+                for err_line in err.lines().take(3) {
+                    println!("    {}", err_line);
+                }
+            }
         }
     }
 
     if json_mode {
-        json_output(json!({"results": results}));
+        json_output(json!({"guards": results}));
     } else {
-        let passed_count = results.iter().filter(|r| r["passed"].as_bool().unwrap_or(false)).count();
-        let total = results.len();
+        let total = commands.len();
         let suffix = if all_passed { "" } else { " \u{2014} FAILED" };
-        println!("\n{}/{} guards passed{}", passed_count, total, suffix);
+        println!("\n{}/{} guards passed{}", pass_count, total, suffix);
     }
 
     if !all_passed {

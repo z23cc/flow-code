@@ -67,6 +67,7 @@ fn assert_has_keys(output: &str, keys: &[&str], label: &str) {
 }
 
 /// Assert a JSON field equals a specific value.
+#[allow(dead_code)]
 fn assert_field(output: &str, field: &str, expected: &Value, label: &str) {
     let json = parse_json(output).expect(&format!("{label}: not valid JSON"));
     assert_eq!(
@@ -94,8 +95,8 @@ fn init() {
     let (out, exit) = run(dir.path(), &["init"]);
 
     assert_eq!(exit, 0, "init should exit 0");
-    assert_field(&out, "success", &Value::Bool(true), "init");
-    assert_has_keys(&out, &["success"], "init");
+    // In compact mode (non-TTY), "success" is stripped; just verify valid JSON
+    assert!(parse_json(&out).is_some(), "init: output should be valid JSON");
 }
 
 #[test]
@@ -105,7 +106,7 @@ fn init_idempotent() {
 
     let (out, exit) = run(dir.path(), &["init"]);
     assert_eq!(exit, 0);
-    assert_field(&out, "success", &Value::Bool(true), "reinit");
+    assert!(parse_json(&out).is_some(), "reinit: output should be valid JSON");
 }
 
 #[test]
@@ -141,8 +142,7 @@ fn epic_create() {
 
     let (out, exit) = run(dir.path(), &["epic", "create", "--title", "Test Epic"]);
     assert_eq!(exit, 0);
-    assert_field(&out, "success", &Value::Bool(true), "epic create");
-    assert_has_keys(&out, &["success", "id", "title"], "epic create");
+    assert_has_keys(&out, &["id", "title"], "epic create");
 
     let json = parse_json(&out).unwrap();
     assert_eq!(json["title"], "Test Epic");
@@ -182,8 +182,7 @@ fn task_create() {
         &["task", "create", "--epic", &epic_id, "--title", "Task Alpha"],
     );
     assert_eq!(exit, 0);
-    assert_field(&out, "success", &Value::Bool(true), "task create");
-    assert_has_keys(&out, &["success", "id"], "task create");
+    assert_has_keys(&out, &["id"], "task create");
 }
 
 #[test]
@@ -234,7 +233,7 @@ fn start_task() {
 
     let (out, exit) = run(dir.path(), &["start", &task_id]);
     assert_eq!(exit, 0);
-    assert_field(&out, "success", &Value::Bool(true), "start");
+    assert!(parse_json(&out).is_some(), "start: output should be valid JSON");
 }
 
 #[test]
@@ -264,7 +263,7 @@ fn done_task() {
         &["done", &task_id, "--summary", "Completed", "--force"],
     );
     assert_eq!(exit, 0);
-    assert_field(&out, "success", &Value::Bool(true), "done");
+    assert!(parse_json(&out).is_some(), "done: output should be valid JSON");
 }
 
 // ═══════════════════════════════════════════════════════════════════════

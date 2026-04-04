@@ -436,6 +436,7 @@ fn main() {
     .ok();
 
     let cli = Cli::parse();
+    output::init_compact(cli.output.compact);
     let json = cli.output.json;
 
     match cli.command {

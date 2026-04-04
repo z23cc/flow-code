@@ -1,0 +1,7 @@
+bin.name = "flowctl"
+args = ["mcp"]
+stdin = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+stdout = """
+{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{}},"protocolVersion":"2024-11-05","serverInfo":{"name":"flowctl","version":"0.1.0"}}}
+"""
+status.code = 0

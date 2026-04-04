@@ -26,23 +26,23 @@ Works out of the box for parallel branches. No setup required.
 ```
 .flow/
 ├── meta.json               # {schema_version, next_epic}
-├── epics/fn-N-slug.json    # Epic state (e.g., fn-1-add-oauth.json)
+├── epics/fn-N-slug.md      # Epic state (YAML frontmatter + markdown)
 ├── specs/fn-N-slug.md      # Epic spec (markdown)
-├── tasks/fn-N-slug.M.json  # Task state (e.g., fn-1-add-oauth.1.json)
-├── tasks/fn-N-slug.M.md    # Task spec (markdown)
-├── memory/                 # Agent memory (reserved)
-├── bin/                    # (optional) Local flowctl install via /flow-code:setup
-│   ├── flowctl
-│   ├── flowctl.py
-│   └── flowctl/           # Core engine package
-└── usage.md                # (optional) CLI reference via /flow-code:setup
+├── tasks/fn-N-slug.M.md    # Task state + spec (YAML frontmatter + markdown)
+├── memory/                 # Agent memory (v2 atomic entries)
+├── reviews/                # Review receipts (JSON)
+├── checklists/             # Machine-readable acceptance checklists
+└── .state/                 # SQLite DB (source of truth, in .git/flow-state/)
 ```
+
+Storage: SQLite is the authoritative store. Markdown files are the human-readable format.
+`flowctl import` rebuilds the DB from Markdown; `flowctl export` writes Markdown from DB.
 
 Flowctl accepts schema v1 and v2; new fields are optional and defaulted.
 
-New fields:
-- Epic JSON: `plan_review_status`, `plan_reviewed_at`, `completion_review_status`, `completion_reviewed_at`, `depends_on_epics`, `branch_name`, `default_impl`, `default_review`, `default_sync`, `gaps`
-- Task JSON: `priority`, `impl`, `review`, `sync`
+Frontmatter fields:
+- Epic: `plan_review`, `completion_review`, `depends_on_epics`, `branch_name`
+- Task: `priority`, `domain`, `depends_on`, `files`
 
 ## ID Format
 

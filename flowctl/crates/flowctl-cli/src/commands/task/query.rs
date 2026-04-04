@@ -1,4 +1,4 @@
-//! Task query and spec update commands: set-section, set-spec, set-backend, show-backend.
+//! Task query and spec update commands: set-spec, set-backend, show-backend.
 
 use chrono::Utc;
 use serde_json::json;
@@ -11,44 +11,6 @@ use super::{
     ensure_flow_exists, load_epic_md, load_task_doc, load_task_md, patch_body_section,
     read_file_or_stdin, try_open_db, write_task_doc,
 };
-
-pub(super) fn cmd_task_set_section(json_mode: bool, task_id: &str, section: &str, file_path: &str) {
-    let flow_dir = ensure_flow_exists();
-
-    if !is_task_id(task_id) {
-        error_exit(&format!(
-            "Invalid task ID: {}. Expected format: fn-N.M or fn-N-slug.M",
-            task_id
-        ));
-    }
-
-    let mut doc = load_task_doc(&flow_dir, task_id);
-
-    // Read new content
-    let new_content = read_file_or_stdin(file_path);
-
-    // Patch body section
-    doc.body = patch_body_section(&doc.body, section, &new_content);
-    doc.frontmatter.updated_at = Utc::now();
-
-    write_task_doc(&flow_dir, task_id, &doc);
-
-    // Update DB
-    if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
-        let _ = repo.upsert(&doc.frontmatter);
-    }
-
-    if json_mode {
-        json_output(json!({
-            "id": task_id,
-            "section": section,
-            "message": format!("Task {} {} updated", task_id, section),
-        }));
-    } else {
-        println!("Task {} {} updated", task_id, section);
-    }
-}
 
 pub(super) fn cmd_task_set_spec(
     json_mode: bool,

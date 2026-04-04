@@ -66,7 +66,7 @@ cd flowctl && cargo build --release && cargo test --all
 python3 -c "import json; json.load(open('hooks/hooks.json'))"
 ```
 
-No linter or formatter is configured. No TypeScript, no npm, no build step.
+Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills and agents are Markdown files (no build step).
 
 ## Key Design Decisions
 
@@ -97,7 +97,7 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - **Plan auto-execute**: `/flow-code:plan` defaults to auto-execute work after planning (≤10 tasks direct, >10 suggests Ralph); `--plan-only` to opt out
 - **Goal-backward verification**: worker Phase 5 re-reads acceptance criteria and verifies each is actually satisfied before completing
 - **Full-auto by default**: `/flow-code:plan` and `/flow-code:work` require zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + Teams + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
-- **Cross-platform**: flowctl CLI works on macOS/Linux/Windows (Python, no native deps). RP plan-review auto-degrades to Codex on platforms where rp-cli is unavailable. Bash hooks degrade gracefully on Windows (skip, don't block)
+- **Cross-platform**: flowctl is a single Rust binary (macOS/Linux). RP plan-review auto-degrades to Codex on platforms where rp-cli is unavailable. Bash hooks degrade gracefully on Windows (skip, don't block)
 - **Session start**: CLAUDE.md instruction (not an enforced hook) — if `.flow/` exists, run `flowctl status --interrupted` to check for unfinished work from a previous session and resume with the suggested `/flow-code:work <id>` command
 
 ## Files to Never Commit
@@ -106,5 +106,5 @@ No linter or formatter is configured. No TypeScript, no npm, no build step.
 - `*.upstream` — upstream backup files
 - `.claude-plugin/` — local plugin config
 - `.tasks/` — runtime state
-- `__pycache__/` — Python cache
+- `__pycache__/` — Python cache (hook scripts only)
 - `.flow/` — per-project task state (runtime, not part of plugin)

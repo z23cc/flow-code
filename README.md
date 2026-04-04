@@ -37,7 +37,7 @@ A **harness** wraps around an AI coding agent to handle everything the model can
 | Full-auto (zero questions) | ✅ AI decides branch/review/depth | ❌ | ❌ | ❌ |
 | Context preservation | ✅ PreCompact hook | ❌ | ✅ embedding + RAG | ❌ |
 | Auto draft PR | ✅ | ❌ | ❌ | ❌ |
-| Zero dependencies | ✅ pure Python + Bash | ❌ Node.js | ❌ ChromaDB | ❌ Node.js |
+| Zero dependencies | ✅ single Rust binary + Bash skills | ❌ Node.js | ❌ ChromaDB | ❌ Node.js |
 
 ---
 
@@ -75,7 +75,7 @@ Flow-Code is a **harness engineering framework** for Claude Code. One command go
   → auto push + draft PR
 ```
 
-Everything lives in your repo as `.flow/` state. No external services. No global config. Zero dependencies (pure Python + Bash). Uninstall: delete `.flow/`.
+Everything lives in your repo as `.flow/` state. No external services. No global config. Single Rust binary + Bash skills. Uninstall: delete `.flow/`.
 
 <table>
 <tr>

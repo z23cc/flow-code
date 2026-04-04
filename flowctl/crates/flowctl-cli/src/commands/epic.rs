@@ -1312,3 +1312,283 @@ pub fn dispatch(cmd: &EpicCmd, json: bool) {
         } => cmd_set_auto_execute(id, *pending, *done, json),
     }
 }
+
+// ── Replay command ────────────────────���────────────────────────────
+
+pub fn cmd_replay(json_mode: bool, epic_id: &str, dry_run: bool, force: bool) {
+    let flow_dir = ensure_flow_exists();
+    validate_epic_id(epic_id);
+
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let conn = flowctl_db::open(&cwd).ok();
+
+    // Load tasks for this epic
+    let tasks = load_epic_tasks(conn.as_ref(), &flow_dir, epic_id);
+    if tasks.is_empty() {
+        error_exit(&format!("No tasks found for epic {}", epic_id));
+    }
+
+    // Check for in_progress tasks unless force
+    if !force {
+        let in_progress: Vec<&str> = tasks
+            .iter()
+            .filter(|t| t.status == flowctl_core::state_machine::Status::InProgress)
+            .map(|t| t.id.as_str())
+            .collect();
+        if !in_progress.is_empty() {
+            error_exit(&format!(
+                "Tasks in progress: {}. Use --force to override.",
+                in_progress.join(", ")
+            ));
+        }
+    }
+
+    // Count what would be reset
+    let to_reset: Vec<&flowctl_core::types::Task> = tasks
+        .iter()
+        .filter(|t| t.status != flowctl_core::state_machine::Status::Todo)
+        .collect();
+
+    if dry_run {
+        if json_mode {
+            let ids: Vec<&str> = to_reset.iter().map(|t| t.id.as_str()).collect();
+            json_output(json!({
+                "dry_run": true,
+                "epic": epic_id,
+                "would_reset": ids,
+                "count": ids.len(),
+            }));
+        } else {
+            println!("Dry run — would reset {} task(s) to todo:", to_reset.len());
+            for t in &to_reset {
+                println!("  {} ({}) -> todo", t.id, t.status);
+            }
+        }
+        return;
+    }
+
+    // Actually reset all tasks to todo
+    let mut reset_count = 0;
+    for task in &to_reset {
+        // Reset in DB if available
+        if let Some(ref c) = conn {
+            let task_repo = flowctl_db::TaskRepo::new(c);
+            if let Err(e) = task_repo.update_status(&task.id, flowctl_core::state_machine::Status::Todo) {
+                eprintln!("Warning: failed to reset {} in DB: {}", task.id, e);
+            }
+        }
+
+        // Reset in Markdown frontmatter
+        let task_path = flow_dir
+            .join(flowctl_core::types::TASKS_DIR)
+            .join(format!("{}.md", task.id));
+        if task_path.exists() {
+            if let Ok(content) = fs::read_to_string(&task_path) {
+                let updated = content
+                    .replace(
+                        &format!("status: {}", task.status),
+                        "status: todo",
+                    );
+                if updated != content {
+                    let _ = fs::write(&task_path, updated);
+                }
+            }
+        }
+        reset_count += 1;
+    }
+
+    if json_mode {
+        let ids: Vec<&str> = to_reset.iter().map(|t| t.id.as_str()).collect();
+        json_output(json!({
+            "epic": epic_id,
+            "reset": ids,
+            "count": reset_count,
+            "message": format!("Run /flow-code:work {} to re-execute", epic_id),
+        }));
+    } else {
+        println!("Reset {} task(s) to todo for epic {}", reset_count, epic_id);
+        println!();
+        println!("To re-execute, run:  /flow-code:work {}", epic_id);
+    }
+}
+
+/// Load tasks for an epic from DB or Markdown.
+fn load_epic_tasks(
+    conn: Option<&rusqlite::Connection>,
+    flow_dir: &Path,
+    epic_id: &str,
+) -> Vec<flowctl_core::types::Task> {
+    // Try DB first
+    if let Some(c) = conn {
+        let task_repo = flowctl_db::TaskRepo::new(c);
+        if let Ok(tasks) = task_repo.list_by_epic(epic_id) {
+            if !tasks.is_empty() {
+                return tasks;
+            }
+        }
+    }
+
+    // Fallback: scan Markdown files
+    let tasks_dir = flow_dir.join(flowctl_core::types::TASKS_DIR);
+    let mut tasks = Vec::new();
+    if tasks_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&tasks_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                    continue;
+                }
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                if !stem.starts_with(&format!("{}.", epic_id)) {
+                    continue;
+                }
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(task) =
+                        flowctl_core::frontmatter::parse_frontmatter::<flowctl_core::types::Task>(&content)
+                    {
+                        tasks.push(task);
+                    }
+                }
+            }
+        }
+    }
+    tasks
+}
+
+// ── Diff command ────────────��───────────────────────────���──────────
+
+pub fn cmd_diff(json_mode: bool, epic_id: &str) {
+    let flow_dir = ensure_flow_exists();
+    validate_epic_id(epic_id);
+
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let conn = flowctl_db::open(&cwd).ok();
+
+    // Load epic to get branch name
+    let branch = load_epic_branch(conn.as_ref(), &flow_dir, epic_id);
+
+    let branch = match branch {
+        Some(b) => b,
+        None => error_exit(&format!(
+            "No branch found for epic {}. Set with: flowctl epic set-branch {} --branch <name>",
+            epic_id, epic_id
+        )),
+    };
+
+    // Find merge base with main
+    let merge_base = std::process::Command::new("git")
+        .args(["merge-base", "main", &branch])
+        .output();
+
+    let base_ref = match merge_base {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+        _ => {
+            // Fallback: try to use the branch directly
+            eprintln!("Warning: could not find merge-base with main, showing full branch history");
+            String::new()
+        }
+    };
+
+    // Git log
+    let range_spec = format!("{}..{}", base_ref, branch);
+    let log_output = if base_ref.is_empty() {
+        std::process::Command::new("git")
+            .args(["log", "--oneline", "-20", &branch])
+            .output()
+    } else {
+        std::process::Command::new("git")
+            .args(["log", "--oneline", &range_spec])
+            .output()
+    };
+
+    let log_text = match log_output {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+        _ => String::new(),
+    };
+
+    // Git diff --stat
+    let diff_output = if base_ref.is_empty() {
+        std::process::Command::new("git")
+            .args(["diff", "--stat", &branch])
+            .output()
+    } else {
+        std::process::Command::new("git")
+            .args(["diff", "--stat", &range_spec])
+            .output()
+    };
+
+    let diff_text = match diff_output {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+        _ => String::new(),
+    };
+
+    if json_mode {
+        json_output(json!({
+            "epic": epic_id,
+            "branch": branch,
+            "base_ref": if base_ref.is_empty() { None } else { Some(&base_ref) },
+            "log": log_text,
+            "diff_stat": diff_text,
+        }));
+    } else {
+        println!("Epic: {}  Branch: {}", epic_id, branch);
+        if !base_ref.is_empty() {
+            println!("Base: {}", &base_ref[..base_ref.len().min(12)]);
+        }
+        println!();
+
+        if !log_text.is_empty() {
+            println!("Commits:");
+            for line in log_text.lines() {
+                println!("  {}", line);
+            }
+            println!();
+        } else {
+            println!("No commits found.");
+            println!();
+        }
+
+        if !diff_text.is_empty() {
+            println!("Diff summary:");
+            for line in diff_text.lines() {
+                println!("  {}", line);
+            }
+        } else {
+            println!("No diff.");
+        }
+    }
+}
+
+/// Load branch name for an epic from DB or Markdown.
+fn load_epic_branch(
+    conn: Option<&rusqlite::Connection>,
+    flow_dir: &Path,
+    epic_id: &str,
+) -> Option<String> {
+    // Try DB
+    if let Some(c) = conn {
+        let epic_repo = flowctl_db::EpicRepo::new(c);
+        if let Ok(epic) = epic_repo.get(epic_id) {
+            return epic.branch_name.filter(|b| !b.is_empty());
+        }
+    }
+
+    // Fallback: Markdown
+    let epic_path = flow_dir
+        .join(flowctl_core::types::EPICS_DIR)
+        .join(format!("{}.md", epic_id));
+    if let Ok(content) = fs::read_to_string(&epic_path) {
+        if let Ok(epic) =
+            flowctl_core::frontmatter::parse_frontmatter::<flowctl_core::types::Epic>(&content)
+        {
+            return epic.branch_name.filter(|b| !b.is_empty());
+        }
+    }
+    None
+}

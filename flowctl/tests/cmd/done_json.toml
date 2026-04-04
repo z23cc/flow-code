@@ -2,5 +2,5 @@ bin.name = "flowctl"
 args = ["--json", "done", "test-task-1"]
 status.code = 1
 stderr = """
-{"error":"Invalid task ID: test-task-1. Expected format: fn-N.M or fn-N-slug.M (e.g., fn-1.2, fn-1-add-auth.2)","success":false}
+{"error":"validation error: Invalid task ID: test-task-1. Expected format: fn-N.M or fn-N-slug.M (e.g., fn-1.2, fn-1-add-auth.2)","success":false}
 """

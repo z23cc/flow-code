@@ -19,6 +19,7 @@ serde_json = { workspace = true }
 wasm-bindgen = { version = "0.2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 gloo-net = { version = "0.6", optional = true }
+web-sys = { version = "0.3", optional = true, features = ["WebSocket", "MessageEvent", "Window", "Location"] }
 
 # Server-side only
 leptos_axum = { version = "0.8", optional = true }
@@ -31,6 +32,7 @@ hydrate = [
     "dep:wasm-bindgen",
     "dep:console_error_panic_hook",
     "dep:gloo-net",
+    "dep:web-sys",
 ]
 ssr = [
     "leptos/ssr",

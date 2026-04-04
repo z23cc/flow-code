@@ -51,6 +51,12 @@ enum Commands {
         /// Detect interrupted epics with undone tasks.
         #[arg(long)]
         interrupted: bool,
+        /// Render ASCII DAG of task dependencies for the active epic.
+        #[arg(long)]
+        dag: bool,
+        /// Epic ID (required with --dag).
+        #[arg(long)]
+        epic: Option<String>,
     },
     /// Run comprehensive state health diagnostics.
     Doctor,
@@ -116,6 +122,29 @@ enum Commands {
         /// Include review Phase 4 (rp or codex).
         #[arg(long, value_parser = ["rp", "codex"])]
         review: Option<String>,
+    },
+
+    /// Estimate remaining time for an epic based on historical durations.
+    Estimate {
+        /// Epic ID.
+        #[arg(long)]
+        epic: String,
+    },
+    /// Replay an epic: reset all tasks to todo for re-execution.
+    Replay {
+        /// Epic ID.
+        epic_id: String,
+        /// Show what would be reset without doing it.
+        #[arg(long)]
+        dry_run: bool,
+        /// Allow replay even if tasks are in_progress.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Show git diff summary for an epic's branch.
+    Diff {
+        /// Epic ID.
+        epic_id: String,
     },
 
     // ── Nested command groups ────────────────────────────────────────
@@ -388,7 +417,13 @@ fn main() {
         // Admin / top-level
         Commands::Init => admin::cmd_init(json),
         Commands::Detect => admin::cmd_detect(json),
-        Commands::Status { interrupted } => admin::cmd_status(json, interrupted),
+        Commands::Status { interrupted, dag, epic } => {
+            if dag {
+                commands::stats::cmd_dag(json, epic);
+            } else {
+                admin::cmd_status(json, interrupted);
+            }
+        }
         Commands::Doctor => admin::cmd_doctor(json),
         Commands::Validate { epic, all } => admin::cmd_validate(json, epic, all),
         Commands::StatePath { task } => admin::cmd_state_path(json, task),
@@ -404,6 +439,10 @@ fn main() {
         Commands::WorkerPrompt { task, tdd, review } => {
             admin::cmd_worker_prompt(json, task, tdd, review)
         }
+
+        Commands::Estimate { epic } => commands::stats::cmd_estimate(json, &epic),
+        Commands::Replay { epic_id, dry_run, force } => commands::epic::cmd_replay(json, &epic_id, dry_run, force),
+        Commands::Diff { epic_id } => commands::epic::cmd_diff(json, &epic_id),
 
         // Nested groups
         Commands::Config { cmd } => admin::cmd_config(&cmd, json),
@@ -514,6 +553,15 @@ fn main() {
                 let cancel = runtime.cancel.clone();
 
                 let (event_bus, _critical_rx) = flowctl_scheduler::EventBus::with_default_capacity();
+
+                // Start notification listener (sound + webhook).
+                let notif_config = flowctl_daemon::notifications::load_config(&flow_dir);
+                let notif_rx = event_bus.subscribe();
+                flowctl_daemon::notifications::spawn_listener(
+                    &runtime.tracker,
+                    notif_rx,
+                    notif_config,
+                );
 
                 // Handle Ctrl+C.
                 let cancel_clone = cancel.clone();

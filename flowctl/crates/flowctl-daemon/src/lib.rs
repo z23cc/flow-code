@@ -10,4 +10,6 @@ pub mod handlers;
 #[cfg(feature = "daemon")]
 pub mod lifecycle;
 #[cfg(feature = "daemon")]
+pub mod notifications;
+#[cfg(feature = "daemon")]
 pub mod server;

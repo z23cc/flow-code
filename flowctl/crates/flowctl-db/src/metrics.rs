@@ -78,6 +78,15 @@ pub struct DoraMetrics {
     pub time_to_restore_hours: Option<f64>,
 }
 
+/// Per-domain historical duration statistics for adaptive scheduling.
+#[derive(Debug, Clone, Serialize)]
+pub struct DomainDurationStats {
+    pub domain: String,
+    pub completed_count: i64,
+    pub avg_duration_secs: f64,
+    pub stddev_duration_secs: f64,
+}
+
 /// Stats query engine.
 pub struct StatsQuery<'a> {
     conn: &'a Connection,
@@ -313,6 +322,43 @@ impl<'a> StatsQuery<'a> {
         })
     }
 
+    /// Per-domain duration statistics for completed tasks.
+    ///
+    /// Returns domains that have completed tasks with recorded durations,
+    /// including count, average, and standard deviation. Used by the adaptive
+    /// scheduler to size per-domain parallelism.
+    pub fn domain_duration_stats(&self) -> Result<Vec<DomainDurationStats>, DbError> {
+        // SQLite lacks SQRT, so we compute variance components in SQL and
+        // take the square root in Rust.
+        let mut stmt = self.conn.prepare(
+            "SELECT t.domain,
+                    COUNT(*) AS cnt,
+                    AVG(rs.duration_secs) AS avg_dur,
+                    AVG(rs.duration_secs * rs.duration_secs) AS avg_sq
+             FROM tasks t
+             JOIN runtime_state rs ON rs.task_id = t.id
+             WHERE t.status = 'done'
+               AND rs.duration_secs IS NOT NULL
+             GROUP BY t.domain",
+        )?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let avg: f64 = row.get(2)?;
+                let avg_sq: f64 = row.get(3)?;
+                // variance = E[X^2] - (E[X])^2, clamp to 0 for floating point noise
+                let variance = (avg_sq - avg * avg).max(0.0);
+                Ok(DomainDurationStats {
+                    domain: row.get(0)?,
+                    completed_count: row.get(1)?,
+                    avg_duration_secs: avg,
+                    stddev_duration_secs: variance.sqrt(),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Generate monthly rollup for any months that have daily_rollup data but no monthly entry.
     pub fn generate_monthly_rollups(&self) -> Result<usize, DbError> {
         let rows = self.conn.execute(
@@ -473,6 +519,42 @@ mod tests {
         // Fresh DB, no completions in last 30 days
         assert_eq!(dora.throughput_per_week, 0.0);
         assert_eq!(dora.change_failure_rate, 0.0);
+    }
+
+    #[test]
+    fn test_domain_duration_stats() {
+        let conn = setup();
+        // Task 1 is already 'done', add duration
+        conn.execute(
+            "INSERT INTO runtime_state (task_id, duration_secs) VALUES ('fn-1-test.1', 120)",
+            [],
+        ).unwrap();
+
+        // Add more done tasks in the same domain to cross threshold
+        for i in 3..=7 {
+            conn.execute(
+                &format!(
+                    "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at)
+                     VALUES ('fn-1-test.{i}', 'fn-1-test', 'Task {i}', 'done', 'general', 't{i}.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+                ),
+                [],
+            ).unwrap();
+            conn.execute(
+                &format!(
+                    "INSERT INTO runtime_state (task_id, duration_secs) VALUES ('fn-1-test.{i}', {})",
+                    100 + i * 10
+                ),
+                [],
+            ).unwrap();
+        }
+
+        let stats = StatsQuery::new(&conn);
+        let domain_stats = stats.domain_duration_stats().unwrap();
+        assert!(!domain_stats.is_empty());
+
+        let general = domain_stats.iter().find(|d| d.domain == "general").unwrap();
+        assert_eq!(general.completed_count, 6); // task 1 + tasks 3-7
+        assert!(general.avg_duration_secs > 0.0);
     }
 
     #[test]

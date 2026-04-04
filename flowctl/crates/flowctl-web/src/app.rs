@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use leptos_router::components::*;
 use leptos_router::path;
 
-use crate::pages::{dashboard::DashboardPage, epic_detail::EpicDetailPage};
+use crate::pages::{dag_view::DagViewPage, dashboard::DashboardPage, epic_detail::EpicDetailPage, replay::ReplayPage};
 
 /// Main application component with routing.
 #[component]
@@ -23,6 +23,8 @@ pub fn App() -> impl IntoView {
                 <Routes fallback=|| view! { <p class="text-red-400">"Page not found."</p> }>
                     <Route path=path!("/") view=DashboardPage/>
                     <Route path=path!("/epic/:id") view=EpicDetailPage/>
+                    <Route path=path!("/dag/:id") view=DagViewPage/>
+                    <Route path=path!("/replay/:id") view=ReplayPage/>
                 </Routes>
             </main>
         </Router>

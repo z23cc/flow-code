@@ -900,6 +900,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "flowctl-service"
+version = "0.1.0"
+dependencies = [
+ "flowctl-core",
+ "flowctl-db",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "flowctl-web"
 version = "0.1.0"
 dependencies = [

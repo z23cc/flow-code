@@ -18,7 +18,7 @@ use crate::handlers::{
 use crate::lifecycle::{set_socket_permissions, DaemonRuntime};
 
 /// Create shared app state with a DB connection.
-fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBus) -> Result<(AppState, tokio_util::sync::CancellationToken)> {
+pub fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBus) -> Result<(AppState, tokio_util::sync::CancellationToken)> {
     let db_path = runtime.paths.state_dir.parent()
         .map(|flow_dir| flow_dir.join("flowctl.db"))
         .context("cannot resolve db path")?;
@@ -34,7 +34,8 @@ fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBus) 
 }
 
 /// Build the Axum router with all daemon API routes.
-fn build_router(state: AppState) -> axum::Router {
+/// Public so the CLI can merge this with other routes (e.g. Leptos SSR).
+pub fn build_router(state: AppState) -> axum::Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)

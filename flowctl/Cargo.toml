@@ -96,3 +96,18 @@ inherits = "release"
 opt-level = "z"
 lto = "fat"
 codegen-units = 1
+
+# ── Leptos web frontend configuration ────────────────────────────────
+[[workspace.metadata.leptos]]
+name = "flowctl-web"
+bin-package = "flowctl-cli"
+lib-package = "flowctl-web"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+style-file = "crates/flowctl-web/style/main.css"
+assets-dir = "crates/flowctl-web/public"
+site-addr = "127.0.0.1:3000"
+reload-port = 3001
+bin-features = ["daemon"]
+lib-features = ["hydrate"]
+lib-profile-release = "wasm-release"

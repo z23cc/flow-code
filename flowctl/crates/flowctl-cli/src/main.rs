@@ -529,7 +529,29 @@ fn main() {
 
                 let result = if let Some(tcp_port) = port {
                     println!("flowctl daemon starting on http://127.0.0.1:{tcp_port}");
-                    flowctl_daemon::server::serve_tcp(runtime, event_bus, tcp_port).await
+
+                    // Build API router from daemon.
+                    let (state, cancel) = flowctl_daemon::server::create_state(runtime, event_bus)
+                        .expect("failed to create state");
+                    let api_router = flowctl_daemon::server::build_router(state);
+
+                    // Add Leptos SSR fallback: API routes take priority,
+                    // everything else renders the Leptos app via SSR.
+                    let router = api_router
+                        .fallback(leptos_axum::render_app_to_stream(
+                            flowctl_web::app::App,
+                        ));
+
+                    let addr = format!("127.0.0.1:{tcp_port}");
+                    let listener = tokio::net::TcpListener::bind(&addr).await
+                        .expect("failed to bind TCP");
+
+                    axum::serve(listener, router)
+                        .with_graceful_shutdown(async move {
+                            cancel.cancelled().await;
+                        })
+                        .await
+                        .map_err(|e| anyhow::anyhow!("{e}"))
                 } else {
                     println!("flowctl daemon starting on {}", paths.socket_file.display());
                     flowctl_daemon::server::serve(runtime, event_bus).await

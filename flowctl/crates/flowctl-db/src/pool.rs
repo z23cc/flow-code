@@ -27,23 +27,27 @@ fn migrations() -> Migrations<'static> {
 /// This ensures all worktrees share a single database file.
 /// Falls back to `.flow/.state/` in the current directory if not in a git repo.
 pub fn resolve_state_dir(working_dir: &Path) -> Result<PathBuf, DbError> {
-    let output = Command::new("git")
+    // Try git first for worktree-aware state sharing.
+    // Falls back to local .flow/.state/ if git is unavailable or not a repo.
+    let git_result = Command::new("git")
         .args(["rev-parse", "--git-common-dir"])
         .current_dir(working_dir)
-        .output()
-        .map_err(|e| DbError::StateDir(format!("failed to run git: {e}")))?;
+        .output();
 
-    if output.status.success() {
-        let git_common = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let git_common_path = if Path::new(&git_common).is_absolute() {
-            PathBuf::from(git_common)
-        } else {
-            working_dir.join(git_common)
-        };
-        Ok(git_common_path.join("flow-state"))
-    } else {
-        // Not a git repo -- use local .flow/.state/
-        Ok(working_dir.join(".flow").join(".state"))
+    match git_result {
+        Ok(output) if output.status.success() => {
+            let git_common = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let git_common_path = if Path::new(&git_common).is_absolute() {
+                PathBuf::from(git_common)
+            } else {
+                working_dir.join(git_common)
+            };
+            Ok(git_common_path.join("flow-state"))
+        }
+        _ => {
+            // git not available, not a repo, or command failed — use local fallback.
+            Ok(working_dir.join(".flow").join(".state"))
+        }
     }
 }
 

@@ -19,11 +19,13 @@ use crate::lifecycle::{set_socket_permissions, DaemonRuntime};
 
 /// Create shared app state with a DB connection.
 pub fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBus) -> Result<(AppState, tokio_util::sync::CancellationToken)> {
-    let db_path = runtime.paths.state_dir.parent()
-        .map(|flow_dir| flow_dir.join("flowctl.db"))
-        .context("cannot resolve db path")?;
-    let conn = flowctl_db::open(&db_path)
-        .with_context(|| format!("failed to open db: {}", db_path.display()))?;
+    // Derive the project root from .flow/.state/ → parent of .flow/
+    let working_dir = runtime.paths.state_dir
+        .parent()  // .flow/
+        .and_then(|p| p.parent())  // project root
+        .context("cannot resolve project root from state_dir")?;
+    let conn = flowctl_db::open(working_dir)
+        .with_context(|| format!("failed to open db in {}", working_dir.display()))?;
     let cancel = runtime.cancel.clone();
     let state = Arc::new(DaemonState {
         runtime,

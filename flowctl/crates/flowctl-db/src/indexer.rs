@@ -547,7 +547,7 @@ fn try_parse_python_task_md(content: &str, filename_stem: &str) -> Result<(Task,
     let title = if first_line.starts_with("# ") {
         let after_hash = first_line.trim_start_matches("# ");
         // Skip the task ID part (first word)
-        after_hash.splitn(2, ' ').nth(1).unwrap_or(filename_stem).to_string()
+        after_hash.split_once(' ').map(|x| x.1).unwrap_or(filename_stem).to_string()
     } else {
         filename_stem.to_string()
     };

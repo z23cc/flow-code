@@ -17,6 +17,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook rtk-rewrite",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
             "command": "[ ! -d .flow ] || \"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl\" hook commit-gate",
             "timeout": 10
           }

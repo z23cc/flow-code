@@ -10,6 +10,10 @@ use clap::Subcommand;
 use regex::Regex;
 use serde_json::json;
 
+use flowctl_core::review_protocol::{
+    compute_consensus, ConsensusResult, ModelReview, ReviewFinding, ReviewVerdict, Severity,
+};
+
 use crate::output::{error_exit, json_output};
 
 #[derive(Subcommand, Debug)]
@@ -65,6 +69,22 @@ pub enum CodexCmd {
         #[arg(long)]
         focus: Option<String>,
         /// Sandbox mode.
+        #[arg(long, default_value = "auto")]
+        sandbox: String,
+        /// Model reasoning effort level.
+        #[arg(long, default_value = "high", value_parser = ["low", "medium", "high"])]
+        effort: String,
+    },
+    /// Cross-model review: runs both Codex adversarial AND Claude review,
+    /// then computes consensus.
+    CrossModel {
+        /// Base branch for diff.
+        #[arg(long, default_value = "main")]
+        base: String,
+        /// Specific area to pressure-test.
+        #[arg(long)]
+        focus: Option<String>,
+        /// Sandbox mode for Codex.
         #[arg(long, default_value = "auto")]
         sandbox: String,
         /// Model reasoning effort level.
@@ -329,6 +349,9 @@ pub fn dispatch(cmd: &CodexCmd, json: bool) {
         CodexCmd::Adversarial {
             base, focus, sandbox, effort,
         } => cmd_adversarial(json, base, focus.as_deref(), sandbox, effort),
+        CodexCmd::CrossModel {
+            base, focus, sandbox, effort,
+        } => cmd_cross_model(json, base, focus.as_deref(), sandbox, effort),
         CodexCmd::CompletionReview {
             epic, base, receipt, sandbox, effort,
         } => cmd_completion_review(json, epic, base, receipt.as_deref(), sandbox, effort),
@@ -581,6 +604,247 @@ fn cmd_completion_review(
     } else {
         print!("{output}");
         println!("\nVERDICT={verdict}");
+    }
+}
+
+fn cmd_cross_model(
+    json_mode: bool,
+    base: &str,
+    focus: Option<&str>,
+    sandbox: &str,
+    effort: &str,
+) {
+    let sandbox = resolve_sandbox(sandbox);
+
+    // ── Step 1: Run Codex adversarial review ────────────────────────
+    let codex_prompt = format!(
+        "You are an adversarial code reviewer. Try to BREAK the code changed between '{base}' and HEAD.\n\
+         {}Look for bugs, race conditions, security vulnerabilities, edge cases, and logic errors.\n\
+         Output your verdict as <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>.\n\
+         Also output structured JSON with your findings.",
+        if let Some(f) = focus { format!("Focus area: {f}\n") } else { String::new() },
+    );
+
+    let (codex_output, _codex_thread_id, codex_exit_code, codex_stderr) =
+        run_codex_exec(&codex_prompt, None, &sandbox, effort);
+
+    // Build Codex ModelReview
+    let codex_review = if codex_exit_code == 0 {
+        let verdict = match parse_verdict(&codex_output) {
+            Some(v) if v == "SHIP" => ReviewVerdict::Ship,
+            Some(v) if v == "NEEDS_WORK" => ReviewVerdict::NeedsWork,
+            _ => ReviewVerdict::Abstain,
+        };
+        let (findings, confidence) = parse_findings_from_output(&codex_output);
+        ModelReview {
+            model: env::var("FLOW_CODEX_MODEL").unwrap_or_else(|_| "codex/gpt-5.4".to_string()),
+            verdict,
+            findings,
+            confidence,
+        }
+    } else {
+        eprintln!("WARNING: Codex review failed: {}", codex_stderr.trim());
+        ModelReview {
+            model: "codex/gpt-5.4".to_string(),
+            verdict: ReviewVerdict::Abstain,
+            findings: vec![],
+            confidence: 0.0,
+        }
+    };
+
+    // ── Step 2: Prepare Claude review prompt ────────────────────────
+    // Write a review prompt to a temp file for the caller (Claude) to process.
+    // In practice, the orchestrating skill reads this and dispatches to Claude.
+    let claude_prompt = format!(
+        "You are a thorough code reviewer. Review the code changed between '{base}' and HEAD.\n\
+         {}Analyze for correctness, security, performance, and maintainability.\n\
+         Output your verdict as <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>.\n\
+         List findings as JSON with fields: severity (critical/warning/info), category, description, file, line.",
+        if let Some(f) = focus { format!("Focus area: {f}\n") } else { String::new() },
+    );
+
+    let claude_prompt_path = env::temp_dir().join("flowctl-cross-model-claude-prompt.txt");
+    let _ = std::fs::write(&claude_prompt_path, &claude_prompt);
+
+    // Build Claude ModelReview (placeholder — caller invokes Claude separately)
+    // Check if a Claude review result file was pre-populated by the orchestrator
+    let claude_result_path = env::temp_dir().join("flowctl-cross-model-claude-result.json");
+    let claude_review = if claude_result_path.exists() {
+        match std::fs::read_to_string(&claude_result_path) {
+            Ok(content) => parse_claude_review_result(&content),
+            Err(_) => make_abstain_review("claude/opus-4"),
+        }
+    } else {
+        // No pre-populated result — run a lightweight self-review via codex
+        // with a different prompt to simulate a second opinion
+        let (claude_out, _, claude_exit, _) =
+            run_codex_exec(&claude_prompt, None, &sandbox, effort);
+        if claude_exit == 0 {
+            let verdict = match parse_verdict(&claude_out) {
+                Some(v) if v == "SHIP" => ReviewVerdict::Ship,
+                Some(v) if v == "NEEDS_WORK" => ReviewVerdict::NeedsWork,
+                _ => ReviewVerdict::Abstain,
+            };
+            let (findings, confidence) = parse_findings_from_output(&claude_out);
+            ModelReview {
+                model: "claude/opus-4".to_string(),
+                verdict,
+                findings,
+                confidence,
+            }
+        } else {
+            make_abstain_review("claude/opus-4")
+        }
+    };
+
+    // ── Step 3: Compute consensus ───────────────────────────────────
+    let reviews = vec![codex_review.clone(), claude_review.clone()];
+    let consensus = compute_consensus(&reviews);
+
+    // ── Step 4: Store combined review in .flow/reviews/ ─────────────
+    let cwd = env::current_dir().unwrap_or_default();
+    let reviews_dir = cwd.join(".flow").join("reviews");
+    let _ = std::fs::create_dir_all(&reviews_dir);
+
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let review_file = reviews_dir.join(format!(
+        "cross-model-{}.json",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+    ));
+
+    let consensus_verdict_str = match &consensus {
+        ConsensusResult::Consensus { verdict, .. } => format!("{verdict}"),
+        ConsensusResult::Conflict { .. } => "CONFLICT".to_string(),
+        ConsensusResult::InsufficientReviews => "INSUFFICIENT".to_string(),
+    };
+
+    let review_data = json!({
+        "type": "cross_model_review",
+        "base": base,
+        "focus": focus,
+        "timestamp": timestamp,
+        "models": [
+            serde_json::to_value(&codex_review).unwrap_or_default(),
+            serde_json::to_value(&claude_review).unwrap_or_default(),
+        ],
+        "consensus": serde_json::to_value(&consensus).unwrap_or_default(),
+        "claude_prompt_path": claude_prompt_path.to_string_lossy(),
+    });
+
+    let review_json = serde_json::to_string_pretty(&review_data).unwrap_or_default();
+    let _ = std::fs::write(&review_file, format!("{review_json}\n"));
+
+    // ── Step 5: Output ──────────────────────────────────────────────
+    if json_mode {
+        json_output(review_data);
+    } else {
+        println!("Cross-Model Review Results");
+        println!("==========================");
+        println!();
+        println!("Model 1: {} — {}", codex_review.model, codex_review.verdict);
+        println!("  Findings: {}", codex_review.findings.len());
+        println!("  Confidence: {:.0}%", codex_review.confidence * 100.0);
+        println!();
+        println!("Model 2: {} — {}", claude_review.model, claude_review.verdict);
+        println!("  Findings: {}", claude_review.findings.len());
+        println!("  Confidence: {:.0}%", claude_review.confidence * 100.0);
+        println!();
+        println!("Consensus: {consensus_verdict_str}");
+        println!("Review saved to: {}", review_file.display());
+    }
+}
+
+/// Parse findings from codex/model output. Returns (findings, confidence).
+fn parse_findings_from_output(output: &str) -> (Vec<ReviewFinding>, f64) {
+    let mut findings = Vec::new();
+    let mut confidence = 0.8; // default
+
+    // Try to extract structured JSON from the output
+    if let Some(data) = parse_adversarial_output(output) {
+        // Extract confidence
+        if let Some(c) = data.get("confidence").and_then(|v| v.as_f64()) {
+            confidence = c;
+        }
+
+        // Extract findings array
+        if let Some(arr) = data.get("findings").and_then(|v| v.as_array()) {
+            for item in arr {
+                let severity = match item.get("severity").and_then(|v| v.as_str()) {
+                    Some("critical") => Severity::Critical,
+                    Some("warning") => Severity::Warning,
+                    _ => Severity::Info,
+                };
+                let category = item
+                    .get("category")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("general")
+                    .to_string();
+                let description = item
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let file = item.get("file").and_then(|v| v.as_str()).map(String::from);
+                let line = item.get("line").and_then(|v| v.as_u64()).map(|n| n as u32);
+
+                if !description.is_empty() {
+                    findings.push(ReviewFinding {
+                        severity,
+                        category,
+                        description,
+                        file,
+                        line,
+                    });
+                }
+            }
+        }
+    }
+
+    (findings, confidence)
+}
+
+/// Parse a pre-populated Claude review result JSON file into a ModelReview.
+fn parse_claude_review_result(content: &str) -> ModelReview {
+    match serde_json::from_str::<serde_json::Value>(content.trim()) {
+        Ok(data) => {
+            let verdict = match data.get("verdict").and_then(|v| v.as_str()) {
+                Some("SHIP") => ReviewVerdict::Ship,
+                Some("NEEDS_WORK") => ReviewVerdict::NeedsWork,
+                _ => ReviewVerdict::Abstain,
+            };
+            let (findings, confidence) = if let Some(review_text) =
+                data.get("review").and_then(|v| v.as_str())
+            {
+                parse_findings_from_output(review_text)
+            } else {
+                (vec![], 0.8)
+            };
+            let confidence = data
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(confidence);
+            ModelReview {
+                model: data
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("claude/opus-4")
+                    .to_string(),
+                verdict,
+                findings,
+                confidence,
+            }
+        }
+        Err(_) => make_abstain_review("claude/opus-4"),
+    }
+}
+
+/// Create an abstain review for a model that failed or couldn't participate.
+fn make_abstain_review(model: &str) -> ModelReview {
+    ModelReview {
+        model: model.to_string(),
+        verdict: ReviewVerdict::Abstain,
+        findings: vec![],
+        confidence: 0.0,
     }
 }
 

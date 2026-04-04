@@ -6,8 +6,12 @@
 
 use std::env;
 use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
 
 use serde_json::{json, Value};
+
+use flowctl_core::types::FLOW_DIR;
+use flowctl_service::lifecycle::{DoneTaskRequest, StartTaskRequest};
 
 /// Run the MCP server loop on stdin/stdout.
 pub fn run() {
@@ -135,6 +139,17 @@ fn handle_tools_list(id: &Value) -> Value {
                         },
                         "required": ["task_id"]
                     }
+                },
+                {
+                    "name": "flowctl_review",
+                    "description": "Run cross-model adversarial review (Codex + Claude consensus)",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "base": {"type": "string", "description": "Base branch for diff (default: main)"},
+                            "focus": {"type": "string", "description": "Specific area to pressure-test"}
+                        }
+                    }
                 }
             ]
         }
@@ -167,8 +182,89 @@ fn handle_tools_call(id: &Value, request: &Value) -> Value {
     }
 }
 
-/// Execute a flowctl tool by shelling out to the CLI with --json.
+/// Resolve flow_dir and open DB connection for direct service calls.
+fn mcp_context() -> Result<(PathBuf, Option<rusqlite::Connection>), String> {
+    let cwd = env::current_dir().map_err(|e| format!("cannot get cwd: {e}"))?;
+    let flow_dir = cwd.join(FLOW_DIR);
+    let conn = flowctl_db::open(&cwd).ok();
+    Ok((flow_dir, conn))
+}
+
+/// Execute a flowctl tool: lifecycle ops use direct service calls,
+/// read-only ops shell out to the CLI with --json.
 fn run_flowctl_tool(name: &str, args: &Value) -> Result<String, String> {
+    match name {
+        "flowctl_start" => {
+            let task_id = args.get("task_id").and_then(|v| v.as_str())
+                .ok_or("task_id is required")?;
+            let (flow_dir, conn) = mcp_context()?;
+            let req = StartTaskRequest {
+                task_id: task_id.to_string(),
+                force: false,
+                actor: "mcp".to_string(),
+            };
+            let resp = flowctl_service::lifecycle::start_task(
+                conn.as_ref(), &flow_dir, req,
+            ).map_err(|e| e.to_string())?;
+            Ok(serde_json::to_string(&json!({
+                "success": true,
+                "id": resp.task_id,
+                "status": "in_progress",
+                "message": format!("Task {} started", resp.task_id),
+            })).unwrap())
+        }
+        "flowctl_done" => {
+            let task_id = args.get("task_id").and_then(|v| v.as_str())
+                .ok_or("task_id is required")?;
+            let summary = args.get("summary").and_then(|v| v.as_str()).map(String::from);
+            let (flow_dir, conn) = mcp_context()?;
+            let req = DoneTaskRequest {
+                task_id: task_id.to_string(),
+                summary,
+                summary_file: None,
+                evidence_json: None,
+                evidence_inline: None,
+                force: true,
+                actor: "mcp".to_string(),
+            };
+            let resp = flowctl_service::lifecycle::done_task(
+                conn.as_ref(), &flow_dir, req,
+            ).map_err(|e| e.to_string())?;
+            Ok(serde_json::to_string(&json!({
+                "success": true,
+                "id": resp.task_id,
+                "status": "done",
+                "message": format!("Task {} completed", resp.task_id),
+            })).unwrap())
+        }
+        "flowctl_review" => {
+            // Cross-model review via CLI subprocess
+            let mut cmd_args: Vec<String> = vec!["--json".to_string(), "codex".to_string(), "cross-model".to_string()];
+            if let Some(base) = args.get("base").and_then(|v| v.as_str()) {
+                cmd_args.extend(["--base".to_string(), base.to_string()]);
+            }
+            if let Some(focus) = args.get("focus").and_then(|v| v.as_str()) {
+                cmd_args.extend(["--focus".to_string(), focus.to_string()]);
+            }
+            let exe = env::current_exe().map_err(|e| format!("cannot find self: {e}"))?;
+            let output = std::process::Command::new(&exe)
+                .args(&cmd_args)
+                .output()
+                .map_err(|e| format!("exec failed: {e}"))?;
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            if output.status.success() {
+                Ok(stdout)
+            } else {
+                Err(format!("{stdout}{stderr}"))
+            }
+        }
+        _ => run_flowctl_cli(name, args),
+    }
+}
+
+/// Shell out to the CLI for read-only operations.
+fn run_flowctl_cli(name: &str, args: &Value) -> Result<String, String> {
     let exe = env::current_exe().map_err(|e| format!("cannot find self: {e}"))?;
 
     let mut cmd_args: Vec<String> = vec!["--json".to_string()];
@@ -187,22 +283,6 @@ fn run_flowctl_tool(name: &str, args: &Value) -> Result<String, String> {
             let epic = args.get("epic_id").and_then(|v| v.as_str())
                 .ok_or("epic_id is required")?;
             cmd_args.extend(["--epic".to_string(), epic.to_string()]);
-        }
-        "flowctl_start" => {
-            cmd_args.push("start".to_string());
-            let task = args.get("task_id").and_then(|v| v.as_str())
-                .ok_or("task_id is required")?;
-            cmd_args.push(task.to_string());
-        }
-        "flowctl_done" => {
-            cmd_args.push("done".to_string());
-            let task = args.get("task_id").and_then(|v| v.as_str())
-                .ok_or("task_id is required")?;
-            cmd_args.push(task.to_string());
-            if let Some(summary) = args.get("summary").and_then(|v| v.as_str()) {
-                cmd_args.extend(["--summary".to_string(), summary.to_string()]);
-            }
-            cmd_args.push("--force".to_string());
         }
         _ => return Err(format!("unknown tool: {name}")),
     }
@@ -237,11 +317,11 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_tools_list_returns_six_tools() {
+    fn test_handle_tools_list_returns_seven_tools() {
         let id = json!(2);
         let resp = handle_tools_list(&id);
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 6);
+        assert_eq!(tools.len(), 7);
 
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"flowctl_status"));
@@ -250,6 +330,7 @@ mod tests {
         assert!(names.contains(&"flowctl_ready"));
         assert!(names.contains(&"flowctl_start"));
         assert!(names.contains(&"flowctl_done"));
+        assert!(names.contains(&"flowctl_review"));
     }
 
     #[test]

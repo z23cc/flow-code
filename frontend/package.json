@@ -13,7 +13,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@xyflow/react": "^12.10.2",
     "lucide-react": "^1.7.0",

@@ -20,14 +20,18 @@
 //! its own crate gives clean test isolation during migration.
 
 pub mod error;
+pub mod events;
+pub mod metrics;
 pub mod pool;
 pub mod repo;
 
 pub use error::DbError;
+pub use events::{EventLog, TaskTokenSummary, TokenRecord, TokenUsageRow};
+pub use metrics::StatsQuery;
 pub use pool::{open_async, open_memory_async, resolve_libsql_path};
 pub use repo::{
-    DepRepo, EpicRepo, EvidenceRepo, FileLockRepo, FileOwnershipRepo, PhaseProgressRepo,
-    RuntimeRepo, TaskRepo,
+    DepRepo, EpicRepo, EventRepo, EventRow, EvidenceRepo, FileLockRepo, FileOwnershipRepo,
+    PhaseProgressRepo, RuntimeRepo, TaskRepo,
 };
 
 // Re-export libsql types for callers.

@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use libsql::{params, Connection};
 
 use flowctl_core::state_machine::Status;
-use flowctl_core::types::{Domain, Epic, EpicStatus, ReviewStatus, Task};
+use flowctl_core::types::{Domain, Epic, EpicStatus, Evidence, ReviewStatus, RuntimeState, Task};
 
 use crate::error::DbError;
 
@@ -693,6 +693,321 @@ impl FileOwnershipRepo {
     }
 }
 
+// ── Runtime-state repository ────────────────────────────────────────
+
+/// Async repository for per-task runtime state (Teams mode assignment, timing).
+pub struct RuntimeRepo {
+    conn: Connection,
+}
+
+impl RuntimeRepo {
+    pub fn new(conn: Connection) -> Self {
+        Self { conn }
+    }
+
+    /// Upsert runtime state for a task.
+    pub async fn upsert(&self, state: &RuntimeState) -> Result<(), DbError> {
+        self.conn
+            .execute(
+                "INSERT INTO runtime_state (task_id, assignee, claimed_at, completed_at, duration_secs, blocked_reason, baseline_rev, final_rev, retry_count)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(task_id) DO UPDATE SET
+                     assignee = excluded.assignee,
+                     claimed_at = excluded.claimed_at,
+                     completed_at = excluded.completed_at,
+                     duration_secs = excluded.duration_secs,
+                     blocked_reason = excluded.blocked_reason,
+                     baseline_rev = excluded.baseline_rev,
+                     final_rev = excluded.final_rev,
+                     retry_count = excluded.retry_count",
+                params![
+                    state.task_id.clone(),
+                    state.assignee.clone(),
+                    state.claimed_at.map(|dt| dt.to_rfc3339()),
+                    state.completed_at.map(|dt| dt.to_rfc3339()),
+                    state.duration_secs.map(|d| d as i64),
+                    state.blocked_reason.clone(),
+                    state.baseline_rev.clone(),
+                    state.final_rev.clone(),
+                    state.retry_count as i64,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Get runtime state for a task.
+    pub async fn get(&self, task_id: &str) -> Result<Option<RuntimeState>, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT task_id, assignee, claimed_at, completed_at, duration_secs, blocked_reason, baseline_rev, final_rev, retry_count
+                 FROM runtime_state WHERE task_id = ?1",
+                params![task_id.to_string()],
+            )
+            .await?;
+
+        let Some(row) = rows.next().await? else {
+            return Ok(None);
+        };
+
+        let claimed_s: Option<String> = row.get::<Option<String>>(2)?;
+        let completed_s: Option<String> = row.get::<Option<String>>(3)?;
+        let duration: Option<i64> = row.get::<Option<i64>>(4)?;
+        let retry: i64 = row.get::<i64>(8)?;
+
+        Ok(Some(RuntimeState {
+            task_id: row.get::<String>(0)?,
+            assignee: row.get::<Option<String>>(1)?,
+            claimed_at: claimed_s.as_deref().map(parse_datetime),
+            completed_at: completed_s.as_deref().map(parse_datetime),
+            duration_secs: duration.map(|d| d as u64),
+            blocked_reason: row.get::<Option<String>>(5)?,
+            baseline_rev: row.get::<Option<String>>(6)?,
+            final_rev: row.get::<Option<String>>(7)?,
+            retry_count: retry as u32,
+        }))
+    }
+}
+
+// ── Evidence repository ─────────────────────────────────────────────
+
+/// Async repository for task completion evidence.
+pub struct EvidenceRepo {
+    conn: Connection,
+}
+
+impl EvidenceRepo {
+    pub fn new(conn: Connection) -> Self {
+        Self { conn }
+    }
+
+    /// Upsert evidence for a task. Commits and tests are stored as JSON arrays.
+    pub async fn upsert(&self, task_id: &str, evidence: &Evidence) -> Result<(), DbError> {
+        let commits_json = if evidence.commits.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&evidence.commits)?)
+        };
+        let tests_json = if evidence.tests.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&evidence.tests)?)
+        };
+
+        self.conn
+            .execute(
+                "INSERT INTO evidence (task_id, commits, tests, files_changed, insertions, deletions, review_iters)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(task_id) DO UPDATE SET
+                     commits = excluded.commits,
+                     tests = excluded.tests,
+                     files_changed = excluded.files_changed,
+                     insertions = excluded.insertions,
+                     deletions = excluded.deletions,
+                     review_iters = excluded.review_iters",
+                params![
+                    task_id.to_string(),
+                    commits_json,
+                    tests_json,
+                    evidence.files_changed.map(|v| v as i64),
+                    evidence.insertions.map(|v| v as i64),
+                    evidence.deletions.map(|v| v as i64),
+                    evidence.review_iterations.map(|v| v as i64),
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Get evidence for a task.
+    pub async fn get(&self, task_id: &str) -> Result<Option<Evidence>, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT commits, tests, files_changed, insertions, deletions, review_iters
+                 FROM evidence WHERE task_id = ?1",
+                params![task_id.to_string()],
+            )
+            .await?;
+
+        let Some(row) = rows.next().await? else {
+            return Ok(None);
+        };
+
+        let commits_json: Option<String> = row.get::<Option<String>>(0)?;
+        let tests_json: Option<String> = row.get::<Option<String>>(1)?;
+        let files_changed: Option<i64> = row.get::<Option<i64>>(2)?;
+        let insertions: Option<i64> = row.get::<Option<i64>>(3)?;
+        let deletions: Option<i64> = row.get::<Option<i64>>(4)?;
+        let review_iters: Option<i64> = row.get::<Option<i64>>(5)?;
+
+        let commits: Vec<String> = commits_json
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?
+            .unwrap_or_default();
+        let tests: Vec<String> = tests_json
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?
+            .unwrap_or_default();
+
+        Ok(Some(Evidence {
+            commits,
+            tests,
+            prs: Vec::new(),
+            files_changed: files_changed.map(|v| v as u32),
+            insertions: insertions.map(|v| v as u32),
+            deletions: deletions.map(|v| v as u32),
+            review_iterations: review_iters.map(|v| v as u32),
+            workspace_changes: None,
+        }))
+    }
+}
+
+// ── File lock repository (Teams mode) ───────────────────────────────
+
+/// Async repository for runtime file locks. Load-bearing for Teams-mode
+/// concurrency: `acquire` on an already-locked file returns
+/// `DbError::Constraint`.
+pub struct FileLockRepo {
+    conn: Connection,
+}
+
+impl FileLockRepo {
+    pub fn new(conn: Connection) -> Self {
+        Self { conn }
+    }
+
+    /// Acquire a lock on a file for a task. Returns `DbError::Constraint`
+    /// if the file is already locked by another task.
+    pub async fn acquire(&self, file_path: &str, task_id: &str) -> Result<(), DbError> {
+        let res = self
+            .conn
+            .execute(
+                "INSERT INTO file_locks (file_path, task_id, locked_at) VALUES (?1, ?2, ?3)",
+                params![
+                    file_path.to_string(),
+                    task_id.to_string(),
+                    Utc::now().to_rfc3339(),
+                ],
+            )
+            .await;
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let msg = e.to_string();
+                let low = msg.to_lowercase();
+                if low.contains("unique constraint")
+                    || low.contains("constraint failed")
+                    || low.contains("primary key")
+                {
+                    Err(DbError::Constraint(format!(
+                        "file already locked: {file_path}"
+                    )))
+                } else {
+                    Err(DbError::LibSql(e))
+                }
+            }
+        }
+    }
+
+    /// Release locks held by a task. Returns number of rows deleted.
+    pub async fn release_for_task(&self, task_id: &str) -> Result<u64, DbError> {
+        let n = self
+            .conn
+            .execute(
+                "DELETE FROM file_locks WHERE task_id = ?1",
+                params![task_id.to_string()],
+            )
+            .await?;
+        Ok(n)
+    }
+
+    /// Release all locks (between waves). Returns number of rows deleted.
+    pub async fn release_all(&self) -> Result<u64, DbError> {
+        let n = self.conn.execute("DELETE FROM file_locks", ()).await?;
+        Ok(n)
+    }
+
+    /// Check if a file is locked. Returns the locking task_id if so.
+    pub async fn check(&self, file_path: &str) -> Result<Option<String>, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT task_id FROM file_locks WHERE file_path = ?1",
+                params![file_path.to_string()],
+            )
+            .await?;
+
+        if let Some(row) = rows.next().await? {
+            Ok(Some(row.get::<String>(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+// ── Phase progress repository ───────────────────────────────────────
+
+/// Async repository for worker-phase progress tracking.
+pub struct PhaseProgressRepo {
+    conn: Connection,
+}
+
+impl PhaseProgressRepo {
+    pub fn new(conn: Connection) -> Self {
+        Self { conn }
+    }
+
+    /// Get all completed phases for a task, in rowid (insertion) order.
+    pub async fn get_completed(&self, task_id: &str) -> Result<Vec<String>, DbError> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT phase FROM phase_progress WHERE task_id = ?1 AND status = 'done' ORDER BY rowid",
+                params![task_id.to_string()],
+            )
+            .await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push(row.get::<String>(0)?);
+        }
+        Ok(out)
+    }
+
+    /// Mark a phase as done.
+    pub async fn mark_done(&self, task_id: &str, phase: &str) -> Result<(), DbError> {
+        self.conn
+            .execute(
+                "INSERT INTO phase_progress (task_id, phase, status, completed_at)
+                 VALUES (?1, ?2, 'done', ?3)
+                 ON CONFLICT(task_id, phase) DO UPDATE SET
+                     status = 'done',
+                     completed_at = excluded.completed_at",
+                params![
+                    task_id.to_string(),
+                    phase.to_string(),
+                    Utc::now().to_rfc3339(),
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Reset all phase progress for a task. Returns number of rows deleted.
+    pub async fn reset(&self, task_id: &str) -> Result<u64, DbError> {
+        let n = self
+            .conn
+            .execute(
+                "DELETE FROM phase_progress WHERE task_id = ?1",
+                params![task_id.to_string()],
+            )
+            .await?;
+        Ok(n)
+    }
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -959,5 +1274,188 @@ mod tests {
         f.remove("src/a.rs", "fn-1.2").await.unwrap();
         let owners2 = f.list_for_file("src/a.rs").await.unwrap();
         assert_eq!(owners2, vec!["fn-1.1".to_string()]);
+    }
+
+    // ── RuntimeRepo ─────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn runtime_upsert_get_roundtrip() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = RuntimeRepo::new(conn.clone());
+        let now = Utc::now();
+        let state = RuntimeState {
+            task_id: "fn-1.1".to_string(),
+            assignee: Some("worker-1".to_string()),
+            claimed_at: Some(now),
+            completed_at: None,
+            duration_secs: Some(42),
+            blocked_reason: None,
+            baseline_rev: Some("abc123".to_string()),
+            final_rev: None,
+            retry_count: 2,
+        };
+        repo.upsert(&state).await.unwrap();
+
+        let got = repo.get("fn-1.1").await.unwrap().expect("should exist");
+        assert_eq!(got.task_id, "fn-1.1");
+        assert_eq!(got.assignee.as_deref(), Some("worker-1"));
+        assert_eq!(got.duration_secs, Some(42));
+        assert_eq!(got.baseline_rev.as_deref(), Some("abc123"));
+        assert_eq!(got.retry_count, 2);
+        assert!(got.claimed_at.is_some());
+        assert!(got.completed_at.is_none());
+
+        // Update (upsert) the same task.
+        let updated = RuntimeState {
+            retry_count: 3,
+            final_rev: Some("def456".to_string()),
+            ..state
+        };
+        repo.upsert(&updated).await.unwrap();
+        let got2 = repo.get("fn-1.1").await.unwrap().unwrap();
+        assert_eq!(got2.retry_count, 3);
+        assert_eq!(got2.final_rev.as_deref(), Some("def456"));
+    }
+
+    #[tokio::test]
+    async fn runtime_get_missing_returns_none() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = RuntimeRepo::new(conn.clone());
+        assert!(repo.get("does-not-exist").await.unwrap().is_none());
+    }
+
+    // ── EvidenceRepo ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn evidence_upsert_get_roundtrip() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = EvidenceRepo::new(conn.clone());
+        let ev = Evidence {
+            commits: vec!["abc123".to_string(), "def456".to_string()],
+            tests: vec!["cargo test".to_string(), "bash smoke.sh".to_string()],
+            prs: Vec::new(),
+            files_changed: Some(5),
+            insertions: Some(120),
+            deletions: Some(30),
+            review_iterations: Some(1),
+            workspace_changes: None,
+        };
+        repo.upsert("fn-1.1", &ev).await.unwrap();
+
+        let got = repo.get("fn-1.1").await.unwrap().expect("should exist");
+        assert_eq!(got.commits, vec!["abc123".to_string(), "def456".to_string()]);
+        assert_eq!(
+            got.tests,
+            vec!["cargo test".to_string(), "bash smoke.sh".to_string()]
+        );
+        assert_eq!(got.files_changed, Some(5));
+        assert_eq!(got.insertions, Some(120));
+        assert_eq!(got.deletions, Some(30));
+        assert_eq!(got.review_iterations, Some(1));
+    }
+
+    #[tokio::test]
+    async fn evidence_get_missing_returns_none() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = EvidenceRepo::new(conn.clone());
+        assert!(repo.get("nope").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn evidence_empty_vecs_roundtrip() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = EvidenceRepo::new(conn.clone());
+        let ev = Evidence {
+            commits: Vec::new(),
+            tests: Vec::new(),
+            prs: Vec::new(),
+            files_changed: None,
+            insertions: None,
+            deletions: None,
+            review_iterations: None,
+            workspace_changes: None,
+        };
+        repo.upsert("fn-2.1", &ev).await.unwrap();
+        let got = repo.get("fn-2.1").await.unwrap().unwrap();
+        assert!(got.commits.is_empty());
+        assert!(got.tests.is_empty());
+        assert_eq!(got.files_changed, None);
+    }
+
+    // ── FileLockRepo ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn file_lock_acquire_twice_conflicts() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = FileLockRepo::new(conn.clone());
+
+        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
+        let err = repo.acquire("src/a.rs", "fn-1.2").await.unwrap_err();
+        assert!(
+            matches!(err, DbError::Constraint(_)),
+            "expected Constraint, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn file_lock_release_for_task_and_check() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = FileLockRepo::new(conn.clone());
+
+        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
+        repo.acquire("src/b.rs", "fn-1.1").await.unwrap();
+        repo.acquire("src/c.rs", "fn-1.2").await.unwrap();
+
+        assert_eq!(
+            repo.check("src/a.rs").await.unwrap().as_deref(),
+            Some("fn-1.1")
+        );
+        assert!(repo.check("src/missing.rs").await.unwrap().is_none());
+
+        let n = repo.release_for_task("fn-1.1").await.unwrap();
+        assert_eq!(n, 2);
+        assert!(repo.check("src/a.rs").await.unwrap().is_none());
+        assert!(repo.check("src/b.rs").await.unwrap().is_none());
+        // fn-1.2 still holds its lock.
+        assert_eq!(
+            repo.check("src/c.rs").await.unwrap().as_deref(),
+            Some("fn-1.2")
+        );
+
+        // Re-acquiring a released file works.
+        repo.acquire("src/a.rs", "fn-1.3").await.unwrap();
+        assert_eq!(
+            repo.check("src/a.rs").await.unwrap().as_deref(),
+            Some("fn-1.3")
+        );
+
+        // release_all clears remaining locks.
+        let n2 = repo.release_all().await.unwrap();
+        assert_eq!(n2, 2);
+        assert!(repo.check("src/a.rs").await.unwrap().is_none());
+        assert!(repo.check("src/c.rs").await.unwrap().is_none());
+    }
+
+    // ── PhaseProgressRepo ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn phase_progress_mark_done_and_get() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = PhaseProgressRepo::new(conn.clone());
+
+        repo.mark_done("fn-1.1", "plan").await.unwrap();
+        repo.mark_done("fn-1.1", "implement").await.unwrap();
+
+        let phases = repo.get_completed("fn-1.1").await.unwrap();
+        assert_eq!(phases, vec!["plan".to_string(), "implement".to_string()]);
+
+        // Idempotent re-mark.
+        repo.mark_done("fn-1.1", "plan").await.unwrap();
+        let phases2 = repo.get_completed("fn-1.1").await.unwrap();
+        assert_eq!(phases2.len(), 2);
+
+        let n = repo.reset("fn-1.1").await.unwrap();
+        assert_eq!(n, 2);
+        assert!(repo.get_completed("fn-1.1").await.unwrap().is_empty());
     }
 }

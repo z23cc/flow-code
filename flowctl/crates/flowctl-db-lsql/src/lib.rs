@@ -25,7 +25,10 @@ pub mod repo;
 
 pub use error::DbError;
 pub use pool::{open_async, open_memory_async, resolve_libsql_path};
-pub use repo::{DepRepo, EpicRepo, FileOwnershipRepo, TaskRepo};
+pub use repo::{
+    DepRepo, EpicRepo, EvidenceRepo, FileLockRepo, FileOwnershipRepo, PhaseProgressRepo,
+    RuntimeRepo, TaskRepo,
+};
 
 // Re-export libsql types for callers.
 pub use libsql::{Connection, Database};

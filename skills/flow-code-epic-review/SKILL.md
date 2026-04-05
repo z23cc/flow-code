@@ -96,6 +96,25 @@ Parse $ARGUMENTS for:
 - `--review=<backend>` → backend override
 - Remaining args → focus areas
 
+### Step 0b: Auto-run epic audit (advisory)
+
+Before invoking the human review backend, generate (or reuse) an
+epic-audit receipt. This is advisory context only — the audit NEVER
+blocks review and its recommendations are not treated as fix-required.
+
+```bash
+AUDIT_OUT=$($FLOWCTL epic audit "$EPIC_ID" --json 2>/dev/null || true)
+AUDIT_RECEIPT=$(echo "$AUDIT_OUT" | grep -o '"receipt_path"[^,}]*' | cut -d'"' -f4)
+```
+
+If `$AUDIT_RECEIPT` exists, read it and surface the summary (coverage
+score, top gaps) as part of the review context passed to the backend.
+If a receipt <24h old exists the command reuses it automatically; pass
+`--force` only when the task list changed materially since last audit.
+
+The auditor's `recommendations` are advisory notes, NOT blocking
+findings. Do not enter the fix loop based on audit output alone.
+
 ### Step 1: Detect Backend
 
 Run backend detection from SKILL.md above. Then branch:

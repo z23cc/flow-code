@@ -435,6 +435,8 @@ Continue until SHIP verdict. Save final `REVIEW_ITERATIONS` count for Phase 5 ev
 <!-- section:core -->
 ## Phase 5: Complete
 
+**Prerequisite:** Phase 5c (Outputs Dump) must have run if `outputs.enabled=true`. The phase registry orders 5c before 5 so the narrative handoff file exists before dependents unblock.
+
 **Verify before completing:**
 ```bash
 <FLOWCTL> guard
@@ -519,9 +521,11 @@ Status MUST be `done`. If not:
 <!-- section:outputs -->
 ## Phase 5c: Outputs Dump (if outputs.enabled)
 
+**Runs BEFORE Phase 5 completion.** Phase 5c must produce the handoff artifact before `flowctl done` fires, otherwise a dependent task can start re-anchoring and race past the missing file. The phase registry in `flowctl-cli/src/commands/workflow/phase.rs` enforces this ordering (5c before 5).
+
 **Skip if `outputs.enabled` is false.** This is gated on its own config key — independent from `memory.enabled`. Outputs are a lightweight narrative handoff layer (plain markdown, no verification), separate from the verified memory system.
 
-After completing the task, write a ≤200-word narrative dump to `.flow/outputs/<TASK_ID>.md` for the next worker in this epic:
+Write a ≤200-word narrative dump to `.flow/outputs/<TASK_ID>.md` for the next worker in this epic:
 
 ```bash
 # Check if outputs is enabled (default: true)

@@ -181,6 +181,7 @@ impl ApprovalStore for LibSqlApprovalStore {
     }
 
     async fn approve(&self, id: &str, resolver: Option<String>) -> ServiceResult<Approval> {
+        // Pre-check for better error messages; authoritative guard is the UPDATE below.
         let existing = self.load_row(id).await?;
         if existing.status != ApprovalStatus::Pending {
             return Err(ServiceError::InvalidTransition(format!(
@@ -189,7 +190,8 @@ impl ApprovalStore for LibSqlApprovalStore {
             )));
         }
         let now = Utc::now().timestamp();
-        self.conn
+        let affected = self
+            .conn
             .execute(
                 "UPDATE approvals SET status = 'approved', resolved_at = ?1, resolver = ?2
                  WHERE id = ?3 AND status = 'pending'",
@@ -197,6 +199,12 @@ impl ApprovalStore for LibSqlApprovalStore {
             )
             .await
             .map_err(|e| ServiceError::ValidationError(format!("update failed: {e}")))?;
+        if affected == 0 {
+            // Lost a race with another resolver — the row is no longer pending.
+            return Err(ServiceError::InvalidTransition(format!(
+                "approval {id} was resolved concurrently"
+            )));
+        }
         self.load_row(id).await
     }
 
@@ -206,6 +214,7 @@ impl ApprovalStore for LibSqlApprovalStore {
         resolver: Option<String>,
         reason: Option<String>,
     ) -> ServiceResult<Approval> {
+        // Pre-check for better error messages; authoritative guard is the UPDATE below.
         let existing = self.load_row(id).await?;
         if existing.status != ApprovalStatus::Pending {
             return Err(ServiceError::InvalidTransition(format!(
@@ -214,7 +223,8 @@ impl ApprovalStore for LibSqlApprovalStore {
             )));
         }
         let now = Utc::now().timestamp();
-        self.conn
+        let affected = self
+            .conn
             .execute(
                 "UPDATE approvals SET status = 'rejected', resolved_at = ?1, resolver = ?2, reason = ?3
                  WHERE id = ?4 AND status = 'pending'",
@@ -222,6 +232,12 @@ impl ApprovalStore for LibSqlApprovalStore {
             )
             .await
             .map_err(|e| ServiceError::ValidationError(format!("update failed: {e}")))?;
+        if affected == 0 {
+            // Lost a race with another resolver — the row is no longer pending.
+            return Err(ServiceError::InvalidTransition(format!(
+                "approval {id} was resolved concurrently"
+            )));
+        }
         self.load_row(id).await
     }
 }

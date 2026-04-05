@@ -67,10 +67,12 @@ const PHASE_DEFS: &[PhaseDef] = &[
 ];
 
 /// Canonical ordering of all phases — used to merge sequences.
-const CANONICAL_ORDER: &[&str] = &["0", "1", "2a", "2", "2.5", "3", "4", "5", "5c", "5b", "6"];
+/// Phase 5c (outputs dump) runs BEFORE 5 (completion) so the narrative
+/// handoff artifact exists before dependents unblock and begin re-anchor.
+const CANONICAL_ORDER: &[&str] = &["0", "1", "2a", "2", "2.5", "3", "4", "5c", "5", "5b", "6"];
 
 /// Default phase sequence (Worktree + Teams, always includes Phase 0).
-/// Phase 5c is appended when `outputs.enabled` is true (default).
+/// Phase 5c is inserted before 5 when `outputs.enabled` is true (default).
 const PHASE_SEQ_DEFAULT: &[&str] = &["0", "1", "2", "2.5", "3", "5", "5b", "6"];
 const PHASE_SEQ_TDD: &[&str]    = &["0", "1", "2a", "2", "2.5", "3", "5", "5b", "6"];
 const PHASE_SEQ_REVIEW: &[&str] = &["0", "1", "2", "2.5", "3", "4", "5", "5b", "6"];

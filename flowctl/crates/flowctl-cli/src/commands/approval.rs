@@ -95,10 +95,28 @@ pub fn dispatch(cmd: &ApprovalCmd, json: bool) {
 // ── Transport resolution ────────────────────────────────────────────
 
 fn flow_state_dir() -> PathBuf {
-    env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(FLOW_DIR)
-        .join(STATE_DIR)
+    find_flow_dir().join(STATE_DIR)
+}
+
+/// Walk up from cwd to locate the nearest `.flow/` directory. Falls back to
+/// `./.flow` if none found (fresh repo). This matches how other tools resolve
+/// project roots (walk up until `.git`) and avoids the subdirectory pitfall
+/// where `flowctl approval ...` was bypassing the daemon when run from a
+/// crate folder.
+fn find_flow_dir() -> PathBuf {
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut cursor: &Path = &cwd;
+    loop {
+        let candidate = cursor.join(FLOW_DIR);
+        if candidate.is_dir() {
+            return candidate;
+        }
+        match cursor.parent() {
+            Some(parent) => cursor = parent,
+            None => break,
+        }
+    }
+    cwd.join(FLOW_DIR)
 }
 
 /// Where the daemon writes its PID + socket.

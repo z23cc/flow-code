@@ -58,6 +58,9 @@ pub fn resolve_libsql_path(working_dir: &Path) -> Result<PathBuf, DbError> {
 }
 
 /// Apply production PRAGMAs to a libSQL connection.
+///
+/// Some PRAGMAs (journal_mode, synchronous) return a row reporting the
+/// resulting value, so we must use `query()` rather than `execute()`.
 async fn apply_pragmas(conn: &Connection) -> Result<(), DbError> {
     for pragma in [
         "PRAGMA journal_mode = WAL",
@@ -66,9 +69,17 @@ async fn apply_pragmas(conn: &Connection) -> Result<(), DbError> {
         "PRAGMA foreign_keys = ON",
         "PRAGMA wal_autocheckpoint = 1000",
     ] {
-        conn.execute(pragma, ())
+        // query() handles both row-returning and no-row PRAGMAs.
+        let mut rows = conn
+            .query(pragma, ())
             .await
             .map_err(|e| DbError::Schema(format!("pragma {pragma}: {e}")))?;
+        // Drain any result rows.
+        while let Some(_row) = rows
+            .next()
+            .await
+            .map_err(|e| DbError::Schema(format!("pragma {pragma} drain: {e}")))?
+        {}
     }
     Ok(())
 }

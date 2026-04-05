@@ -11,11 +11,11 @@ use flowctl_service::lifecycle::{
     BlockTaskRequest, DoneTaskRequest, FailTaskRequest, RestartTaskRequest, StartTaskRequest,
 };
 
-use super::{ensure_flow_exists, resolve_actor, try_open_db};
+use super::{block_on, ensure_flow_exists, resolve_actor, try_open_lsql_conn};
 
 pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_db();
+    let conn = try_open_lsql_conn();
     let actor = resolve_actor();
 
     let req = StartTaskRequest {
@@ -24,7 +24,7 @@ pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>
         actor,
     };
 
-    match flowctl_service::lifecycle::start_task(conn.as_ref(), &flow_dir, req) {
+    match block_on(flowctl_service::lifecycle::start_task(conn.as_ref(), &flow_dir, req)) {
         Ok(resp) => {
             if json_mode {
                 json_output(json!({
@@ -50,7 +50,7 @@ pub fn cmd_done(
     force: bool,
 ) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_db();
+    let conn = try_open_lsql_conn();
     let actor = resolve_actor();
 
     let req = DoneTaskRequest {
@@ -63,7 +63,7 @@ pub fn cmd_done(
         actor,
     };
 
-    match flowctl_service::lifecycle::done_task(conn.as_ref(), &flow_dir, req) {
+    match block_on(flowctl_service::lifecycle::done_task(conn.as_ref(), &flow_dir, req)) {
         Ok(resp) => {
             if json_mode {
                 let mut result = json!({
@@ -100,14 +100,14 @@ pub fn cmd_done(
 
 pub fn cmd_block(json_mode: bool, id: String, reason: String) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_db();
+    let conn = try_open_lsql_conn();
 
     let req = BlockTaskRequest {
         task_id: id.clone(),
         reason,
     };
 
-    match flowctl_service::lifecycle::block_task(conn.as_ref(), &flow_dir, req) {
+    match block_on(flowctl_service::lifecycle::block_task(conn.as_ref(), &flow_dir, req)) {
         Ok(resp) => {
             if json_mode {
                 json_output(json!({
@@ -125,7 +125,7 @@ pub fn cmd_block(json_mode: bool, id: String, reason: String) {
 
 pub fn cmd_fail(json_mode: bool, id: String, reason: Option<String>, force: bool) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_db();
+    let conn = try_open_lsql_conn();
 
     let req = FailTaskRequest {
         task_id: id.clone(),
@@ -133,7 +133,7 @@ pub fn cmd_fail(json_mode: bool, id: String, reason: Option<String>, force: bool
         force,
     };
 
-    match flowctl_service::lifecycle::fail_task(conn.as_ref(), &flow_dir, req) {
+    match block_on(flowctl_service::lifecycle::fail_task(conn.as_ref(), &flow_dir, req)) {
         Ok(resp) => {
             if json_mode {
                 let mut result = json!({
@@ -170,7 +170,7 @@ pub fn cmd_fail(json_mode: bool, id: String, reason: Option<String>, force: bool
 
 pub fn cmd_restart(json_mode: bool, id: String, dry_run: bool, force: bool) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_db();
+    let conn = try_open_lsql_conn();
 
     let req = RestartTaskRequest {
         task_id: id.clone(),
@@ -178,7 +178,7 @@ pub fn cmd_restart(json_mode: bool, id: String, dry_run: bool, force: bool) {
         force,
     };
 
-    match flowctl_service::lifecycle::restart_task(conn.as_ref(), &flow_dir, req) {
+    match block_on(flowctl_service::lifecycle::restart_task(conn.as_ref(), &flow_dir, req)) {
         Ok(resp) => {
             if dry_run {
                 if json_mode {

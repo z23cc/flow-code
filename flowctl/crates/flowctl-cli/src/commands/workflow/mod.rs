@@ -44,6 +44,29 @@ pub(crate) fn try_open_db() -> Option<rusqlite::Connection> {
     flowctl_db::open(&cwd).ok()
 }
 
+/// Try to open a libSQL async DB connection (for service-layer calls).
+pub(crate) fn try_open_lsql_conn() -> Option<libsql::Connection> {
+    let cwd = env::current_dir().ok()?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    rt.block_on(async {
+        let db = flowctl_db_lsql::open_async(&cwd).await.ok()?;
+        db.connect().ok()
+    })
+}
+
+/// Block the current thread on a future (for invoking async service calls
+/// from sync CLI code).
+pub(crate) fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to create tokio runtime");
+    rt.block_on(fut)
+}
+
 /// Load a single epic from Markdown frontmatter.
 fn load_epic_md(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
     let epic_path = flow_dir.join(EPICS_DIR).join(format!("{}.md", epic_id));

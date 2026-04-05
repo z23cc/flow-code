@@ -20,16 +20,20 @@ pub async fn create_epic_handler(
         return Err(AppError::InvalidInput("title is required".to_string()));
     }
 
-    let conn = state.db_lock()?;
+    let conn = state.db.clone();
 
     // Determine next epic number from DB.
-    let max_num: i64 = conn
-        .query_row(
+    let mut rows = conn
+        .query(
             "SELECT COALESCE(MAX(CAST(SUBSTR(id, 4, INSTR(SUBSTR(id, 4), '-') - 1) AS INTEGER)), 0) FROM epics WHERE id LIKE 'fn-%'",
-            [],
-            |row| row.get(0),
+            (),
         )
-        .unwrap_or(0);
+        .await
+        .map_err(|e| AppError::Db(e.to_string()))?;
+    let max_num: i64 = match rows.next().await.map_err(|e| AppError::Db(e.to_string()))? {
+        Some(row) => row.get::<i64>(0).unwrap_or(0),
+        None => 0,
+    };
     let epic_num = (max_num + 1) as u32;
 
     let slug = slugify(&title, 40).unwrap_or_else(|| format!("epic{epic_num}"));
@@ -52,8 +56,8 @@ pub async fn create_epic_handler(
         updated_at: chrono::Utc::now(),
     };
 
-    let repo = flowctl_db::EpicRepo::new(&conn);
-    repo.upsert(&epic)?;
+    let repo = flowctl_db_lsql::EpicRepo::new(conn);
+    repo.upsert(&epic).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -69,16 +73,21 @@ pub async fn set_epic_plan_handler(
     axum::extract::Path(epic_id): axum::extract::Path<String>,
     Json(body): Json<SetPlanRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::EpicRepo::new(&conn);
+    let conn = state.db.clone();
+    let repo = flowctl_db_lsql::EpicRepo::new(conn.clone());
 
     // Verify epic exists.
-    let epic = repo.get(&epic_id)
-        .map_err(|_| AppError::InvalidInput(format!("epic not found: {epic_id}")))?;
+    let epic = repo
+        .get(&epic_id)
+        .await
+        .map_err(|_| AppError::NotFound(format!("epic not found: {epic_id}")))?;
 
     // Write plan to the epic's file in the .flow directory.
-    let flow_dir = state.runtime.paths.state_dir
-        .parent() // .flow/
+    let flow_dir = state
+        .runtime
+        .paths
+        .state_dir
+        .parent()
         .ok_or_else(|| AppError::Internal("cannot resolve .flow/ directory".to_string()))?;
 
     if let Some(ref file_path) = epic.file_path {
@@ -94,8 +103,10 @@ pub async fn set_epic_plan_handler(
     // Touch updated_at.
     conn.execute(
         "UPDATE epics SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![chrono::Utc::now().to_rfc3339(), epic_id],
-    ).map_err(|e| AppError::Db(e.to_string()))?;
+        libsql::params![chrono::Utc::now().to_rfc3339(), epic_id.clone()],
+    )
+    .await
+    .map_err(|e| AppError::Db(e.to_string()))?;
 
     state.event_bus.emit(FlowEvent::EpicUpdated {
         epic_id: epic_id.clone(),
@@ -111,16 +122,18 @@ pub async fn start_epic_work_handler(
     State(state): State<AppState>,
     axum::extract::Path(epic_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let epic_repo = flowctl_db::EpicRepo::new(&conn);
+    let conn = state.db.clone();
+    let epic_repo = flowctl_db_lsql::EpicRepo::new(conn.clone());
 
     // Verify epic exists.
-    let _epic = epic_repo.get(&epic_id)
-        .map_err(|_| AppError::InvalidInput(format!("epic not found: {epic_id}")))?;
+    let _epic = epic_repo
+        .get(&epic_id)
+        .await
+        .map_err(|_| AppError::NotFound(format!("epic not found: {epic_id}")))?;
 
     // Precondition: epic must have tasks.
-    let task_repo = flowctl_db::TaskRepo::new(&conn);
-    let tasks = task_repo.list_by_epic(&epic_id)?;
+    let task_repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let tasks = task_repo.list_by_epic(&epic_id).await?;
     if tasks.is_empty() {
         return Err(AppError::InvalidInput(format!(
             "epic {epic_id} has no tasks — cannot start work"
@@ -128,21 +141,28 @@ pub async fn start_epic_work_handler(
     }
 
     // Count tasks that are in todo status and start them.
-    let todo_tasks: Vec<_> = tasks.iter().filter(|t| {
-        matches!(t.status, flowctl_core::state_machine::Status::Todo)
-    }).collect();
+    let todo_tasks: Vec<_> = tasks
+        .iter()
+        .filter(|t| matches!(t.status, flowctl_core::state_machine::Status::Todo))
+        .collect();
 
     // Mark the first wave of ready tasks (those with no unsatisfied deps) as in_progress.
     let mut tasks_started = 0u32;
     for task in &todo_tasks {
         let deps_satisfied = task.depends_on.iter().all(|dep_id| {
-            tasks.iter().any(|t| t.id == *dep_id && matches!(
-                t.status,
-                flowctl_core::state_machine::Status::Done | flowctl_core::state_machine::Status::Skipped
-            ))
+            tasks.iter().any(|t| {
+                t.id == *dep_id
+                    && matches!(
+                        t.status,
+                        flowctl_core::state_machine::Status::Done
+                            | flowctl_core::state_machine::Status::Skipped
+                    )
+            })
         });
         if deps_satisfied {
-            task_repo.update_status(&task.id, flowctl_core::state_machine::Status::InProgress)?;
+            task_repo
+                .update_status(&task.id, flowctl_core::state_machine::Status::InProgress)
+                .await?;
             tasks_started += 1;
         }
     }

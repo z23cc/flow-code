@@ -81,6 +81,7 @@ trycmd = "0.15"
 # Internal crate references
 flowctl-core = { path = "crates/flowctl-core" }
 flowctl-db = { path = "crates/flowctl-db" }
+flowctl-db-lsql = { path = "crates/flowctl-db-lsql" }
 flowctl-scheduler = { path = "crates/flowctl-scheduler" }
 flowctl-service = { path = "crates/flowctl-service" }
 

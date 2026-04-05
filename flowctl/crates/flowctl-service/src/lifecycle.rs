@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use chrono::Utc;
-use rusqlite::Connection;
+use libsql::Connection;
 
 use flowctl_core::frontmatter;
 use flowctl_core::id::{epic_id_from_task, is_task_id};
@@ -112,10 +112,10 @@ fn validate_task_id(id: &str) -> ServiceResult<()> {
 }
 
 /// Load a task, trying DB first then Markdown.
-fn load_task(conn: Option<&Connection>, flow_dir: &Path, task_id: &str) -> Option<Task> {
+async fn load_task(conn: Option<&Connection>, flow_dir: &Path, task_id: &str) -> Option<Task> {
     if let Some(conn) = conn {
-        let repo = flowctl_db::TaskRepo::new(conn);
-        if let Ok(task) = repo.get(task_id) {
+        let repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+        if let Ok(task) = repo.get(task_id).await {
             return Some(task);
         }
     }
@@ -131,10 +131,10 @@ fn load_task_md(flow_dir: &Path, task_id: &str) -> Option<Task> {
     frontmatter::parse_frontmatter::<Task>(&content).ok()
 }
 
-fn load_epic(conn: Option<&Connection>, flow_dir: &Path, epic_id: &str) -> Option<Epic> {
+async fn load_epic(conn: Option<&Connection>, flow_dir: &Path, epic_id: &str) -> Option<Epic> {
     if let Some(conn) = conn {
-        let repo = flowctl_db::EpicRepo::new(conn);
-        if let Ok(epic) = repo.get(epic_id) {
+        let repo = flowctl_db_lsql::EpicRepo::new(conn.clone());
+        if let Ok(epic) = repo.get(epic_id).await {
             return Some(epic);
         }
     }
@@ -146,14 +146,14 @@ fn load_epic(conn: Option<&Connection>, flow_dir: &Path, epic_id: &str) -> Optio
     frontmatter::parse_frontmatter::<Epic>(&content).ok()
 }
 
-fn get_runtime(conn: Option<&Connection>, task_id: &str) -> Option<RuntimeState> {
+async fn get_runtime(conn: Option<&Connection>, task_id: &str) -> Option<RuntimeState> {
     let conn = conn?;
-    let repo = flowctl_db::RuntimeRepo::new(conn);
-    repo.get(task_id).ok().flatten()
+    let repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
+    repo.get(task_id).await.ok().flatten()
 }
 
 /// Load all tasks for an epic, trying DB first then Markdown.
-fn load_tasks_for_epic(
+async fn load_tasks_for_epic(
     conn: Option<&Connection>,
     flow_dir: &Path,
     epic_id: &str,
@@ -161,8 +161,8 @@ fn load_tasks_for_epic(
     use std::collections::HashMap;
 
     if let Some(conn) = conn {
-        let task_repo = flowctl_db::TaskRepo::new(conn);
-        if let Ok(tasks) = task_repo.list_by_epic(epic_id) {
+        let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+        if let Ok(tasks) = task_repo.list_by_epic(epic_id).await {
             if !tasks.is_empty() {
                 let mut map = HashMap::new();
                 for task in tasks {
@@ -207,7 +207,7 @@ fn load_tasks_for_epic(
 }
 
 /// Find all downstream dependents of a task within the same epic.
-fn find_dependents(
+async fn find_dependents(
     conn: Option<&Connection>,
     flow_dir: &Path,
     task_id: &str,
@@ -217,7 +217,7 @@ fn find_dependents(
         Err(_) => return Vec::new(),
     };
 
-    let tasks = load_tasks_for_epic(conn, flow_dir, &epic_id);
+    let tasks = load_tasks_for_epic(conn, flow_dir, &epic_id).await;
     let mut dependents = Vec::new();
     let mut visited = std::collections::HashSet::new();
     let mut queue = vec![task_id.to_string()];
@@ -253,7 +253,7 @@ fn get_max_retries(flow_dir: &Path) -> u32 {
 }
 
 /// Propagate upstream_failed to all transitive downstream tasks.
-fn propagate_upstream_failure(
+async fn propagate_upstream_failure(
     conn: Option<&Connection>,
     flow_dir: &Path,
     failed_id: &str,
@@ -263,7 +263,7 @@ fn propagate_upstream_failure(
         Err(_) => return Vec::new(),
     };
 
-    let tasks = load_tasks_for_epic(conn, flow_dir, &epic_id);
+    let tasks = load_tasks_for_epic(conn, flow_dir, &epic_id).await;
     let task_list: Vec<Task> = tasks.values().cloned().collect();
 
     let dag = match flowctl_core::TaskDag::from_tasks(&task_list) {
@@ -286,8 +286,8 @@ fn propagate_upstream_failure(
 
         // Update SQLite
         if let Some(conn) = conn {
-            let task_repo = flowctl_db::TaskRepo::new(conn);
-            let _ = task_repo.update_status(tid, Status::UpstreamFailed);
+            let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+            let _ = task_repo.update_status(tid, Status::UpstreamFailed).await;
         }
 
         // Update Markdown frontmatter
@@ -311,7 +311,7 @@ fn propagate_upstream_failure(
 }
 
 /// Handle task failure: check retries, set up_for_retry or failed + propagate.
-fn handle_task_failure(
+async fn handle_task_failure(
     conn: Option<&Connection>,
     flow_dir: &Path,
     task_id: &str,
@@ -324,10 +324,10 @@ fn handle_task_failure(
         let new_retry_count = current_retry_count + 1;
 
         if let Some(conn) = conn {
-            let task_repo = flowctl_db::TaskRepo::new(conn);
-            let _ = task_repo.update_status(task_id, Status::UpForRetry);
+            let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+            let _ = task_repo.update_status(task_id, Status::UpForRetry).await;
 
-            let runtime_repo = flowctl_db::RuntimeRepo::new(conn);
+            let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
             let rt = RuntimeState {
                 task_id: task_id.to_string(),
                 assignee: runtime.as_ref().and_then(|r| r.assignee.clone()),
@@ -339,7 +339,7 @@ fn handle_task_failure(
                 final_rev: None,
                 retry_count: new_retry_count,
             };
-            let _ = runtime_repo.upsert(&rt);
+            let _ = runtime_repo.upsert(&rt).await;
         }
 
         let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
@@ -358,8 +358,8 @@ fn handle_task_failure(
         (Status::UpForRetry, Vec::new())
     } else {
         if let Some(conn) = conn {
-            let task_repo = flowctl_db::TaskRepo::new(conn);
-            let _ = task_repo.update_status(task_id, Status::Failed);
+            let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+            let _ = task_repo.update_status(task_id, Status::Failed).await;
         }
 
         let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
@@ -375,7 +375,7 @@ fn handle_task_failure(
             }
         }
 
-        let affected = propagate_upstream_failure(conn, flow_dir, task_id);
+        let affected = propagate_upstream_failure(conn, flow_dir, task_id).await;
         (Status::Failed, affected)
     }
 }
@@ -415,21 +415,21 @@ fn get_md_section(doc: &str, heading: &str) -> String {
 // ── Service functions ──────────────────────────────────────────────
 
 /// Start a task: validate deps, state machine, actor, update DB + Markdown.
-pub fn start_task(
+pub async fn start_task(
     conn: Option<&Connection>,
     flow_dir: &Path,
     req: StartTaskRequest,
 ) -> ServiceResult<StartTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(conn, flow_dir, &req.task_id).ok_or_else(|| {
+    let task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
     // Validate dependencies unless --force
     if !req.force {
         for dep in &task.depends_on {
-            let dep_task = load_task(conn, flow_dir, dep).ok_or_else(|| {
+            let dep_task = load_task(conn, flow_dir, dep).await.ok_or_else(|| {
                 ServiceError::DependencyUnsatisfied {
                     task: req.task_id.clone(),
                     dependency: format!("{} not found", dep),
@@ -444,7 +444,7 @@ pub fn start_task(
         }
     }
 
-    let existing_rt = get_runtime(conn, &req.task_id);
+    let existing_rt = get_runtime(conn, &req.task_id).await;
     let existing_assignee = existing_rt.as_ref().and_then(|rt| rt.assignee.clone());
 
     // Validate state machine transition (unless --force)
@@ -527,13 +527,15 @@ pub fn start_task(
 
     // Write SQLite (authoritative)
     if let Some(conn) = conn {
-        let task_repo = flowctl_db::TaskRepo::new(conn);
+        let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
         task_repo
             .update_status(&req.task_id, Status::InProgress)
+            .await
             .map_err(ServiceError::from)?;
-        let runtime_repo = flowctl_db::RuntimeRepo::new(conn);
+        let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
         runtime_repo
             .upsert(&runtime_state)
+            .await
             .map_err(ServiceError::from)?;
     }
 
@@ -558,14 +560,14 @@ pub fn start_task(
 }
 
 /// Complete a task: validate status/actor, collect evidence, update DB + Markdown.
-pub fn done_task(
+pub async fn done_task(
     conn: Option<&Connection>,
     flow_dir: &Path,
     req: DoneTaskRequest,
 ) -> ServiceResult<DoneTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(conn, flow_dir, &req.task_id).ok_or_else(|| {
+    let task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
@@ -589,7 +591,7 @@ pub fn done_task(
     }
 
     // Prevent cross-actor completion (unless --force)
-    let runtime = get_runtime(conn, &req.task_id);
+    let runtime = get_runtime(conn, &req.task_id).await;
     if !req.force {
         if let Some(ref rt) = runtime {
             if let Some(ref assignee) = rt.assignee {
@@ -755,10 +757,10 @@ pub fn done_task(
 
     // Write SQLite (authoritative)
     if let Some(conn) = conn {
-        let task_repo = flowctl_db::TaskRepo::new(conn);
-        let _ = task_repo.update_status(&req.task_id, Status::Done);
+        let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+        let _ = task_repo.update_status(&req.task_id, Status::Done).await;
 
-        let runtime_repo = flowctl_db::RuntimeRepo::new(conn);
+        let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
         let now = Utc::now();
         let rt = RuntimeState {
             task_id: req.task_id.clone(),
@@ -771,7 +773,7 @@ pub fn done_task(
             final_rev: runtime.as_ref().and_then(|r| r.final_rev.clone()),
             retry_count: runtime.as_ref().map(|r| r.retry_count).unwrap_or(0),
         };
-        let _ = runtime_repo.upsert(&rt);
+        let _ = runtime_repo.upsert(&rt).await;
 
         let ev = Evidence {
             commits: commits.clone(),
@@ -779,8 +781,8 @@ pub fn done_task(
             prs: prs.clone(),
             ..Evidence::default()
         };
-        let evidence_repo = flowctl_db::EvidenceRepo::new(conn);
-        let _ = evidence_repo.upsert(&req.task_id, &ev);
+        let evidence_repo = flowctl_db_lsql::EvidenceRepo::new(conn.clone());
+        let _ = evidence_repo.upsert(&req.task_id, &ev).await;
     }
 
     // Update Markdown spec
@@ -836,14 +838,14 @@ pub fn done_task(
 }
 
 /// Block a task: validate status, read reason, update DB + Markdown.
-pub fn block_task(
+pub async fn block_task(
     conn: Option<&Connection>,
     flow_dir: &Path,
     req: BlockTaskRequest,
 ) -> ServiceResult<BlockTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(conn, flow_dir, &req.task_id).ok_or_else(|| {
+    let task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
@@ -864,11 +866,11 @@ pub fn block_task(
 
     // Write SQLite (authoritative)
     if let Some(conn) = conn {
-        let task_repo = flowctl_db::TaskRepo::new(conn);
-        let _ = task_repo.update_status(&req.task_id, Status::Blocked);
+        let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+        let _ = task_repo.update_status(&req.task_id, Status::Blocked).await;
 
-        let runtime_repo = flowctl_db::RuntimeRepo::new(conn);
-        let existing = runtime_repo.get(&req.task_id).ok().flatten();
+        let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
+        let existing = runtime_repo.get(&req.task_id).await.ok().flatten();
         let rt = RuntimeState {
             task_id: req.task_id.clone(),
             assignee: existing.as_ref().and_then(|r| r.assignee.clone()),
@@ -880,7 +882,7 @@ pub fn block_task(
             final_rev: None,
             retry_count: existing.as_ref().map(|r| r.retry_count).unwrap_or(0),
         };
-        let _ = runtime_repo.upsert(&rt);
+        let _ = runtime_repo.upsert(&rt).await;
     }
 
     // Update Markdown spec
@@ -919,14 +921,14 @@ pub fn block_task(
 }
 
 /// Fail a task: check retries, propagate upstream failure, update DB + Markdown.
-pub fn fail_task(
+pub async fn fail_task(
     conn: Option<&Connection>,
     flow_dir: &Path,
     req: FailTaskRequest,
 ) -> ServiceResult<FailTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(conn, flow_dir, &req.task_id).ok_or_else(|| {
+    let task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
@@ -937,11 +939,11 @@ pub fn fail_task(
         )));
     }
 
-    let runtime = get_runtime(conn, &req.task_id);
+    let runtime = get_runtime(conn, &req.task_id).await;
     let reason_text = req.reason.unwrap_or_else(|| "Task failed".to_string());
 
     let (final_status, upstream_failed_ids) =
-        handle_task_failure(conn, flow_dir, &req.task_id, &runtime);
+        handle_task_failure(conn, flow_dir, &req.task_id, &runtime).await;
 
     // Update Done summary with failure reason
     let task_spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", req.task_id));
@@ -978,20 +980,20 @@ pub fn fail_task(
 }
 
 /// Restart a task and cascade to all downstream dependents.
-pub fn restart_task(
+pub async fn restart_task(
     conn: Option<&Connection>,
     flow_dir: &Path,
     req: RestartTaskRequest,
 ) -> ServiceResult<RestartTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let _task = load_task(conn, flow_dir, &req.task_id).ok_or_else(|| {
+    let _task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
     // Check epic not closed
     if let Ok(epic_id) = epic_id_from_task(&req.task_id) {
-        if let Some(epic) = load_epic(conn, flow_dir, &epic_id) {
+        if let Some(epic) = load_epic(conn, flow_dir, &epic_id).await {
             if epic.status == EpicStatus::Done {
                 return Err(ServiceError::ValidationError(format!(
                     "Cannot restart task in closed epic {}",
@@ -1002,7 +1004,7 @@ pub fn restart_task(
     }
 
     // Find all downstream dependents
-    let dependents = find_dependents(conn, flow_dir, &req.task_id);
+    let dependents = find_dependents(conn, flow_dir, &req.task_id).await;
 
     // Check for in_progress tasks
     let mut in_progress_ids = Vec::new();
@@ -1010,7 +1012,7 @@ pub fn restart_task(
         in_progress_ids.push(req.task_id.clone());
     }
     for dep_id in &dependents {
-        if let Some(dep_task) = load_task(conn, flow_dir, dep_id) {
+        if let Some(dep_task) = load_task(conn, flow_dir, dep_id).await {
             if dep_task.status == Status::InProgress {
                 in_progress_ids.push(dep_id.clone());
             }
@@ -1032,7 +1034,7 @@ pub fn restart_task(
     let mut skipped = Vec::new();
 
     for tid in &all_ids {
-        let t = match load_task(conn, flow_dir, tid) {
+        let t = match load_task(conn, flow_dir, tid).await {
             Some(t) => t,
             None => continue,
         };
@@ -1061,10 +1063,10 @@ pub fn restart_task(
     let mut reset_ids = Vec::new();
     for tid in &to_reset {
         if let Some(conn) = conn {
-            let task_repo = flowctl_db::TaskRepo::new(conn);
-            let _ = task_repo.update_status(tid, Status::Todo);
+            let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+            let _ = task_repo.update_status(tid, Status::Todo).await;
 
-            let runtime_repo = flowctl_db::RuntimeRepo::new(conn);
+            let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
             let rt = RuntimeState {
                 task_id: tid.clone(),
                 assignee: None,
@@ -1076,7 +1078,7 @@ pub fn restart_task(
                 final_rev: None,
                 retry_count: 0,
             };
-            let _ = runtime_repo.upsert(&rt);
+            let _ = runtime_repo.upsert(&rt).await;
         }
 
         let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", tid));

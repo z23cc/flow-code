@@ -183,11 +183,26 @@ fn handle_tools_call(id: &Value, request: &Value) -> Value {
 }
 
 /// Resolve flow_dir and open DB connection for direct service calls.
-fn mcp_context() -> Result<(PathBuf, Option<rusqlite::Connection>), String> {
+fn mcp_context() -> Result<(PathBuf, Option<libsql::Connection>), String> {
     let cwd = env::current_dir().map_err(|e| format!("cannot get cwd: {e}"))?;
     let flow_dir = cwd.join(FLOW_DIR);
-    let conn = flowctl_db::open(&cwd).ok();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("runtime: {e}"))?;
+    let conn = rt.block_on(async {
+        let db = flowctl_db_lsql::open_async(&cwd).await.ok()?;
+        db.connect().ok()
+    });
     Ok((flow_dir, conn))
+}
+
+fn mcp_block_on<F: std::future::Future>(fut: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime")
+        .block_on(fut)
 }
 
 /// Execute a flowctl tool: lifecycle ops use direct service calls,
@@ -203,9 +218,9 @@ fn run_flowctl_tool(name: &str, args: &Value) -> Result<String, String> {
                 force: false,
                 actor: "mcp".to_string(),
             };
-            let resp = flowctl_service::lifecycle::start_task(
+            let resp = mcp_block_on(flowctl_service::lifecycle::start_task(
                 conn.as_ref(), &flow_dir, req,
-            ).map_err(|e| e.to_string())?;
+            )).map_err(|e| e.to_string())?;
             Ok(serde_json::to_string(&json!({
                 "success": true,
                 "id": resp.task_id,
@@ -227,9 +242,9 @@ fn run_flowctl_tool(name: &str, args: &Value) -> Result<String, String> {
                 force: true,
                 actor: "mcp".to_string(),
             };
-            let resp = flowctl_service::lifecycle::done_task(
+            let resp = mcp_block_on(flowctl_service::lifecycle::done_task(
                 conn.as_ref(), &flow_dir, req,
-            ).map_err(|e| e.to_string())?;
+            )).map_err(|e| e.to_string())?;
             Ok(serde_json::to_string(&json!({
                 "success": true,
                 "id": resp.task_id,

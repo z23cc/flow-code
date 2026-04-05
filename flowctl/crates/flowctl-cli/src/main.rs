@@ -615,6 +615,7 @@ fn main() {
 
                     // Build API router from daemon.
                     let (state, cancel) = flowctl_daemon::server::create_state(runtime, event_bus)
+                        .await
                         .expect("failed to create state");
                     let api_router = flowctl_daemon::server::build_router(state);
 

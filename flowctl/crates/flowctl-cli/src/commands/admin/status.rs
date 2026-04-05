@@ -199,9 +199,9 @@ pub fn cmd_status(json: bool, interrupted: bool) {
 /// Try to get status counts from SQLite database.
 fn status_from_db() -> Option<(serde_json::Value, serde_json::Value)> {
     let cwd = env::current_dir().ok()?;
-    let conn = flowctl_db::open(&cwd).ok()?;
+    let conn = crate::commands::db_shim::open(&cwd).ok()?;
 
-    let epic_repo = flowctl_db::EpicRepo::new(&conn);
+    let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
     let epics = epic_repo.list(None).ok()?;
 
     let mut epic_open = 0u64;
@@ -219,7 +219,7 @@ fn status_from_db() -> Option<(serde_json::Value, serde_json::Value)> {
         return None;
     }
 
-    let task_repo = flowctl_db::TaskRepo::new(&conn);
+    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
     let tasks = task_repo.list_all(None, None).ok()?;
 
     let mut todo = 0u64;
@@ -692,7 +692,7 @@ pub fn cmd_doctor(json_mode: bool) {
 
     // Check 2: State-dir accessibility
     let cwd = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    match flowctl_db::resolve_state_dir(&cwd) {
+    match crate::commands::db_shim::resolve_state_dir(&cwd) {
         Ok(state_dir) => {
             if let Err(e) = fs::create_dir_all(&state_dir) {
                 checks.push(json!({"name": "state_dir_access", "status": "fail", "message": format!("State dir not accessible: {}", e)}));

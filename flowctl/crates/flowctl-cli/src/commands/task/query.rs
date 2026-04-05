@@ -42,7 +42,7 @@ pub(super) fn cmd_task_set_spec(
         write_task_doc(&flow_dir, task_id, &doc);
 
         if let Some(conn) = try_open_db() {
-            let repo = flowctl_db::TaskRepo::new(&conn);
+            let repo = crate::commands::db_shim::TaskRepo::new(&conn);
             let _ = repo.upsert(&doc.frontmatter);
         }
 
@@ -76,7 +76,7 @@ pub(super) fn cmd_task_set_spec(
     write_task_doc(&flow_dir, task_id, &doc);
 
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         let _ = repo.upsert(&doc.frontmatter);
     }
 
@@ -134,7 +134,7 @@ pub(super) fn cmd_task_set_backend(
     write_task_doc(&flow_dir, task_id, &doc);
 
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         let _ = repo.upsert(&doc.frontmatter);
     }
 

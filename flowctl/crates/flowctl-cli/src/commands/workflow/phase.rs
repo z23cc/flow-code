@@ -103,7 +103,7 @@ fn build_phase_sequence(tdd: bool, review: bool) -> Vec<&'static str> {
 /// Load completed phases from SQLite.
 fn load_completed_phases(task_id: &str) -> Vec<String> {
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::PhaseProgressRepo::new(&conn);
+        let repo = crate::commands::db_shim::PhaseProgressRepo::new(&conn);
         repo.get_completed(task_id).unwrap_or_default()
     } else {
         Vec::new()
@@ -113,7 +113,7 @@ fn load_completed_phases(task_id: &str) -> Vec<String> {
 /// Mark a phase as done in SQLite.
 fn save_phase_done(task_id: &str, phase: &str) {
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::PhaseProgressRepo::new(&conn);
+        let repo = crate::commands::db_shim::PhaseProgressRepo::new(&conn);
         if let Err(e) = repo.mark_done(task_id, phase) {
             eprintln!("Warning: failed to save phase progress: {}", e);
         }

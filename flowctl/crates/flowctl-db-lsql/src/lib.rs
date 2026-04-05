@@ -21,16 +21,18 @@
 
 pub mod error;
 pub mod events;
+pub mod indexer;
 pub mod memory;
 pub mod metrics;
 pub mod pool;
 pub mod repo;
 
 pub use error::DbError;
+pub use indexer::{reindex, ReindexResult};
 pub use events::{EventLog, TaskTokenSummary, TokenRecord, TokenUsageRow};
 pub use memory::{MemoryEntry, MemoryFilter, MemoryRepo};
 pub use metrics::StatsQuery;
-pub use pool::{open_async, open_memory_async, resolve_libsql_path};
+pub use pool::{cleanup, open_async, open_memory_async, resolve_db_path, resolve_libsql_path, resolve_state_dir};
 pub use repo::{
     DepRepo, EpicRepo, EventRepo, EventRow, EvidenceRepo, FileLockRepo, FileOwnershipRepo,
     PhaseProgressRepo, RuntimeRepo, TaskRepo,

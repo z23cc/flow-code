@@ -16,7 +16,7 @@ use super::{deep_merge, get_default_config, get_flow_dir, write_json_file};
 
 pub fn cmd_state_path(json_mode: bool, task: Option<String>) {
     let cwd = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let state_dir = match flowctl_db::resolve_state_dir(&cwd) {
+    let state_dir = match crate::commands::db_shim::resolve_state_dir(&cwd) {
         Ok(d) => d,
         Err(e) => {
             error_exit(&format!("Could not resolve state dir: {}", e));

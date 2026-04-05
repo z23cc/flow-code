@@ -56,6 +56,8 @@ bash scripts/ralph_e2e_short_rp_test.sh
 
 All tests create temp directories and clean up after themselves. They must NOT be run from the plugin repo root (safety check enforced).
 
+**Storage runtime**: flowctl is libSQL-only (async, native vector search via `F32_BLOB(384)`). The `flowctl-db` rusqlite crate was deleted in fn-19 — `flowctl-db-lsql` is the sole storage crate. First build downloads the fastembed ONNX model (~130MB) to `.fastembed_cache/` for semantic memory search; subsequent builds/tests reuse the cache.
+
 ## Code Quality
 
 ```bash

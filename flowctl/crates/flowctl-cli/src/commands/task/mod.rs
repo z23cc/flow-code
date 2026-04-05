@@ -131,9 +131,9 @@ fn ensure_flow_exists() -> PathBuf {
 }
 
 /// Try to open a DB connection.
-fn try_open_db() -> Option<rusqlite::Connection> {
+fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
     let cwd = env::current_dir().ok()?;
-    flowctl_db::open(&cwd).ok()
+    crate::commands::db_shim::open(&cwd).ok()
 }
 
 /// Read file content, or read from stdin if path is "-".
@@ -200,7 +200,7 @@ fn create_task_spec(id: &str, title: &str, acceptance: Option<&str>) -> String {
 /// Load a task: DB first, markdown fallback.
 fn load_task_md(_flow_dir: &Path, task_id: &str) -> Task {
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Ok(task) = repo.get(task_id) {
             return task;
         }
@@ -221,7 +221,7 @@ fn load_task_md(_flow_dir: &Path, task_id: &str) -> Task {
 /// Load an epic: DB first, markdown fallback.
 fn load_epic_md(_flow_dir: &Path, epic_id: &str) -> Option<Epic> {
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::EpicRepo::new(&conn);
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Ok(epic) = repo.get(epic_id) {
             return Some(epic);
         }
@@ -239,7 +239,7 @@ fn load_epic_md(_flow_dir: &Path, epic_id: &str) -> Option<Epic> {
 /// Load task's full document (frontmatter + body): DB first, markdown fallback.
 fn load_task_doc(flow_dir: &Path, task_id: &str) -> frontmatter::Document<Task> {
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Ok((task, body)) = repo.get_with_body(task_id) {
             return frontmatter::Document {
                 frontmatter: task,
@@ -262,7 +262,7 @@ fn load_task_doc(flow_dir: &Path, task_id: &str) -> frontmatter::Document<Task> 
 fn write_task_doc(flow_dir: &Path, task_id: &str, doc: &frontmatter::Document<Task>) {
     // Write to DB.
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
             eprintln!("warning: DB write failed for {task_id}: {e}");
         }

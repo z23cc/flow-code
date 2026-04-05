@@ -30,9 +30,9 @@ fn ensure_flow_exists() -> PathBuf {
 }
 
 /// Try to open a DB connection. Returns None if DB doesn't exist or can't be opened.
-fn try_open_db() -> Option<rusqlite::Connection> {
+fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
     let cwd = env::current_dir().ok()?;
-    flowctl_db::open(&cwd).ok()
+    crate::commands::db_shim::open(&cwd).ok()
 }
 
 /// Serialize an Epic to the JSON format matching Python output.
@@ -67,7 +67,7 @@ fn task_to_json(task: &Task) -> serde_json::Value {
     let claim_note: serde_json::Value = json!("");
 
     if let Some(conn) = try_open_db() {
-        let runtime_repo = flowctl_db::RuntimeRepo::new(&conn);
+        let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
         if let Ok(Some(state)) = runtime_repo.get(&task.id) {
             if let Some(a) = &state.assignee {
                 assignee = json!(a);
@@ -212,7 +212,7 @@ fn scan_tasks_md(flow_dir: &Path, epic_filter: Option<&str>) -> Vec<Task> {
 fn get_epic(flow_dir: &Path, id: &str) -> Option<Epic> {
     // Try DB first
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::EpicRepo::new(&conn);
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Ok(epic) = repo.get(id) {
             return Some(epic);
         }
@@ -233,7 +233,7 @@ fn get_epic(flow_dir: &Path, id: &str) -> Option<Epic> {
 fn get_task(flow_dir: &Path, id: &str) -> Option<Task> {
     // Try DB first
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Ok(task) = repo.get(id) {
             return Some(task);
         }
@@ -254,7 +254,7 @@ fn get_task(flow_dir: &Path, id: &str) -> Option<Task> {
 fn get_epic_tasks(flow_dir: &Path, epic_id: &str) -> Vec<Task> {
     // Try DB first
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Ok(tasks) = repo.list_by_epic(epic_id) {
             if !tasks.is_empty() {
                 return tasks;
@@ -270,7 +270,7 @@ fn get_epic_tasks(flow_dir: &Path, epic_id: &str) -> Vec<Task> {
 fn get_all_epics(flow_dir: &Path) -> Vec<Epic> {
     // Try DB first
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::EpicRepo::new(&conn);
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Ok(epics) = repo.list(None) {
             if !epics.is_empty() {
                 return epics;
@@ -291,7 +291,7 @@ fn get_all_tasks(
 ) -> Vec<Task> {
     // Try DB first
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         match epic_filter {
             Some(epic_id) => {
                 if let Ok(mut tasks) = repo.list_by_epic(epic_id) {
@@ -731,9 +731,9 @@ pub fn cmd_files(json_mode: bool, epic: String) {
 // ── Lock commands (Teams mode) ─────────────────────────────────────
 
 /// Open DB or exit with error.
-fn open_db_or_exit() -> rusqlite::Connection {
+fn open_db_or_exit() -> crate::commands::db_shim::Connection {
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    match flowctl_db::open(&cwd) {
+    match crate::commands::db_shim::open(&cwd) {
         Ok(conn) => conn,
         Err(e) => {
             error_exit(&format!("Cannot open database: {}", e));
@@ -750,7 +750,7 @@ pub fn cmd_lock(json: bool, task: String, files: String) {
     }
 
     let conn = open_db_or_exit();
-    let repo = flowctl_db::FileLockRepo::new(&conn);
+    let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
 
     let mut locked = Vec::new();
     let mut already_locked = Vec::new();
@@ -758,7 +758,7 @@ pub fn cmd_lock(json: bool, task: String, files: String) {
     for file in &file_list {
         match repo.acquire(file, &task) {
             Ok(()) => locked.push(file.to_string()),
-            Err(flowctl_db::DbError::Constraint(_)) => {
+            Err(crate::commands::db_shim::DbError::Constraint(_)) => {
                 // Already locked — find out by whom
                 let owner = repo.check(file).ok().flatten().unwrap_or_else(|| "unknown".to_string());
                 if owner == task {
@@ -797,7 +797,7 @@ pub fn cmd_lock(json: bool, task: String, files: String) {
 pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all: bool) {
     let _flow_dir = ensure_flow_exists();
     let conn = open_db_or_exit();
-    let repo = flowctl_db::FileLockRepo::new(&conn);
+    let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
 
     if all {
         match repo.release_all() {
@@ -842,7 +842,7 @@ pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all:
 pub fn cmd_lock_check(json: bool, file: Option<String>) {
     let _flow_dir = ensure_flow_exists();
     let conn = open_db_or_exit();
-    let repo = flowctl_db::FileLockRepo::new(&conn);
+    let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
 
     match file {
         Some(f) => {
@@ -872,20 +872,18 @@ pub fn cmd_lock_check(json: bool, file: Option<String>) {
             }
         }
         None => {
-            // List all locks — query directly
-            let mut stmt = conn
-                .prepare("SELECT file_path, task_id, locked_at FROM file_locks ORDER BY file_path")
+            // List all locks
+            let lock_repo = crate::commands::db_shim::FileLockRepo::new(&conn);
+            let rows = lock_repo
+                .list_all()
                 .unwrap_or_else(|e| { error_exit(&format!("Query failed: {}", e)); });
-            let locks: Vec<serde_json::Value> = stmt
-                .query_map([], |row| {
-                    Ok(json!({
-                        "file": row.get::<_, String>(0)?,
-                        "task_id": row.get::<_, String>(1)?,
-                        "locked_at": row.get::<_, String>(2)?,
-                    }))
-                })
-                .unwrap_or_else(|e| { error_exit(&format!("Query failed: {}", e)); })
-                .filter_map(|r| r.ok())
+            let locks: Vec<serde_json::Value> = rows
+                .into_iter()
+                .map(|(file, task_id, locked_at)| json!({
+                    "file": file,
+                    "task_id": task_id,
+                    "locked_at": locked_at,
+                }))
                 .collect();
 
             if json {

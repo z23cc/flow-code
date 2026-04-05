@@ -16,10 +16,8 @@ daemon = ["dep:flowctl-daemon", "dep:axum", "dep:tower-http"]
 
 [dependencies]
 flowctl-core = { workspace = true }
-flowctl-db = { workspace = true }
 flowctl-db-lsql = { workspace = true }
 flowctl-service = { workspace = true }
-rusqlite = { workspace = true }
 libsql = { workspace = true }
 flowctl-scheduler = { workspace = true }
 flowctl-daemon = { path = "../flowctl-daemon", features = ["daemon"], optional = true }
@@ -44,6 +42,5 @@ trycmd = { workspace = true }
 tempfile = "3"
 serde_json = { workspace = true }
 flowctl-core = { workspace = true }
-flowctl-db = { workspace = true }
+flowctl-db-lsql = { workspace = true }
 flowctl-service = { workspace = true }
-rusqlite = { workspace = true }

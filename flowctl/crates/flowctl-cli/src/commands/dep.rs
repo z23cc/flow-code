@@ -45,9 +45,9 @@ fn ensure_flow_exists() -> PathBuf {
 }
 
 /// Try to open a DB connection.
-fn try_open_db() -> Option<rusqlite::Connection> {
+fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
     let cwd = env::current_dir().ok()?;
-    flowctl_db::open(&cwd).ok()
+    crate::commands::db_shim::open(&cwd).ok()
 }
 
 /// Read a task document: DB first, markdown fallback.
@@ -55,7 +55,7 @@ fn read_task_doc(flow_dir: &Path, task_id: &str) -> (PathBuf, frontmatter::Docum
     let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
     // Try DB first.
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Ok((task, body)) = repo.get_with_body(task_id) {
             return (task_path, frontmatter::Document { frontmatter: task, body });
         }
@@ -75,7 +75,7 @@ fn read_task_doc(flow_dir: &Path, task_id: &str) -> (PathBuf, frontmatter::Docum
 fn write_task_doc(path: &Path, doc: &frontmatter::Document<Task>) {
     // Write to DB.
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
             eprintln!("warning: DB write failed for {}: {e}", doc.frontmatter.id);
         }
@@ -93,18 +93,12 @@ fn sync_deps_to_db(task_id: &str, deps: &[String]) {
         Ok(c) => c,
         Err(_) => return,
     };
-    let conn = match flowctl_db::open(&cwd) {
+    let conn = match crate::commands::db_shim::open(&cwd) {
         Ok(c) => c,
         Err(_) => return,
     };
-    // Delete existing deps, re-insert
-    let _ = conn.execute("DELETE FROM task_deps WHERE task_id = ?1", rusqlite::params![task_id]);
-    for dep in deps {
-        let _ = conn.execute(
-            "INSERT INTO task_deps (task_id, depends_on) VALUES (?1, ?2)",
-            rusqlite::params![task_id, dep],
-        );
-    }
+    let dep_repo = crate::commands::db_shim::DepRepo::new(&conn);
+    let _ = dep_repo.replace_task_deps(task_id, deps);
 }
 
 pub fn dispatch(cmd: &DepCmd, json: bool) {

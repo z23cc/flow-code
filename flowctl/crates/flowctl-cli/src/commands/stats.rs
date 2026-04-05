@@ -12,9 +12,9 @@ use serde_json::json;
 use crate::output::{error_exit, json_output};
 
 /// Open DB or exit with error.
-fn open_db_or_exit() -> rusqlite::Connection {
+fn open_db_or_exit() -> crate::commands::db_shim::Connection {
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    match flowctl_db::open(&cwd) {
+    match crate::commands::db_shim::open(&cwd) {
         Ok(conn) => conn,
         Err(e) => {
             error_exit(&format!("Cannot open database: {}", e));
@@ -79,7 +79,7 @@ pub fn dispatch(cmd: &StatsCmd, json_flag: bool) {
 
 fn cmd_summary(json_flag: bool) {
     let conn = open_db_or_exit();
-    let stats = flowctl_db::StatsQuery::new(&conn);
+    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
 
     let summary = match stats.summary() {
         Ok(s) => s,
@@ -114,7 +114,7 @@ fn cmd_summary(json_flag: bool) {
 
 fn cmd_epic(json_flag: bool, epic_id: Option<&str>) {
     let conn = open_db_or_exit();
-    let stats = flowctl_db::StatsQuery::new(&conn);
+    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
 
     let epics = match stats.per_epic(epic_id) {
         Ok(e) => e,
@@ -154,7 +154,7 @@ fn cmd_epic(json_flag: bool, epic_id: Option<&str>) {
 
 fn cmd_weekly(json_flag: bool, weeks: u32) {
     let conn = open_db_or_exit();
-    let stats = flowctl_db::StatsQuery::new(&conn);
+    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
 
     let trends = match stats.weekly_trends(weeks) {
         Ok(t) => t,
@@ -182,7 +182,7 @@ fn cmd_weekly(json_flag: bool, weeks: u32) {
 
 fn cmd_tokens(json_flag: bool, epic_id: Option<&str>) {
     let conn = open_db_or_exit();
-    let stats = flowctl_db::StatsQuery::new(&conn);
+    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
 
     let tokens = match stats.token_breakdown(epic_id) {
         Ok(t) => t,
@@ -220,7 +220,7 @@ fn cmd_tokens(json_flag: bool, epic_id: Option<&str>) {
 
 fn cmd_bottlenecks(json_flag: bool, limit: usize) {
     let conn = open_db_or_exit();
-    let stats = flowctl_db::StatsQuery::new(&conn);
+    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
 
     let bottlenecks = match stats.bottlenecks(limit) {
         Ok(b) => b,
@@ -263,7 +263,7 @@ fn cmd_bottlenecks(json_flag: bool, limit: usize) {
 
 fn cmd_dora(json_flag: bool) {
     let conn = open_db_or_exit();
-    let stats = flowctl_db::StatsQuery::new(&conn);
+    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
 
     let dora = match stats.dora_metrics() {
         Ok(d) => d,
@@ -299,7 +299,7 @@ fn cmd_dora(json_flag: bool) {
 
 fn cmd_rollup(json_flag: bool) {
     let conn = open_db_or_exit();
-    let stats = flowctl_db::StatsQuery::new(&conn);
+    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
 
     match stats.generate_monthly_rollups() {
         Ok(count) => {
@@ -316,7 +316,7 @@ fn cmd_rollup(json_flag: bool) {
 fn cmd_cleanup(json_flag: bool) {
     let conn = open_db_or_exit();
 
-    match flowctl_db::cleanup(&conn) {
+    match crate::commands::db_shim::cleanup(&conn) {
         Ok(count) => {
             if should_json(json_flag) {
                 json_output(json!({ "deleted": count }));
@@ -332,13 +332,13 @@ fn cmd_cleanup(json_flag: bool) {
 
 pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
     let conn = open_db_or_exit();
-    let task_repo = flowctl_db::TaskRepo::new(&conn);
+    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
 
     // Find epic: use provided ID or find the first open epic
     let epic_id = match epic_id {
         Some(id) => id,
         None => {
-            let epic_repo = flowctl_db::EpicRepo::new(&conn);
+            let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
             match epic_repo.list(Some("open")) {
                 Ok(epics) if !epics.is_empty() => epics[0].id.clone(),
                 _ => error_exit("No open epic found. Use --epic <id> to specify."),
@@ -445,8 +445,8 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
 
 pub fn cmd_estimate(json_flag: bool, epic_id: &str) {
     let conn = open_db_or_exit();
-    let task_repo = flowctl_db::TaskRepo::new(&conn);
-    let runtime_repo = flowctl_db::RuntimeRepo::new(&conn);
+    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
 
     let tasks = match task_repo.list_by_epic(epic_id) {
         Ok(t) => t,

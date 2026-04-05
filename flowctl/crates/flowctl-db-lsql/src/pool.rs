@@ -114,6 +114,31 @@ pub async fn open_async(working_dir: &Path) -> Result<Database, DbError> {
     Ok(db)
 }
 
+/// Alias for `resolve_libsql_path` (naming parity with old flowctl-db).
+pub fn resolve_db_path(working_dir: &Path) -> Result<PathBuf, DbError> {
+    resolve_libsql_path(working_dir)
+}
+
+/// Delete old events and rollups to keep the DB small.
+/// Returns the number of rows removed.
+pub async fn cleanup(conn: &Connection) -> Result<u64, DbError> {
+    let events_deleted = conn
+        .execute(
+            "DELETE FROM events WHERE timestamp < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 days')",
+            (),
+        )
+        .await?;
+
+    let rollups_deleted = conn
+        .execute(
+            "DELETE FROM daily_rollup WHERE day < strftime('%Y-%m-%d', 'now', '-365 days')",
+            (),
+        )
+        .await?;
+
+    Ok(events_deleted + rollups_deleted)
+}
+
 /// Open an in-memory libSQL database for testing.
 ///
 /// Returns both the `Database` handle and a `Connection` with schema

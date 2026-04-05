@@ -1,9 +1,9 @@
 #!/bin/sh
 # flowctl installer — downloads the latest release binary from GitHub.
-# Usage: curl -fsSL https://raw.githubusercontent.com/anthropics/flow-code/main/flowctl/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/z23cc/flow-code/main/flowctl/install.sh | sh
 set -eu
 
-REPO="anthropics/flow-code"
+REPO="z23cc/flow-code"
 INSTALL_DIR="${FLOWCTL_INSTALL_DIR:-/usr/local/bin}"
 
 # ── Platform detection ────────────────────────────────────────────────

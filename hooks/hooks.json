@@ -6,6 +6,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "S=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/hooks/ensure-flowctl.sh\"; [ -x \"$S\" ] && \"$S\" || true",
+            "timeout": 180
+          }
+        ],
+        "description": "Auto-download or build flowctl binary if missing/outdated"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook daemon-start || true",
             "timeout": 10
           }

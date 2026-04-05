@@ -1,0 +1,52 @@
+schema_version = 1
+
+[filters.hook_subagent]
+description = "Compact subagent-context hook — extract minimal task list from JSON blob"
+match_command = "^flowctl\\s+hook\\s+subagent-context"
+replace = [
+  # Strip outer wrapper "Active flow-code tasks: " and the JSON structural cruft.
+  # Full line: Active flow-code tasks: {"tasks":[{...},{...}],"count":N,"success":true}
+  # First, drop the prefix
+  { pattern = "^Active flow-code tasks:\\s+", replacement = "Active: " },
+  # Strip "success":true trailer and "count" field
+  { pattern = ",?\"success\":true", replacement = "" },
+  { pattern = ",?\"count\":\\d+", replacement = "" },
+  # Strip outer {"tasks":[...]} wrapper to just [...]
+  # Patterns for before/after variants since separate removal rules above left trailing , vs none
+  { pattern = "\\{\"tasks\":", replacement = "" },
+  # Strip trailing "}" at end of line (the wrapper close)
+  { pattern = "\\}$", replacement = "" },
+  # Strip epic prefix from task IDs inside JSON: "fn-19-slug.1" → ".1"
+  { pattern = "\"id\":\"fn-\\d+(?:-[a-zA-Z0-9-]+)?(\\.\\d+)\"", replacement = "\"id\":\"$1\"" },
+  # Strip epic field (redundant with id)
+  { pattern = ",?\"epic\":\"[^\"]*\"", replacement = "" },
+  # Strip priority/assignee if null
+  { pattern = ",?\"priority\":null", replacement = "" },
+  { pattern = ",?\"assignee\":null", replacement = "" },
+  { pattern = ",?\"claim_note\":\"\"", replacement = "" },
+  { pattern = ",?\"claimed_at\":null", replacement = "" },
+  # Drop empty depends_on/files arrays
+  { pattern = ",?\"depends_on\":\\[\\]", replacement = "" },
+  { pattern = ",?\"files\":\\[\\]", replacement = "" },
+  { pattern = ",?\"impl\":null", replacement = "" },
+  { pattern = ",?\"review\":null", replacement = "" },
+  { pattern = ",?\"sync\":null", replacement = "" },
+  # Clean up any leading comma from key deletions
+  { pattern = "\\{,", replacement = "{" },
+]
+max_lines = 10
+
+[[tests.hook_subagent]]
+name = "single task"
+input = """Active flow-code tasks: {"tasks":[{"id":"fn-21-slug.1","title":"Add filters","status":"in_progress","domain":"backend","epic":"fn-21-slug","depends_on":[],"files":[],"priority":null,"assignee":null,"claimed_at":null,"claim_note":"","impl":null,"review":null,"sync":null}],"count":1,"success":true}"""
+expected = """Active: [{"id":".1","title":"Add filters","status":"in_progress","domain":"backend"}]"""
+
+[[tests.hook_subagent]]
+name = "empty task list"
+input = """Active flow-code tasks: {"tasks":[],"count":0,"success":true}"""
+expected = """Active: []"""
+
+[[tests.hook_subagent]]
+name = "two tasks"
+input = """Active flow-code tasks: {"tasks":[{"id":"fn-5-daemon.1","title":"T1","status":"in_progress","domain":"backend","epic":"fn-5-daemon","depends_on":[],"files":[],"priority":null,"assignee":null,"claimed_at":null,"claim_note":"","impl":null,"review":null,"sync":null},{"id":"fn-5-daemon.2","title":"T2","status":"in_progress","domain":"frontend","epic":"fn-5-daemon","depends_on":[],"files":[],"priority":null,"assignee":null,"claimed_at":null,"claim_note":"","impl":null,"review":null,"sync":null}],"count":2,"success":true}"""
+expected = """Active: [{"id":".1","title":"T1","status":"in_progress","domain":"backend"},{"id":".2","title":"T2","status":"in_progress","domain":"frontend"}]"""

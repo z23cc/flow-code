@@ -5,7 +5,7 @@ use std::fs;
 
 use serde_json::json;
 
-use crate::output::{error_exit, json_output};
+use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::id::{is_epic_id, parse_id};
 use flowctl_core::state_machine::Status;
@@ -104,16 +104,18 @@ pub fn cmd_ready(json_mode: bool, epic: String) {
             })).collect::<Vec<_>>(),
         }));
     } else {
-        println!("Ready tasks for {} (actor: {}):", epic, current_actor);
+        use std::fmt::Write as _;
+        let mut buf = String::new();
+        writeln!(buf, "Ready tasks for {} (actor: {}):", epic, current_actor).ok();
         if ready.is_empty() {
-            println!("  (none)");
+            writeln!(buf, "  (none)").ok();
         } else {
             for t in &ready {
-                println!("  {}: {}", t.id, t.title);
+                writeln!(buf, "  {}: {}", t.id, t.title).ok();
             }
         }
         if !in_progress.is_empty() {
-            println!("\nIn progress:");
+            writeln!(buf, "\nIn progress:").ok();
             for t in &in_progress {
                 let assignee = get_runtime(&t.id)
                     .and_then(|rt| rt.assignee)
@@ -123,15 +125,16 @@ pub fn cmd_ready(json_mode: bool, epic: String) {
                 } else {
                     ""
                 };
-                println!("  {}: {} [{}]{}", t.id, t.title, assignee, marker);
+                writeln!(buf, "  {}: {} [{}]{}", t.id, t.title, assignee, marker).ok();
             }
         }
         if !blocked.is_empty() {
-            println!("\nBlocked:");
+            writeln!(buf, "\nBlocked:").ok();
             for (t, deps) in &blocked {
-                println!("  {}: {} (by: {})", t.id, t.title, deps.join(", "));
+                writeln!(buf, "  {}: {} (by: {})", t.id, t.title, deps.join(", ")).ok();
             }
         }
+        pretty_output("ready", &buf);
     }
 }
 

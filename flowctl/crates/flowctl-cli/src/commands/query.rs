@@ -717,24 +717,29 @@ pub fn cmd_files(json_mode: bool, epic: String) {
             "conflict_count": conflicts.len(),
         }));
     } else {
-        println!("File ownership for {}:\n", epic);
+        use std::fmt::Write as _;
+        let mut buf = String::new();
+        writeln!(buf, "File ownership for {}:\n", epic).ok();
         if ownership.is_empty() {
-            println!("  No files declared.");
+            writeln!(buf, "  No files declared.").ok();
         } else {
             for (f, task_ids) in &ownership {
                 if task_ids.len() == 1 {
-                    println!("  {} \u{2192} {}", f, task_ids[0]);
+                    writeln!(buf, "  {} \u{2192} {}", f, task_ids[0]).ok();
                 } else {
-                    println!("  {} \u{2192} CONFLICT: {}", f, task_ids.join(", "));
+                    writeln!(buf, "  {} \u{2192} CONFLICT: {}", f, task_ids.join(", ")).ok();
                 }
             }
             if !conflicts.is_empty() {
-                println!(
+                writeln!(
+                    buf,
                     "\n  \u{26a0} {} file conflict(s) \u{2014} tasks sharing files cannot run in parallel",
                     conflicts.len()
-                );
+                )
+                .ok();
             }
         }
+        pretty_output("files", &buf);
     }
 }
 

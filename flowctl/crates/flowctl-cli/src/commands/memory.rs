@@ -10,7 +10,7 @@ use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use crate::output::{error_exit, json_output};
+use crate::output::{error_exit, json_output, pretty_output};
 use flowctl_core::types::{CONFIG_FILE, MEMORY_DIR};
 
 use super::helpers::get_flow_dir;
@@ -862,8 +862,10 @@ fn cmd_memory_list(
             "index": index_data,
         }));
     } else {
+        use std::fmt::Write as _;
+        let mut buf = String::new();
         let mut stale_count = 0;
-        println!("Memory: {} entries, {} total references\n", total, total_refs);
+        writeln!(buf, "Memory: {} entries, {} total references\n", total, total_refs).ok();
         for idx in &index {
             let eid = idx.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
             let eid_str = eid.to_string();
@@ -889,24 +891,29 @@ fn cmd_memory_list(
             let entry_type = idx.get("type").and_then(|v| v.as_str()).unwrap_or("");
             let summary = idx.get("summary").and_then(|v| v.as_str()).unwrap_or("");
             let summary_trunc: String = summary.chars().take(70).collect();
-            println!(
+            writeln!(
+                buf,
                 "  #{:3} [{:10}] refs={:2}  {}{}",
                 eid, entry_type, refs, summary_trunc, stale_tag
-            );
+            )
+            .ok();
         }
-        println!();
+        writeln!(buf).ok();
         let mut sorted_counts: Vec<_> = counts.iter().collect();
         sorted_counts.sort_by_key(|(k, _)| (*k).clone());
         for (t, c) in &sorted_counts {
-            println!("  {}: {}", t, c);
+            writeln!(buf, "  {}: {}", t, c).ok();
         }
-        println!("  Total: {}", total);
+        writeln!(buf, "  Total: {}", total).ok();
         if stale_count > 0 {
-            println!(
+            writeln!(
+                buf,
                 "  Stale: {} (not verified in 90+ days — run /flow-code:retro to verify)",
                 stale_count
-            );
+            )
+            .ok();
         }
+        pretty_output("memory", &buf);
     }
 }
 

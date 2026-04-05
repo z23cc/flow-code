@@ -1,0 +1,63 @@
+schema_version = 1
+
+[filters.files]
+description = "Compact flowctl files --epic ownership map — strip epic prefix from task IDs"
+match_command = "^flowctl\\s+files"
+strip_lines_matching = [
+  "^\\s*$",
+  "^File ownership for .+:",
+]
+replace = [
+  # "  path/to/file.rs → fn-21-extend-flowctl-compress-filters.1"
+  # → "path/to/file.rs→.1"
+  { pattern = "^\\s+(\\S+)\\s+→\\s+fn-\\d+(?:-[a-zA-Z0-9-]+)?(\\.\\d+)\\s*$", replacement = "$1→$2" },
+  # "  path/file.rs → CONFLICT: fn-12-slug.3, fn-12-slug.5" → "path/file.rs→!.3,.5"
+  { pattern = "^\\s+(\\S+)\\s+→\\s+CONFLICT:\\s+(.+)$", replacement = "$1→!$2" },
+  # Strip epic prefix from CONFLICT task list: "fn-12-slug.3, fn-12-slug.5" → ".3,.5"
+  { pattern = "\\bfn-\\d+(?:-[a-zA-Z0-9-]+)?(\\.\\d+)", replacement = "$1" },
+  # Compact warning summary line: "  ⚠ 2 file conflict(s) — tasks sharing..." → "⚠2 conflicts"
+  { pattern = "^\\s+⚠\\s+(\\d+)\\s+file conflict\\(s\\).*$", replacement = "⚠$1 conflicts" },
+]
+max_lines = 100
+
+[[tests.files]]
+name = "basic ownership"
+input = """
+File ownership for fn-21-extend-flowctl-compress-filters:
+
+  src/a.rs → fn-21-extend-flowctl-compress-filters.1
+  src/b.rs → fn-21-extend-flowctl-compress-filters.2
+"""
+expected = """
+src/a.rs→.1
+src/b.rs→.2
+"""
+
+[[tests.files]]
+name = "with conflict"
+input = """
+File ownership for fn-12-token-compact-rtk-guard:
+
+  src/shared.rs → CONFLICT: fn-12-token-compact-rtk-guard.3, fn-12-token-compact-rtk-guard.5
+  src/mine.rs → fn-12-token-compact-rtk-guard.1
+
+  ⚠ 1 file conflict(s) — tasks sharing files cannot run in parallel
+"""
+expected = """
+src/shared.rs→!.3, .5
+src/mine.rs→.1
+⚠1 conflicts
+"""
+
+[[tests.files]]
+name = "long file paths"
+input = """
+File ownership for fn-5-daemon-scheduler:
+
+  flowctl/crates/flowctl-core/src/compress.rs → fn-5-daemon-scheduler.1
+  flowctl/crates/flowctl-cli/src/commands/hook.rs → fn-5-daemon-scheduler.2
+"""
+expected = """
+flowctl/crates/flowctl-core/src/compress.rs→.1
+flowctl/crates/flowctl-cli/src/commands/hook.rs→.2
+"""

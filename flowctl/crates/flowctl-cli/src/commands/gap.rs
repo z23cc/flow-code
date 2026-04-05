@@ -10,7 +10,7 @@ use std::fs;
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::output::{error_exit, json_output};
+use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::id::is_epic_id;
 use flowctl_core::types::EPICS_DIR;
@@ -238,22 +238,28 @@ fn cmd_gap_list(json_mode: bool, epic_id: &str, status_filter: Option<&str>) {
         let suffix = status_filter
             .map(|s| format!(" (status={})", s))
             .unwrap_or_default();
-        println!("No gaps for {}{}", epic_id, suffix);
+        let msg = format!("No gaps for {}{}", epic_id, suffix);
+        pretty_output("gap", &msg);
     } else {
+        use std::fmt::Write as _;
+        let mut buf = String::new();
         for g in &filtered {
             let marker = if g["status"].as_str() == Some("resolved") {
                 "\u{2713}"
             } else {
                 "\u{2717}"
             };
-            println!(
+            writeln!(
+                buf,
                 "  {} {} [{}] {}",
                 marker,
                 g["id"].as_str().unwrap_or(""),
                 g["priority"].as_str().unwrap_or(""),
                 g["capability"].as_str().unwrap_or(""),
-            );
+            )
+            .ok();
         }
+        pretty_output("gap", &buf);
     }
 }
 

@@ -31,6 +31,13 @@ use std::sync::OnceLock;
 const EPICS_TOML: &str = include_str!("filters/epics.toml");
 const TASKS_TOML: &str = include_str!("filters/tasks.toml");
 const STATUS_TOML: &str = include_str!("filters/status.toml");
+const GAP_TOML: &str = include_str!("filters/gap.toml");
+const MEMORY_TOML: &str = include_str!("filters/memory.toml");
+const DAG_TOML: &str = include_str!("filters/dag.toml");
+const FILES_TOML: &str = include_str!("filters/files.toml");
+const READY_TOML: &str = include_str!("filters/ready.toml");
+const HOOK_PRECOMPACT_TOML: &str = include_str!("filters/hook_precompact.toml");
+const HOOK_SUBAGENT_TOML: &str = include_str!("filters/hook_subagent.toml");
 
 // ---------------------------------------------------------------------------
 // Deserialization types (TOML schema)
@@ -255,6 +262,13 @@ const BUILTIN_SOURCES: &[(&str, &str)] = &[
     ("epics", EPICS_TOML),
     ("tasks", TASKS_TOML),
     ("status", STATUS_TOML),
+    ("gap", GAP_TOML),
+    ("memory", MEMORY_TOML),
+    ("dag", DAG_TOML),
+    ("files", FILES_TOML),
+    ("ready", READY_TOML),
+    ("hook_precompact", HOOK_PRECOMPACT_TOML),
+    ("hook_subagent", HOOK_SUBAGENT_TOML),
 ];
 
 fn load_registry() -> Vec<CompiledFilter> {
@@ -672,8 +686,19 @@ on_empty = "all clean"
     fn test_builtin_filters_load() {
         let reg = registry();
         assert!(!reg.is_empty(), "builtin registry should load at least one filter");
-        // The three POC filters we ship
-        for expected in &["epics", "tasks", "status"] {
+        // POC filters + fn-21 extensions
+        for expected in &[
+            "epics",
+            "tasks",
+            "status",
+            "gap",
+            "memory",
+            "dag",
+            "files",
+            "ready",
+            "hook_precompact",
+            "hook_subagent",
+        ] {
             assert!(
                 reg.iter().any(|f| f.name == *expected),
                 "expected builtin filter '{}' to be present",

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::output::{error_exit, json_output};
+use crate::output::{error_exit, json_output, pretty_output};
 
 /// Open DB or exit with error.
 fn open_db_or_exit() -> crate::commands::db_shim::Connection {
@@ -398,8 +398,10 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
     }
 
     // ASCII rendering
-    println!("DAG for {}", epic_id);
-    println!();
+    use std::fmt::Write as _;
+    let mut buf = String::new();
+    writeln!(buf, "DAG for {}", epic_id).ok();
+    writeln!(buf).ok();
 
     for layer in 0..=max_layer {
         let mut nodes_in_layer: Vec<&flowctl_core::types::Task> = tasks
@@ -421,9 +423,9 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
             let label = format!(".{} [{}]", short_id, status_icon);
             let indent = "  ".repeat(layer);
             let connector = if layer > 0 { "\u{2514}\u{2500}\u{2500} " } else { "" };
-            println!("{}{}\u{250c}\u{2500}{}\u{2500}\u{2510}", indent, connector, "\u{2500}".repeat(label.len()), );
-            println!("{}{}\u{2502} {} \u{2502}", indent, if layer > 0 { "    " } else { "" }, label);
-            println!("{}{}\u{2514}\u{2500}{}\u{2500}\u{2518}", indent, if layer > 0 { "    " } else { "" }, "\u{2500}".repeat(label.len()));
+            writeln!(buf, "{}{}\u{250c}\u{2500}{}\u{2500}\u{2510}", indent, connector, "\u{2500}".repeat(label.len())).ok();
+            writeln!(buf, "{}{}\u{2502} {} \u{2502}", indent, if layer > 0 { "    " } else { "" }, label).ok();
+            writeln!(buf, "{}{}\u{2514}\u{2500}{}\u{2500}\u{2518}", indent, if layer > 0 { "    " } else { "" }, "\u{2500}".repeat(label.len())).ok();
         }
 
         // Draw arrows between layers
@@ -434,11 +436,12 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
                 .collect();
             if !next_layer_nodes.is_empty() {
                 let indent = "  ".repeat(layer + 1);
-                println!("{}\u{2502}", indent);
-                println!("{}\u{2193}", indent);
+                writeln!(buf, "{}\u{2502}", indent).ok();
+                writeln!(buf, "{}\u{2193}", indent).ok();
             }
         }
     }
+    pretty_output("dag", &buf);
 }
 
 // ── Estimate command ─────────────────────────────────────────────────

@@ -1,0 +1,46 @@
+schema_version = 1
+
+[filters.gap]
+description = "Compact flowctl gap list output — strip leading marker, shorten priority"
+match_command = "^flowctl\\s+gap"
+strip_lines_matching = [
+  "^\\s*$",
+]
+replace = [
+  # "  ✓ gap-abc12345 [required] Missing auth"  → "✓ gap-abc12345 req:Missing auth"
+  # "  ✗ gap-abc12345 [important] Pagination"   → "✗ gap-abc12345 imp:Pagination"
+  # "  ✗ gap-abc12345 [nice-to-have] Polish"    → "✗ gap-abc12345 nth:Polish"
+  { pattern = "^\\s*([✓✗])\\s+(gap-[0-9a-f]+)\\s+\\[required\\]\\s+(.+)$", replacement = "$1 $2 req:$3" },
+  { pattern = "^\\s*([✓✗])\\s+(gap-[0-9a-f]+)\\s+\\[important\\]\\s+(.+)$", replacement = "$1 $2 imp:$3" },
+  { pattern = "^\\s*([✓✗])\\s+(gap-[0-9a-f]+)\\s+\\[nice-to-have\\]\\s+(.+)$", replacement = "$1 $2 nth:$3" },
+]
+max_lines = 40
+
+[[tests.gap]]
+name = "basic compaction"
+input = """
+  ✗ gap-abc12345 [required] Missing rate limiter
+  ✓ gap-def67890 [important] Add pagination
+  ✗ gap-12345678 [nice-to-have] Polish UI
+"""
+expected = """
+✗ gap-abc12345 req:Missing rate limiter
+✓ gap-def67890 imp:Add pagination
+✗ gap-12345678 nth:Polish UI
+"""
+
+[[tests.gap]]
+name = "empty preserved"
+input = "No gaps for fn-19-migrate-flowctl-to-libsql-async-native"
+expected = "No gaps for fn-19-migrate-flowctl-to-libsql-async-native"
+
+[[tests.gap]]
+name = "mixed status"
+input = """
+  ✓ gap-11111111 [required] Fixed one
+  ✗ gap-22222222 [required] Not yet done
+"""
+expected = """
+✓ gap-11111111 req:Fixed one
+✗ gap-22222222 req:Not yet done
+"""

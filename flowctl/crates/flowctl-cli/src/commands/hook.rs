@@ -15,6 +15,8 @@ use clap::Subcommand;
 use regex::Regex;
 use serde_json::{json, Value};
 
+use crate::output::pretty_output;
+
 #[derive(Subcommand, Debug)]
 pub enum HookCmd {
     /// Extract session memories from transcript (Stop hook).
@@ -1582,11 +1584,14 @@ fn cmd_pre_compact() {
     }
 
     if !lines.is_empty() {
-        println!("[flow-code state]");
+        use std::fmt::Write as _;
+        let mut buf = String::new();
+        writeln!(buf, "[flow-code state]").ok();
         for line in &lines {
-            println!("{line}");
+            writeln!(buf, "{line}").ok();
         }
-        println!("[/flow-code state]");
+        writeln!(buf, "[/flow-code state]").ok();
+        pretty_output("hook_precompact", &buf);
     }
 
     std::process::exit(0);
@@ -1623,7 +1628,8 @@ fn cmd_subagent_context() {
     if let Some(val) = run_flowctl(&flowctl, &["tasks", "--status", "in_progress", "--json"]) {
         let json_str = serde_json::to_string(&val).unwrap_or_default();
         if json_str != "[]" && !json_str.is_empty() {
-            println!("Active flow-code tasks: {json_str}");
+            let line = format!("Active flow-code tasks: {json_str}");
+            pretty_output("hook_subagent", &line);
         }
     }
 

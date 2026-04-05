@@ -1,0 +1,78 @@
+schema_version = 1
+
+[filters.ready]
+description = "Compact flowctl ready --epic output — strip epic prefix, shorten section headers"
+match_command = "^flowctl\\s+ready"
+strip_lines_matching = [
+  "^\\s*$",
+]
+replace = [
+  # Header: "Ready tasks for fn-19-migrate-flowctl-to-libsql-async-native (actor: admin@z23.cc):"
+  # → "Ready fn-19 [admin@z23.cc]:"
+  { pattern = "^Ready tasks for (fn-\\d+)(?:-[a-zA-Z0-9-]+)? \\(actor: ([^)]+)\\):\\s*$", replacement = "Ready $1 [$2]:" },
+  # Section headers
+  { pattern = "^In progress:\\s*$", replacement = "WIP:" },
+  { pattern = "^Blocked:\\s*$", replacement = "BLK:" },
+  # "  (none)" → "(none)"
+  { pattern = "^\\s+\\(none\\)\\s*$", replacement = "(none)" },
+  # Strip epic prefix from task IDs (same pattern as tasks.toml)
+  { pattern = "\\bfn-\\d+(?:-[a-zA-Z0-9-]+)?(\\.\\d+)", replacement = "$1" },
+  # "  .5: Task title [assignee] (you)" → ".5: Task title [assignee](you)"
+  { pattern = "^  (\\.\\d+):\\s+(.+)$", replacement = "$1 $2" },
+]
+max_lines = 60
+
+[[tests.ready]]
+name = "all sections"
+input = """
+Ready tasks for fn-19-migrate-flowctl-to-libsql-async-native (actor: admin@z23.cc):
+  fn-19-migrate-flowctl-to-libsql-async-native.2: Second task [backend]
+
+In progress:
+  fn-19-migrate-flowctl-to-libsql-async-native.1: First task [admin@z23.cc]
+
+Blocked:
+  fn-19-migrate-flowctl-to-libsql-async-native.3: Third task (by: fn-19-migrate-flowctl-to-libsql-async-native.2)
+"""
+expected = """
+Ready fn-19 [admin@z23.cc]:
+.2 Second task [backend]
+WIP:
+.1 First task [admin@z23.cc]
+BLK:
+.3 Third task (by: .2)
+"""
+
+[[tests.ready]]
+name = "none ready"
+input = """
+Ready tasks for fn-5-daemon-scheduler (actor: dev@example.com):
+  (none)
+
+In progress:
+  fn-5-daemon-scheduler.1: Setup DB [dev@example.com]
+"""
+expected = """
+Ready fn-5 [dev@example.com]:
+(none)
+WIP:
+.1 Setup DB [dev@example.com]
+"""
+
+[[tests.ready]]
+name = "multiple blocked"
+input = """
+Ready tasks for fn-21 (actor: worker):
+  (none)
+
+Blocked:
+  fn-21.2: T2 (by: fn-21.1)
+  fn-21.3: T3 (by: fn-21.1, fn-21.2)
+"""
+expected = """
+Ready fn-21 [worker]:
+(none)
+BLK:
+.2 T2 (by: .1)
+.3 T3 (by: .1, .2)
+"""

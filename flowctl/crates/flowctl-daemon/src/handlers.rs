@@ -242,7 +242,7 @@ pub async fn done_task_handler(
             summary_file: None,
             evidence_json: None,
             evidence_inline: None,
-            force: true,
+            force: false,
             actor: "daemon".to_string(),
         };
         flowctl_service::lifecycle::done_task(Some(&conn), &flow_dir, req)

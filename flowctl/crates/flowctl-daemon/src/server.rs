@@ -327,16 +327,16 @@ mod tests {
     async fn start_task_validates_transition() {
         // Setup: create epic + task in todo state, then start it (should succeed),
         // then try to start again from in_progress (should fail with CONFLICT).
-        let (tmp, runtime, event_bus) = test_setup();
+        let (_tmp, runtime, event_bus) = test_setup();
         let (state, _cancel) = create_state(runtime, event_bus).unwrap();
         {
             let conn = state.db.lock().unwrap();
             conn.execute(
-                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('e1', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-1', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
                 [],
             ).unwrap();
             conn.execute(
-                "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('e1.1', 'e1', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('fn-1.1', 'fn-1', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
                 [],
             ).unwrap();
         }
@@ -347,7 +347,7 @@ mod tests {
             .method("POST")
             .uri("/api/v1/tasks/start")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(r#"{"task_id":"e1.1"}"#))
+            .body(axum::body::Body::from(r#"{"task_id":"fn-1.1"}"#))
             .unwrap();
         let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -358,7 +358,7 @@ mod tests {
             .method("POST")
             .uri("/api/v1/tasks/done")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(r#"{"task_id":"e1.1"}"#))
+            .body(axum::body::Body::from(r#"{"task_id":"fn-1.1"}"#))
             .unwrap();
         let resp = tower::ServiceExt::oneshot(app2, req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -369,7 +369,7 @@ mod tests {
             .method("POST")
             .uri("/api/v1/tasks/start")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(r#"{"task_id":"e1.1"}"#))
+            .body(axum::body::Body::from(r#"{"task_id":"fn-1.1"}"#))
             .unwrap();
         let resp = tower::ServiceExt::oneshot(app3, req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT);
@@ -377,16 +377,16 @@ mod tests {
 
     #[tokio::test]
     async fn done_task_rejects_from_todo() {
-        let (tmp, runtime, event_bus) = test_setup();
+        let (_tmp, runtime, event_bus) = test_setup();
         let (state, _cancel) = create_state(runtime, event_bus).unwrap();
         {
             let conn = state.db.lock().unwrap();
             conn.execute(
-                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('e2', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-2', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
                 [],
             ).unwrap();
             conn.execute(
-                "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('e2.1', 'e2', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('fn-2.1', 'fn-2', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
                 [],
             ).unwrap();
         }
@@ -397,7 +397,7 @@ mod tests {
             .method("POST")
             .uri("/api/v1/tasks/done")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(r#"{"task_id":"e2.1"}"#))
+            .body(axum::body::Body::from(r#"{"task_id":"fn-2.1"}"#))
             .unwrap();
         let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT);

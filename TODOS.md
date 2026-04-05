@@ -7,11 +7,12 @@
 **Effort:** XL (human: ~2 weeks / CC: ~2 hours)
 **Priority:** P2
 **Depends on:** File splits (admin/task/workflow) should happen first to reduce diff size.
+**Note:** The Web Platform project (React frontend + daemon POST API) partially addresses this -- the POST API endpoints will call service layer functions, establishing the pattern for full extraction.
 
-## Leptos SSR Integration Cleanup
-**What:** Move Leptos SSR fallback routing from main.rs to server.rs.
-**Why:** Cosmetic separation of concerns. main.rs should only do CLI parsing, server.rs should own all HTTP routing.
-**Context:** Currently main.rs:534-539 has the Leptos fallback logic inline. server.rs already has build_router() and serve_tcp(). No correctness issue, just organizational.
-**Effort:** S (human: ~1 hour / CC: ~5 min)
+## Create DESIGN.md
+**What:** Create a formal design system document for the flow-code web platform.
+**Why:** No DESIGN.md exists. Design decisions are scattered across CEO plan and design review notes. A formal document ensures consistency for contributors.
+**Context:** Design review rated the project 4/10 → 7/10 on design completeness. Key design tokens (colors, spacing, typography) were defined during review but not persisted in a DESIGN.md. Run /design-consultation to create it.
+**Effort:** S (human: ~2 hours / CC: ~15 min)
 **Priority:** P3
-**Depends on:** Nothing. Revisit when server.rs grows beyond 200 lines.
+**Depends on:** Web platform implementation (so the design system reflects actual usage)

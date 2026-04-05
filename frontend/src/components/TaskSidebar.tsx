@@ -91,7 +91,8 @@ export default function TaskSidebar() {
           </h2>
           <button
             onClick={close}
-            className="p-1 rounded hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors"
+            aria-label="Close task details"
+            className="p-1 rounded hover:bg-bg-tertiary text-text-muted hover:text-text-primary transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             <X size={18} />
           </button>

@@ -248,7 +248,7 @@ export default function Dashboard() {
                 className="block rounded-lg border border-border bg-bg-secondary p-4 hover:border-accent transition-colors"
               >
                 <div className="flex items-start justify-between gap-2 mb-3">
-                  <h3 className="text-sm font-medium truncate">{epic.title}</h3>
+                  <h3 className="text-[15px] font-semibold truncate">{epic.title}</h3>
                   <Badge status={epicStatusKey(epic.status)} label={epic.status.replace("_", " ")} />
                 </div>
                 <ProgressBar tasks={epic.tasks} />

@@ -37,13 +37,32 @@ export default function Settings() {
               {entries.map(([key, value]) => (
                 <tr
                   key={key}
-                  className="border-t border-border bg-bg-secondary"
+                  className="border-t border-border bg-bg-secondary align-top"
                 >
-                  <td className="px-4 py-2 font-mono text-accent">{key}</td>
-                  <td className="px-4 py-2 text-text-primary">
-                    {typeof value === "object"
-                      ? JSON.stringify(value)
-                      : String(value)}
+                  <td className="px-4 py-3 font-mono text-accent whitespace-nowrap">
+                    {key}
+                  </td>
+                  <td className="px-4 py-3 text-text-primary">
+                    {typeof value === "object" && value !== null ? (
+                      <div className="flex flex-col gap-1 text-xs">
+                        {Object.entries(value as Record<string, unknown>).map(
+                          ([k, v]) => (
+                            <div key={k} className="flex gap-2">
+                              <span className="text-text-muted font-mono">
+                                {k}:
+                              </span>
+                              <span className="font-mono">
+                                {typeof v === "object"
+                                  ? JSON.stringify(v)
+                                  : String(v)}
+                              </span>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    ) : (
+                      <span className="font-mono text-xs">{String(value)}</span>
+                    )}
                   </td>
                 </tr>
               ))}

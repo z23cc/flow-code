@@ -77,8 +77,15 @@ export default function Memory() {
       )}
 
       {!isLoading && entries.length === 0 && (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-text-muted text-sm">No memory entries found.</p>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
+          <div className="text-4xl opacity-40">🧠</div>
+          <p className="text-text-primary text-sm font-medium">
+            No memory entries yet
+          </p>
+          <p className="text-text-muted text-xs max-w-md">
+            Memory accumulates automatically as agents work. Lessons from
+            completed tasks, pitfalls, and conventions will appear here.
+          </p>
         </div>
       )}
 

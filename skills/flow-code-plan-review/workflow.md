@@ -62,6 +62,8 @@ $FLOWCTL codex plan-review "$EPIC_ID" --files "$CODE_FILES" --receipt "$RECEIPT_
 
 **Output includes `VERDICT=SHIP|NEEDS_WORK|MAJOR_RETHINK`.**
 
+Codex is instructed to return findings as a JSON array. Each finding must have: `title`, `severity` (P0/P1/P2/P3), `file`, `line`, `why_it_matters`, `confidence` (0.0-1.0), `autofix_class` (safe_auto/gated_auto/manual/advisory), `evidence` (array of strings). Findings with confidence < 0.6 are suppressed unless P0. If structured JSON is not possible, free-text findings are still accepted by parse-findings.
+
 ### Step 2: Update Status
 
 ```bash
@@ -228,20 +230,26 @@ For each issue:
 - **Problem**: What's wrong
 - **Suggestion**: How to fix
 
-**Structured findings (optional):** If you found issues, include a `<findings>` block with machine-readable JSON. SHIP reviews with no issues may omit this block.
+**Structured findings (preferred):** Return findings as a JSON array inside a `<findings>` block. Each finding must include the fields below. Suppress findings with confidence < 0.6 unless severity is P0.
 
 ```
 <findings>
 [
   {
     "title": "Short description of the issue",
-    "severity": "critical | major | minor | nitpick",
-    "location": "task ID, file:line, or spec section",
-    "recommendation": "How to fix"
+    "severity": "P0 | P1 | P2 | P3",
+    "file": "path/to/file.rs or spec section",
+    "line": 42,
+    "why_it_matters": "Explain the real-world impact",
+    "confidence": 0.95,
+    "autofix_class": "safe_auto | gated_auto | manual | advisory",
+    "evidence": ["grep output", "test failure", "spec reference"]
   }
 ]
 </findings>
 ```
+
+**Backward compatibility:** If structured JSON is not possible, free-text findings are still accepted by parse-findings.
 
 **REQUIRED**: You MUST end your response with exactly one verdict tag. This is mandatory:
 `<verdict>SHIP</verdict>` or `<verdict>NEEDS_WORK</verdict>` or `<verdict>MAJOR_RETHINK</verdict>`

@@ -11,7 +11,8 @@ use regex::Regex;
 use serde_json::json;
 
 use flowctl_core::review_protocol::{
-    compute_consensus, ConsensusResult, ModelReview, ReviewFinding, ReviewVerdict, Severity,
+    compute_consensus, filter_by_confidence, AutofixClass, ConsensusResult, FindingOwner,
+    ModelReview, ReviewFinding, ReviewVerdict, Severity,
 };
 
 use crate::output::{error_exit, json_output};
@@ -770,9 +771,10 @@ fn parse_findings_from_output(output: &str) -> (Vec<ReviewFinding>, f64) {
         if let Some(arr) = data.get("findings").and_then(|v| v.as_array()) {
             for item in arr {
                 let severity = match item.get("severity").and_then(|v| v.as_str()) {
-                    Some("critical") => Severity::Critical,
-                    Some("warning") => Severity::Warning,
-                    _ => Severity::Info,
+                    Some("P0") | Some("critical") => Severity::P0,
+                    Some("P1") | Some("warning") => Severity::P1,
+                    Some("P2") => Severity::P2,
+                    _ => Severity::P3,
                 };
                 let category = item
                     .get("category")
@@ -786,6 +788,48 @@ fn parse_findings_from_output(output: &str) -> (Vec<ReviewFinding>, f64) {
                     .to_string();
                 let file = item.get("file").and_then(|v| v.as_str()).map(String::from);
                 let line = item.get("line").and_then(|v| v.as_u64()).map(|n| n as u32);
+                let item_confidence = item
+                    .get("confidence")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.8);
+                let autofix_class = match item.get("autofix_class").and_then(|v| v.as_str()) {
+                    Some("safe_auto") => AutofixClass::SafeAuto,
+                    Some("gated_auto") => AutofixClass::GatedAuto,
+                    Some("advisory") => AutofixClass::Advisory,
+                    _ => AutofixClass::Manual,
+                };
+                let owner = match item.get("owner").and_then(|v| v.as_str()) {
+                    Some("review-fixer") => FindingOwner::ReviewFixer,
+                    Some("downstream-resolver") => FindingOwner::DownstreamResolver,
+                    Some("human") => FindingOwner::Human,
+                    Some("release") => FindingOwner::Release,
+                    _ => FindingOwner::ReviewFixer,
+                };
+                let evidence = item
+                    .get("evidence")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let pre_existing = item
+                    .get("pre_existing")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let requires_verification = item
+                    .get("requires_verification")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let suggested_fix = item
+                    .get("suggested_fix")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let why_it_matters = item
+                    .get("why_it_matters")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
 
                 if !description.is_empty() {
                     findings.push(ReviewFinding {
@@ -794,10 +838,21 @@ fn parse_findings_from_output(output: &str) -> (Vec<ReviewFinding>, f64) {
                         description,
                         file,
                         line,
+                        confidence: item_confidence,
+                        autofix_class,
+                        owner,
+                        evidence,
+                        pre_existing,
+                        requires_verification,
+                        suggested_fix,
+                        why_it_matters,
                     });
                 }
             }
         }
+
+        // Apply confidence filtering
+        findings = filter_by_confidence(findings);
     }
 
     (findings, confidence)

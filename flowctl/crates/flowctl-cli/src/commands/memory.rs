@@ -19,6 +19,47 @@ use super::helpers::get_flow_dir;
 
 const MEMORY_VALID_TYPES: &[&str] = &["pitfall", "convention", "decision"];
 
+const VALID_SEVERITIES: &[&str] = &["critical", "high", "medium", "low"];
+
+/// Problem types that map to the "bug" track.
+const BUG_PROBLEM_TYPES: &[&str] = &[
+    "build_error",
+    "test_failure",
+    "runtime_error",
+    "performance_issue",
+    "database_issue",
+    "security_issue",
+    "logic_error",
+];
+
+/// Problem types that map to the "knowledge" track.
+const KNOWLEDGE_PROBLEM_TYPES: &[&str] = &[
+    "best_practice",
+    "documentation_gap",
+    "workflow_issue",
+    "developer_experience",
+    "convention",
+    "decision",
+];
+
+/// Derive track from problem_type, falling back to entry_type.
+fn derive_track(problem_type: Option<&str>, entry_type: &str) -> &'static str {
+    if let Some(pt) = problem_type {
+        if BUG_PROBLEM_TYPES.contains(&pt) {
+            return "bug";
+        }
+        if KNOWLEDGE_PROBLEM_TYPES.contains(&pt) {
+            return "knowledge";
+        }
+    }
+    // Fallback: derive from entry_type
+    match entry_type {
+        "pitfall" => "bug",
+        "convention" | "decision" => "knowledge",
+        _ => "knowledge",
+    }
+}
+
 const TAG_PATTERNS: &[&str] = &[
     r"\b(typescript|javascript|python|rust|go|java|ruby|swift)\b",
     r"\b(react|vue|angular|svelte|nextjs|django|flask|fastapi|express)\b",
@@ -41,6 +82,18 @@ pub enum MemoryCmd {
         entry_type: String,
         /// Entry content.
         content: String,
+        /// Module scope (e.g. "flowctl-core", "scheduler", "auth").
+        #[arg(long)]
+        module: Option<String>,
+        /// Severity: critical, high, medium, low.
+        #[arg(long)]
+        severity: Option<String>,
+        /// Problem type (e.g. build_error, test_failure, best_practice, workflow_issue).
+        #[arg(long)]
+        problem_type: Option<String>,
+        /// Tags (comma-separated).
+        #[arg(long)]
+        tags: Option<String>,
     },
     /// Read entries (L3: full content).
     Read {
@@ -49,11 +102,33 @@ pub enum MemoryCmd {
         entry_type: Option<String>,
     },
     /// List entries with ref counts.
-    List,
+    List {
+        /// Filter by module.
+        #[arg(long)]
+        module: Option<String>,
+        /// Filter by track (bug or knowledge).
+        #[arg(long)]
+        track: Option<String>,
+        /// Filter by type (pitfall, convention, decision).
+        #[arg(long = "type")]
+        entry_type: Option<String>,
+    },
     /// Search entries by pattern.
     Search {
         /// Search pattern (regex).
         pattern: String,
+        /// Filter by module.
+        #[arg(long)]
+        module: Option<String>,
+        /// Filter by type (pitfall, convention, decision).
+        #[arg(long = "type")]
+        entry_type: Option<String>,
+        /// Filter by severity (critical, high, medium, low).
+        #[arg(long)]
+        severity: Option<String>,
+        /// Filter by track (bug or knowledge).
+        #[arg(long)]
+        track: Option<String>,
     },
     /// Inject relevant entries (progressive disclosure).
     Inject {
@@ -89,10 +164,31 @@ pub fn dispatch(cmd: &MemoryCmd, json: bool) {
         MemoryCmd::Add {
             entry_type,
             content,
-        } => cmd_memory_add(json, entry_type, content),
+            module,
+            severity,
+            problem_type,
+            tags,
+        } => cmd_memory_add(json, entry_type, content, module.as_deref(), severity.as_deref(), problem_type.as_deref(), tags.as_deref()),
         MemoryCmd::Read { entry_type } => cmd_memory_read(json, entry_type.as_deref()),
-        MemoryCmd::List => cmd_memory_list(json),
-        MemoryCmd::Search { pattern } => cmd_memory_search(json, pattern),
+        MemoryCmd::List {
+            module,
+            track,
+            entry_type,
+        } => cmd_memory_list(json, module.as_deref(), track.as_deref(), entry_type.as_deref()),
+        MemoryCmd::Search {
+            pattern,
+            module,
+            entry_type,
+            severity,
+            track,
+        } => cmd_memory_search(
+            json,
+            pattern,
+            module.as_deref(),
+            entry_type.as_deref(),
+            severity.as_deref(),
+            track.as_deref(),
+        ),
         MemoryCmd::Inject {
             entry_type,
             tags,
@@ -397,7 +493,15 @@ fn cmd_memory_init(json: bool) {
     }
 }
 
-fn cmd_memory_add(json: bool, entry_type: &str, content: &str) {
+fn cmd_memory_add(
+    json: bool,
+    entry_type: &str,
+    content: &str,
+    module: Option<&str>,
+    severity: Option<&str>,
+    problem_type: Option<&str>,
+    extra_tags: Option<&str>,
+) {
     require_memory_enabled(json);
 
     let type_name = match normalize_memory_type(entry_type) {
@@ -416,6 +520,44 @@ fn cmd_memory_add(json: bool, entry_type: &str, content: &str) {
             std::process::exit(1);
         }
     };
+
+    // Validate severity if provided
+    if let Some(sev) = severity {
+        if !VALID_SEVERITIES.contains(&sev) {
+            let msg = format!(
+                "Invalid severity '{}'. Use: critical, high, medium, or low",
+                sev
+            );
+            if json {
+                json_output(json!({"error": msg}));
+            } else {
+                eprintln!("Error: {}", msg);
+            }
+            std::process::exit(1);
+        }
+    }
+
+    // Validate problem_type if provided
+    if let Some(pt) = problem_type {
+        let all_problem_types: Vec<&str> = BUG_PROBLEM_TYPES
+            .iter()
+            .chain(KNOWLEDGE_PROBLEM_TYPES.iter())
+            .copied()
+            .collect();
+        if !all_problem_types.contains(&pt) {
+            let msg = format!(
+                "Invalid problem-type '{}'. Use one of: {}",
+                pt,
+                all_problem_types.join(", ")
+            );
+            if json {
+                json_output(json!({"error": msg}));
+            } else {
+                eprintln!("Error: {}", msg);
+            }
+            std::process::exit(1);
+        }
+    }
 
     let content = content.trim();
     if content.is_empty() {
@@ -455,13 +597,22 @@ fn cmd_memory_add(json: bool, entry_type: &str, content: &str) {
         error_exit(&format!("Failed to write entry file: {}", e));
     }
 
-    // Extract tags and summary
-    let tags = extract_tags(content);
+    // Extract tags from content, merge with explicit tags
+    let mut tags = extract_tags(content);
+    if let Some(et) = extra_tags {
+        for t in et.split(',').map(|s| s.trim().to_lowercase()) {
+            if !t.is_empty() && !tags.contains(&t) {
+                tags.push(t);
+            }
+        }
+    }
+
     let summary: String = content.lines().next().unwrap_or("").chars().take(120).collect();
     let created = Utc::now().format("%Y-%m-%d").to_string();
+    let track = derive_track(problem_type, type_name);
 
-    // Append to index
-    let idx_entry = json!({
+    // Append to index (backward-compatible: new fields added alongside existing ones)
+    let mut idx_entry = json!({
         "id": entry_id,
         "type": type_name,
         "summary": summary,
@@ -470,22 +621,56 @@ fn cmd_memory_add(json: bool, entry_type: &str, content: &str) {
         "created": created,
         "last_verified": created,
         "file": entry_filename,
+        "track": track,
     });
+
+    // Add optional structured fields
+    if let Some(m) = module {
+        idx_entry["module"] = json!(m);
+    }
+    if let Some(s) = severity {
+        idx_entry["severity"] = json!(s);
+    }
+    if let Some(pt) = problem_type {
+        idx_entry["problem_type"] = json!(pt);
+    }
+
     let mut all_entries = existing;
     all_entries.push(idx_entry);
     save_index(&index_path, &all_entries);
 
     if json {
-        json_output(json!({
+        let mut out = json!({
             "id": entry_id,
             "type": type_name,
             "file": entry_filename,
             "tags": tags,
-        }));
+            "track": track,
+        });
+        if let Some(m) = module {
+            out["module"] = json!(m);
+        }
+        if let Some(s) = severity {
+            out["severity"] = json!(s);
+        }
+        if let Some(pt) = problem_type {
+            out["problem_type"] = json!(pt);
+        }
+        json_output(out);
     } else {
         println!("Added {} #{}: {}", type_name, entry_id, summary);
         if !tags.is_empty() {
             println!("  Tags: {}", tags.join(", "));
+        }
+        println!("  Track: {}", track);
+        if let Some(m) = module {
+            println!("  Module: {}", m);
+        }
+        if let Some(s) = severity {
+            println!("  Severity: {}", s);
+        }
+        if let Some(pt) = problem_type {
+            println!("  Problem type: {}", pt);
         }
     }
 }
@@ -565,11 +750,42 @@ fn cmd_memory_read(json: bool, entry_type: Option<&str>) {
     }
 }
 
-fn cmd_memory_list(json: bool) {
+fn cmd_memory_list(
+    json: bool,
+    module_filter: Option<&str>,
+    track_filter: Option<&str>,
+    type_filter: Option<&str>,
+) {
     require_memory_enabled(json);
 
-    let index = load_index(&memory_index_path());
+    let all_index = load_index(&memory_index_path());
     let stats = load_stats(&memory_stats_path());
+
+    // Normalize type filter
+    let norm_type = type_filter.and_then(normalize_memory_type);
+
+    // Apply filters
+    let index: Vec<&serde_json::Value> = all_index
+        .iter()
+        .filter(|idx| {
+            if let Some(tf) = norm_type {
+                if idx.get("type").and_then(|v| v.as_str()) != Some(tf) {
+                    return false;
+                }
+            }
+            if let Some(mf) = module_filter {
+                if idx.get("module").and_then(|v| v.as_str()) != Some(mf) {
+                    return false;
+                }
+            }
+            if let Some(tf) = track_filter {
+                if idx.get("track").and_then(|v| v.as_str()) != Some(tf) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
 
     let mut counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for idx in &index {
@@ -612,7 +828,7 @@ fn cmd_memory_list(json: bool) {
                     .and_then(|s| s.get("refs"))
                     .and_then(|r| r.as_i64())
                     .unwrap_or(0);
-                json!({
+                let mut entry = json!({
                     "id": idx.get("id"),
                     "type": idx.get("type"),
                     "summary": idx.get("summary"),
@@ -621,7 +837,21 @@ fn cmd_memory_list(json: bool) {
                     "last_verified": last_verified,
                     "stale": stale,
                     "refs": refs,
-                })
+                });
+                // Include structured fields when present
+                if let Some(m) = idx.get("module") {
+                    entry["module"] = m.clone();
+                }
+                if let Some(s) = idx.get("severity") {
+                    entry["severity"] = s.clone();
+                }
+                if let Some(pt) = idx.get("problem_type") {
+                    entry["problem_type"] = pt.clone();
+                }
+                if let Some(t) = idx.get("track") {
+                    entry["track"] = t.clone();
+                }
+                entry
             })
             .collect();
 
@@ -680,7 +910,14 @@ fn cmd_memory_list(json: bool) {
     }
 }
 
-fn cmd_memory_search(json: bool, pattern: &str) {
+fn cmd_memory_search(
+    json: bool,
+    pattern: &str,
+    module_filter: Option<&str>,
+    type_filter: Option<&str>,
+    severity_filter: Option<&str>,
+    track_filter: Option<&str>,
+) {
     require_memory_enabled(json);
 
     let compiled = match Regex::new(&format!("(?i){}", pattern)) {
@@ -695,11 +932,36 @@ fn cmd_memory_search(json: bool, pattern: &str) {
         }
     };
 
+    // Normalize type filter
+    let norm_type = type_filter.and_then(normalize_memory_type);
+
     let index = load_index(&memory_index_path());
     let entries_dir = memory_entries_dir();
     let mut matches = Vec::new();
 
     for idx in &index {
+        // Apply field filters first (exact match)
+        if let Some(tf) = norm_type {
+            if idx.get("type").and_then(|v| v.as_str()) != Some(tf) {
+                continue;
+            }
+        }
+        if let Some(mf) = module_filter {
+            if idx.get("module").and_then(|v| v.as_str()) != Some(mf) {
+                continue;
+            }
+        }
+        if let Some(sf) = severity_filter {
+            if idx.get("severity").and_then(|v| v.as_str()) != Some(sf) {
+                continue;
+            }
+        }
+        if let Some(tf) = track_filter {
+            if idx.get("track").and_then(|v| v.as_str()) != Some(tf) {
+                continue;
+            }
+        }
+
         let mut hit = false;
 
         // Search summary
@@ -737,13 +999,27 @@ fn cmd_memory_search(json: bool, pattern: &str) {
         }
 
         if hit {
-            matches.push(json!({
+            let mut entry = json!({
                 "id": idx.get("id"),
                 "type": idx.get("type"),
                 "summary": idx.get("summary"),
                 "tags": idx.get("tags").cloned().unwrap_or(json!([])),
                 "content": content,
-            }));
+            });
+            // Include structured fields when present
+            if let Some(m) = idx.get("module") {
+                entry["module"] = m.clone();
+            }
+            if let Some(s) = idx.get("severity") {
+                entry["severity"] = s.clone();
+            }
+            if let Some(pt) = idx.get("problem_type") {
+                entry["problem_type"] = pt.clone();
+            }
+            if let Some(t) = idx.get("track") {
+                entry["track"] = t.clone();
+            }
+            matches.push(entry);
         }
     }
 
@@ -757,11 +1033,22 @@ fn cmd_memory_search(json: bool, pattern: &str) {
         println!("No matches for '{}'", pattern);
     } else {
         for m in &matches {
-            println!(
-                "--- #{} [{}] ---",
+            let mut meta = format!(
+                "--- #{} [{}]",
                 m["id"],
                 m["type"].as_str().unwrap_or("")
             );
+            if let Some(module) = m.get("module").and_then(|v| v.as_str()) {
+                meta.push_str(&format!(" module={}", module));
+            }
+            if let Some(sev) = m.get("severity").and_then(|v| v.as_str()) {
+                meta.push_str(&format!(" severity={}", sev));
+            }
+            if let Some(track) = m.get("track").and_then(|v| v.as_str()) {
+                meta.push_str(&format!(" track={}", track));
+            }
+            meta.push_str(" ---");
+            println!("{}", meta);
             println!("{}", m["content"].as_str().unwrap_or(""));
             println!();
         }

@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [features]
 default = ["daemon"]
-daemon = ["dep:flowctl-daemon", "dep:flowctl-web", "dep:tokio", "dep:leptos", "dep:leptos_axum", "dep:any_spawner", "dep:axum"]
+daemon = ["dep:flowctl-daemon", "dep:tokio", "dep:axum", "dep:tower-http"]
 
 [dependencies]
 flowctl-core = { workspace = true }
@@ -21,12 +21,8 @@ flowctl-service = { workspace = true }
 rusqlite = { workspace = true }
 flowctl-scheduler = { workspace = true }
 flowctl-daemon = { path = "../flowctl-daemon", features = ["daemon"], optional = true }
-flowctl-web = { path = "../flowctl-web", features = ["ssr"], optional = true }
-
-leptos = { version = "0.8", features = ["ssr"], optional = true }
-leptos_axum = { version = "0.8", optional = true }
-any_spawner = { version = "0.3", optional = true }
 axum = { workspace = true, optional = true }
+tower-http = { version = "0.6", features = ["fs"], optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

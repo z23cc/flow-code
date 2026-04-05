@@ -13,11 +13,11 @@ use axum::Json;
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
-use flowctl_core::id::is_task_id;
+use flowctl_core::id::{is_task_id, slugify};
 use flowctl_core::state_machine::{Status, Transition};
-use flowctl_core::types::FLOW_DIR;
+use flowctl_core::types::{FLOW_DIR, CONFIG_FILE};
 use flowctl_scheduler::TimestampedEvent;
-use flowctl_service::lifecycle::{DoneTaskRequest, StartTaskRequest};
+use flowctl_service::lifecycle::{BlockTaskRequest, DoneTaskRequest, RestartTaskRequest, StartTaskRequest};
 use flowctl_service::ServiceError;
 
 use crate::lifecycle::DaemonRuntime;
@@ -278,6 +278,24 @@ pub struct TaskDoneRequest {
     pub summary: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct TaskReasonRequest {
+    pub task_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct CreateEpicRequest {
+    pub title: String,
+}
+
+/// Query parameters for the memory endpoint.
+#[derive(Debug, serde::Deserialize)]
+pub struct MemoryQuery {
+    pub track: Option<String>,
+    pub module: Option<String>,
+}
+
 /// Query parameters for the tokens endpoint.
 #[derive(Debug, serde::Deserialize)]
 pub struct TokensQuery {
@@ -339,6 +357,7 @@ pub struct DagNode {
     pub id: String,
     pub title: String,
     pub status: String,
+    pub domain: String,
     pub x: f64,
     pub y: f64,
 }
@@ -430,6 +449,9 @@ pub async fn dag_handler(
                 status: task
                     .map(|t| format!("{:?}", t.status).to_lowercase())
                     .unwrap_or_else(|| "todo".to_string()),
+                domain: task
+                    .map(|t| t.domain.to_string())
+                    .unwrap_or_else(|| "general".to_string()),
                 x: layer_idx as f64 * node_spacing_x,
                 y: y_offset + pos as f64 * node_spacing_y,
             });
@@ -614,6 +636,227 @@ fn touch_updated_at(conn: &rusqlite::Connection, task_id: &str) -> Result<(), Ap
         rusqlite::params![chrono::Utc::now().to_rfc3339(), task_id],
     ).map_err(|e| AppError::Db(e.to_string()))?;
     Ok(())
+}
+
+// ── New API endpoints ──────────────────────────────────────────
+
+/// POST /api/v1/epics/create -- create a new epic.
+pub async fn create_epic_handler(
+    State(state): State<AppState>,
+    Json(body): Json<CreateEpicRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+    let title = body.title.trim().to_string();
+    if title.is_empty() {
+        return Err(AppError::InvalidInput("title is required".to_string()));
+    }
+
+    let conn = state.db_lock()?;
+
+    // Determine next epic number from DB.
+    let max_num: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(CAST(SUBSTR(id, 4, INSTR(SUBSTR(id, 4), '-') - 1) AS INTEGER)), 0) FROM epics WHERE id LIKE 'fn-%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let epic_num = (max_num + 1) as u32;
+
+    let slug = slugify(&title, 40).unwrap_or_else(|| format!("epic{epic_num}"));
+    let epic_id = format!("fn-{epic_num}-{slug}");
+
+    let epic = flowctl_core::types::Epic {
+        schema_version: 1,
+        id: epic_id.clone(),
+        title: title.clone(),
+        status: flowctl_core::types::EpicStatus::Open,
+        branch_name: None,
+        plan_review: flowctl_core::types::ReviewStatus::Unknown,
+        completion_review: flowctl_core::types::ReviewStatus::Unknown,
+        depends_on_epics: vec![],
+        default_impl: None,
+        default_review: None,
+        default_sync: None,
+        file_path: Some(format!("epics/{epic_id}.md")),
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+
+    let repo = flowctl_db::EpicRepo::new(&conn);
+    repo.upsert(&epic)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({"success": true, "id": epic_id, "title": title})),
+    ))
+}
+
+/// POST /api/v1/tasks/skip -- skip a task.
+pub async fn skip_task_handler(
+    State(state): State<AppState>,
+    Json(body): Json<TaskReasonRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
+    let repo = flowctl_db::TaskRepo::new(&conn);
+    let task = repo
+        .get(&body.task_id)
+        .map_err(|_| AppError::InvalidInput(format!("task not found: {}", body.task_id)))?;
+
+    Transition::new(task.status, Status::Skipped).map_err(|e| {
+        AppError::InvalidTransition(format!("cannot skip task '{}': {}", body.task_id, e))
+    })?;
+
+    repo.update_status(&body.task_id, Status::Skipped)?;
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "id": body.task_id,
+        "status": "skipped"
+    })))
+}
+
+/// POST /api/v1/tasks/block -- block a task.
+pub async fn block_task_handler(
+    State(state): State<AppState>,
+    Json(body): Json<TaskReasonRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let task_id = body.task_id.clone();
+    let reason = body.reason.clone();
+    let db = state.db.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = db
+            .lock()
+            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
+        let flow_dir = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(FLOW_DIR);
+        let req = BlockTaskRequest { task_id, reason };
+        flowctl_service::lifecycle::block_task(Some(&conn), &flow_dir, req)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
+
+    match result {
+        Ok(resp) => Ok(Json(serde_json::json!({
+            "success": true,
+            "id": resp.task_id,
+            "status": "blocked"
+        }))),
+        Err(e) => Err(service_error_to_app_error(e)),
+    }
+}
+
+/// POST /api/v1/tasks/restart -- restart a task and cascade.
+pub async fn restart_task_handler(
+    State(state): State<AppState>,
+    Json(body): Json<TaskIdRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let task_id = body.task_id.clone();
+    let db = state.db.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = db
+            .lock()
+            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
+        let flow_dir = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(FLOW_DIR);
+        let req = RestartTaskRequest {
+            task_id,
+            dry_run: false,
+            force: true,
+        };
+        flowctl_service::lifecycle::restart_task(Some(&conn), &flow_dir, req)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
+
+    match result {
+        Ok(resp) => Ok(Json(serde_json::json!({
+            "success": true,
+            "reset": resp.reset_ids
+        }))),
+        Err(e) => Err(service_error_to_app_error(e)),
+    }
+}
+
+/// GET /api/v1/config -- read .flow/config.json.
+pub async fn config_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let config_path = state
+        .runtime
+        .paths
+        .state_dir
+        .parent() // .flow/
+        .map(|flow_dir| flow_dir.join(CONFIG_FILE))
+        .ok_or_else(|| AppError::Internal("cannot resolve .flow/ directory".to_string()))?;
+
+    if !config_path.exists() {
+        return Ok(Json(serde_json::json!({})));
+    }
+
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|e| AppError::Internal(format!("failed to read config: {e}")))?;
+    let value: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| AppError::Internal(format!("invalid config JSON: {e}")))?;
+    Ok(Json(value))
+}
+
+/// GET /api/v1/memory -- list memory entries.
+pub async fn memory_handler(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<MemoryQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
+
+    let mut sql = String::from("SELECT id, entry_type, content, summary, module, severity, problem_type, track, created_at FROM memory WHERE 1=1");
+    let mut bind_values: Vec<String> = Vec::new();
+
+    if let Some(ref track) = params.track {
+        bind_values.push(track.clone());
+        sql.push_str(&format!(" AND track = ?{}", bind_values.len()));
+    }
+    if let Some(ref module) = params.module {
+        bind_values.push(module.clone());
+        sql.push_str(&format!(" AND module = ?{}", bind_values.len()));
+    }
+    sql.push_str(" ORDER BY created_at DESC");
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| AppError::Db(e.to_string()))?;
+    let params_slice: Vec<&dyn rusqlite::types::ToSql> =
+        bind_values.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let rows = stmt
+        .query_map(params_slice.as_slice(), |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, i64>(0)?,
+                "entry_type": row.get::<_, String>(1)?,
+                "content": row.get::<_, String>(2)?,
+                "summary": row.get::<_, Option<String>>(3)?,
+                "module": row.get::<_, Option<String>>(4)?,
+                "severity": row.get::<_, Option<String>>(5)?,
+                "problem_type": row.get::<_, Option<String>>(6)?,
+                "track": row.get::<_, Option<String>>(7)?,
+                "created_at": row.get::<_, String>(8)?,
+            }))
+        })
+        .map_err(|e| AppError::Db(e.to_string()))?;
+
+    let entries: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
+    Ok(Json(serde_json::json!({"entries": entries})))
+}
+
+/// GET /api/v1/stats -- global statistics.
+pub async fn stats_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
+    let stats = flowctl_db::StatsQuery::new(&conn);
+    let summary = stats.summary()?;
+    let value = serde_json::to_value(&summary)
+        .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
+    Ok(Json(value))
 }
 
 /// GET /api/v1/events -- WebSocket upgrade for live event streaming.

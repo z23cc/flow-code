@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Bot,
   Brain,
+  CheckSquare,
   Settings,
   ChevronRight,
   Menu,
@@ -23,6 +24,7 @@ const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, shortcut: "D" },
   { to: "/agents", label: "Agents", icon: Bot, shortcut: "A" },
   { to: "/memory", label: "Memory", icon: Brain, shortcut: "M" },
+  { to: "/approvals", label: "Approvals", icon: CheckSquare, shortcut: "V" },
   { to: "/settings", label: "Settings", icon: Settings, shortcut: "S" },
 ];
 
@@ -124,6 +126,10 @@ export default function Layout() {
         case "m":
           e.preventDefault();
           navigate("/memory");
+          break;
+        case "v":
+          e.preventDefault();
+          navigate("/approvals");
           break;
         case "s":
           e.preventDefault();

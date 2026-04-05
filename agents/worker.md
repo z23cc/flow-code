@@ -78,16 +78,40 @@ SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
 ```
 
 4. **File access request** — when you need a file not in OWNED_FILES:
-```
-SendMessage(to: "coordinator", summary: "Need file access: <file>",
-  message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id>")
-```
+
+   **Preferred path (daemon running):** use the approval API instead of SendMessage:
+   ```bash
+   APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind file_access \
+     --payload '{"files": ["<path>"], "reason": "<why needed>", "current_owner": "<task-id>"}' \
+     --json | jq -r .id)
+   $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 600 --json
+   ```
+   - On `status: approved` → proceed with the edit.
+   - On `status: rejected` → emit a `Blocked:` summary and skip the file.
+   - On timeout → note in completion evidence and continue with alternative approach.
+
+   **Fallback (no daemon, non-Teams mode):**
+   ```
+   SendMessage(to: "coordinator", summary: "Need file access: <file>",
+     message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id>")
+   ```
+   Wait for "Access granted:" or "Access denied:" summary-prefix response.
 
 5. **Mutation request** — when the task should be split, skipped, or dependencies changed:
-```
-SendMessage(to: "coordinator", summary: "Need mutation: <TASK_ID>",
-  message: "Task <TASK_ID> needs structural change.\nType: split | skip | dep_change\nDetails: <why the mutation is needed>\nSuggested action: <split into N parts | skip because X | remove dep on Y>")
-```
+
+   **Preferred path (daemon running):**
+   ```bash
+   APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind mutation \
+     --payload '{"type": "split|skip|dep_change", "details": "<why>", "action": "<suggested>"}' \
+     --json | jq -r .id)
+   $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 600 --json
+   ```
+
+   **Fallback (no daemon, non-Teams mode):**
+   ```
+   SendMessage(to: "coordinator", summary: "Need mutation: <TASK_ID>",
+     message: "Task <TASK_ID> needs structural change.\nType: split | skip | dep_change\nDetails: <why the mutation is needed>\nSuggested action: <split into N parts | skip because X | remove dep on Y>")
+   ```
 
 **Team Lead → Worker messages (you receive these):**
 
@@ -269,14 +293,21 @@ If more files remain (tests, docs, config), repeat: parallel read → checkpoint
 1. Is this file in `OWNED_FILES`?
    - **YES** → proceed with the edit
    - **NO** → **STOP. Do NOT edit the file.** Instead:
-     1. Send a file access request:
+     1. Request approval via the API (preferred when daemon is running):
+        ```bash
+        APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind file_access \
+          --payload '{"files": ["<path>"], "reason": "<why>", "current_owner": "<task-id>"}' \
+          --json | jq -r .id)
+        $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 600 --json
+        ```
+        Fallback (no daemon): send a SendMessage summary-prefix request:
         ```
         SendMessage(to: "coordinator", summary: "Need file access: <file>",
           message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id if known>")
         ```
-     2. Wait for "Access granted:" or "Access denied:" response
-     3. If no response within 60s, skip the file and note it in your completion evidence
-     4. On "Access denied:", find an alternative approach that stays within your owned files
+     2. Wait for `status: approved`/`rejected` (API) or "Access granted:"/"Access denied:" (fallback)
+     3. If timeout, skip the file and note it in your completion evidence
+     4. On rejected/denied, find an alternative approach that stays within your owned files
 
 **This is not optional.** Do not bypass this check even if you believe the lock system will catch violations. Self-enforcement is the primary guard; hooks are the backup.
 <!-- /section:team -->
@@ -332,7 +363,7 @@ Continue until guard passes. There is no retry limit — this is not a retry loo
 - Return early with `SPEC_CONFLICT` status (see Phase 2 spec conflict protocol)
 - In Teams mode, send a `Spec conflict` message to the coordinator
 
-**Teams mode constraint:** When `TEAM_MODE=true`, only fix files in `OWNED_FILES`. If the failure is caused by a file you don't own, send a `Need file access` message and wait for a response. If access is denied or times out, note the issue in your completion summary.
+**Teams mode constraint:** When `TEAM_MODE=true`, only fix files in `OWNED_FILES`. If the failure is caused by a file you don't own, request access via `flowctl approval create --kind file_access` + `approval show --wait` (or fallback `Need file access:` SendMessage), then wait for a resolution. If access is rejected or times out, note the issue in your completion summary.
 
 ### Step 2: Review your own diff
 ```bash
@@ -592,8 +623,8 @@ If you catch yourself thinking any of these, stop and follow the correct action:
 
 | Thought | Reality |
 |---------|---------|
-| "I need to edit a file not in OWNED_FILES" | Send "Need file access:" and WAIT. Do not edit. |
-| "The coordinator isn't responding" | Wait 60s. If no response, skip the file and note it in evidence. |
+| "I need to edit a file not in OWNED_FILES" | Create a `flowctl approval create --kind file_access` (or fallback "Need file access:" message) and WAIT. Do not edit. |
+| "The coordinator isn't responding" | `approval show --wait --timeout 600` blocks ≤10min; on fallback path wait 60s. If timeout, skip the file and note it in evidence. |
 | "I'll just edit it, the lock check will catch it" | Don't rely on hooks. Self-enforce OWNED_FILES. |
 | "TEAM_MODE doesn't matter for this task" | If TEAM_MODE=true is set, follow the protocol. Always. |
 | "It's a small edit, nobody will notice" | Ownership violations break parallel safety for everyone. |

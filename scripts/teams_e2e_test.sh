@@ -211,6 +211,44 @@ RESULT=$(python3 "$FLOWCTL" ready --epic "$MEPIC" --json)
 READY_IDS=$(echo "$RESULT" | python3 -c "import sys,json; print(' '.join(t['id'] for t in json.load(sys.stdin)['ready']))")
 echo "$READY_IDS" | grep -q "$MEPIC.3" && pass "M3 unblocked after split chain completed" || fail "M3 not ready: $READY_IDS"
 
+echo -e "\033[1;33m--- Approval API protocol ---\033[0m"
+
+# Create an approval request (simulates worker asking for file access)
+RESULT=$(python3 "$FLOWCTL" approval create --task "$EPIC.1" --kind file_access \
+    --payload '{"files":["shared/utils.py"],"reason":"need helper"}' --json)
+APPROVAL_ID=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+STATUS=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+[[ -n "$APPROVAL_ID" ]] && pass "approval create returns id ($APPROVAL_ID)" || fail "no approval id returned"
+[[ "$STATUS" == "pending" ]] && pass "new approval is pending" || fail "expected pending got $STATUS"
+
+# List pending approvals (simulates dashboard fetching GET /api/v1/approvals?status=pending)
+RESULT=$(python3 "$FLOWCTL" approval list --pending --json)
+COUNT=$(echo "$RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+[[ "$COUNT" -ge 1 ]] && pass "approval list --pending returns $COUNT" || fail "expected >=1 pending got $COUNT"
+
+# Approve it (simulates supervisor clicking Approve in dashboard)
+RESULT=$(python3 "$FLOWCTL" approval approve "$APPROVAL_ID" --json)
+STATUS=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+[[ "$STATUS" == "approved" ]] && pass "approval resolves to approved" || fail "expected approved got $STATUS"
+
+# show --wait should return immediately on already-resolved approvals
+RESULT=$(python3 "$FLOWCTL" approval show "$APPROVAL_ID" --wait --timeout 5 --json)
+STATUS=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+[[ "$STATUS" == "approved" ]] && pass "approval show --wait returns on resolved" || fail "expected approved got $STATUS"
+
+# Reject flow: new approval, reject with reason
+RESULT=$(python3 "$FLOWCTL" approval create --task "$EPIC.1" --kind mutation \
+    --payload '{"type":"skip","details":"not needed"}' --json)
+REJECT_ID=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+RESULT=$(python3 "$FLOWCTL" approval reject "$REJECT_ID" --json)
+STATUS=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+[[ "$STATUS" == "rejected" ]] && pass "approval reject works" || fail "expected rejected got $STATUS"
+
+# After resolving, pending list should drop
+RESULT=$(python3 "$FLOWCTL" approval list --pending --json)
+COUNT=$(echo "$RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+[[ "$COUNT" == "0" ]] && pass "no pending approvals after resolving all" || fail "expected 0 pending got $COUNT"
+
 echo ""
 echo -e "\033[1;33m=== Results ===\033[0m"
 echo -e "Passed: \033[0;32m$PASS\033[0m"

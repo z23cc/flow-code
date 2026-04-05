@@ -28,19 +28,33 @@ export interface EpicUpdated {
 // Heartbeat has no data (content is null in serde)
 export type Heartbeat = null;
 
+export interface ApprovalCreated {
+  id: string;
+  task_id: string;
+}
+
+export interface ApprovalResolved {
+  id: string;
+  status: string;
+}
+
 export type FlowEventType =
   | "TaskStatusChanged"
   | "DagMutated"
   | "AgentLog"
   | "EpicUpdated"
-  | "Heartbeat";
+  | "Heartbeat"
+  | "ApprovalCreated"
+  | "ApprovalResolved";
 
 export type FlowEventData =
   | TaskStatusChanged
   | DagMutated
   | AgentLog
   | EpicUpdated
-  | Heartbeat;
+  | Heartbeat
+  | ApprovalCreated
+  | ApprovalResolved;
 
 /** Envelope sent over WebSocket: TimestampedEvent from Rust */
 export interface TimestampedEvent {

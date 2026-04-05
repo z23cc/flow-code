@@ -7,6 +7,7 @@ import EpicDetail from "./pages/EpicDetail";
 import DagView from "./pages/DagView";
 import Agents from "./pages/Agents";
 import Memory from "./pages/Memory";
+import Approvals from "./pages/Approvals";
 import Settings from "./pages/Settings";
 import Replay from "./pages/Replay";
 import CommandPalette from "./components/CommandPalette";
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/dag/:id" element={<DagView />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/memory" element={<Memory />} />
+          <Route path="/approvals" element={<Approvals />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/replay/:id" element={<Replay />} />
         </Route>

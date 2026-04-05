@@ -37,6 +37,8 @@ pub struct DagNode {
     pub id: String,
     pub title: String,
     pub status: String,
+    #[serde(default)]
+    pub domain: String,
     pub x: f64,
     pub y: f64,
 }
@@ -94,6 +96,18 @@ pub struct TaskTokenSummary {
     pub estimated_cost: f64,
 }
 
+/// Global stats from the /api/v1/stats endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StatsResponse {
+    pub total_epics: i64,
+    pub open_epics: i64,
+    pub total_tasks: i64,
+    pub done_tasks: i64,
+    pub in_progress_tasks: i64,
+    pub blocked_tasks: i64,
+    pub total_tokens: i64,
+}
+
 /// Event row from the /api/v1/events-history endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventItem {
@@ -106,6 +120,74 @@ pub struct EventItem {
     pub payload: Option<String>,
 }
 
+
+/// A memory entry from /api/v1/memory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEntry {
+    pub id: String,
+    #[serde(rename = "type", default)]
+    pub entry_type: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub module: Option<String>,
+    #[serde(default)]
+    pub severity: Option<String>,
+    #[serde(default)]
+    pub problem_type: Option<String>,
+    #[serde(default)]
+    pub track: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// Fetch memory entries with optional filters.
+#[cfg(feature = "hydrate")]
+pub async fn fetch_memory(track: Option<&str>, module: Option<&str>) -> Result<Vec<MemoryEntry>, String> {
+    let mut url = format!("{}/api/v1/memory", api_base());
+    let mut params = Vec::new();
+    if let Some(t) = track { params.push(format!("track={t}")); }
+    if let Some(m) = module { params.push(format!("module={m}")); }
+    if !params.is_empty() {
+        url.push('?');
+        url.push_str(&params.join("&"));
+    }
+
+    let resp = gloo_net::http::Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("fetch error: {e}"))?;
+
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+
+    let data: serde_json::Value = resp.json().await.map_err(|e| format!("json error: {e}"))?;
+
+    if let Some(entries) = data.get("entries") {
+        serde_json::from_value(entries.clone()).map_err(|e| format!("parse error: {e}"))
+    } else if let Some(arr) = data.as_array() {
+        serde_json::from_value(serde_json::Value::Array(arr.clone())).map_err(|e| format!("parse error: {e}"))
+    } else {
+        Ok(vec![])
+    }
+}
+
+/// Fetch global stats from the daemon API.
+#[cfg(feature = "hydrate")]
+pub async fn fetch_stats() -> Result<StatsResponse, String> {
+    let url = format!("{}/api/v1/stats", api_base());
+    let resp = gloo_net::http::Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("fetch error: {e}"))?;
+
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+
+    resp.json().await.map_err(|e| format!("json error: {e}"))
+}
 
 /// Fetch all epics from the daemon API.
 #[cfg(feature = "hydrate")]
@@ -265,7 +347,101 @@ pub async fn fetch_tokens_by_epic(epic_id: &str) -> Result<Vec<TaskTokenSummary>
     resp.json().await.map_err(|e| format!("json error: {e}"))
 }
 
+/// Fetch config as a list of key-value pairs from /api/v1/config.
+#[cfg(feature = "hydrate")]
+pub async fn fetch_config() -> Result<Vec<(String, serde_json::Value)>, String> {
+    let url = format!("{}/api/v1/config", api_base());
+    let resp = gloo_net::http::Request::get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("fetch error: {e}"))?;
+
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+
+    let data: serde_json::Value = resp.json().await.map_err(|e| format!("json error: {e}"))?;
+
+    match data {
+        serde_json::Value::Object(map) => {
+            Ok(map.into_iter().collect())
+        }
+        _ => Ok(vec![]),
+    }
+}
+
+/// Generic POST helper that sends JSON and returns Result<(), String>.
+#[cfg(feature = "hydrate")]
+pub async fn post_json(path: &str, body: serde_json::Value) -> Result<(), String> {
+    let url = format!("{}{}", api_base(), path);
+    let resp = gloo_net::http::Request::post(&url)
+        .json(&body)
+        .map_err(|e| format!("json error: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("fetch error: {e}"))?;
+
+    if resp.ok() { Ok(()) } else { Err(format!("HTTP {}", resp.status())) }
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub async fn post_json(_path: &str, _body: serde_json::Value) -> Result<(), String> { Ok(()) }
+
+/// Block a task via POST.
+#[cfg(feature = "hydrate")]
+pub async fn block_task(task_id: &str, reason: &str) -> Result<(), String> {
+    post_json("/api/v1/tasks/block", serde_json::json!({"task_id": task_id, "reason": reason})).await
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub async fn block_task(_task_id: &str, _reason: &str) -> Result<(), String> { Ok(()) }
+
+/// Skip a task via POST.
+#[cfg(feature = "hydrate")]
+pub async fn skip_task(task_id: &str, reason: &str) -> Result<(), String> {
+    post_json("/api/v1/tasks/skip", serde_json::json!({"task_id": task_id, "reason": reason})).await
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub async fn skip_task(_task_id: &str, _reason: &str) -> Result<(), String> { Ok(()) }
+
+/// Restart a task via POST.
+#[cfg(feature = "hydrate")]
+pub async fn restart_task(task_id: &str) -> Result<(), String> {
+    post_json("/api/v1/tasks/restart", serde_json::json!({"task_id": task_id})).await
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub async fn restart_task(_task_id: &str) -> Result<(), String> { Ok(()) }
+
+/// Create a new task via POST.
+#[cfg(feature = "hydrate")]
+pub async fn create_task(id: &str, epic_id: &str, title: &str, depends_on: Vec<String>, domain: &str) -> Result<(), String> {
+    let mut body = serde_json::json!({
+        "id": id,
+        "epic_id": epic_id,
+        "title": title,
+    });
+    if !depends_on.is_empty() {
+        body["depends_on"] = serde_json::json!(depends_on);
+    }
+    if !domain.is_empty() {
+        body["domain"] = serde_json::json!(domain);
+    }
+    post_json("/api/v1/tasks/create", body).await
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub async fn create_task(_id: &str, _epic_id: &str, _title: &str, _depends_on: Vec<String>, _domain: &str) -> Result<(), String> { Ok(()) }
+
+#[cfg(not(feature = "hydrate"))]
+pub async fn fetch_memory(_track: Option<&str>, _module: Option<&str>) -> Result<Vec<MemoryEntry>, String> { Ok(vec![]) }
+
 // SSR stubs — these won't be called on the server but need to exist for compilation.
+#[cfg(not(feature = "hydrate"))]
+pub async fn fetch_config() -> Result<Vec<(String, serde_json::Value)>, String> { Ok(vec![]) }
+#[cfg(not(feature = "hydrate"))]
+pub async fn fetch_stats() -> Result<StatsResponse, String> { Ok(StatsResponse::default()) }
 #[cfg(not(feature = "hydrate"))]
 pub async fn fetch_epics() -> Result<Vec<EpicSummary>, String> { Ok(vec![]) }
 #[cfg(not(feature = "hydrate"))]

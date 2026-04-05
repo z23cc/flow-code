@@ -35,13 +35,34 @@ pub fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventB
     Ok((state, cancel))
 }
 
+/// Build a CORS layer appropriate for the runtime environment.
+///
+/// When `FLOW_DEV=1` is set, allows any origin (for Vite dev server on :5173).
+/// Otherwise, allows only same-origin requests (production: frontend served
+/// from the same port as the API, so CORS is not needed).
+///
+/// Since the daemon only binds to 127.0.0.1 (local access), even the
+/// permissive dev layer poses no security risk.
+pub fn build_cors_layer() -> CorsLayer {
+    if std::env::var("FLOW_DEV").as_deref() == Ok("1") {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    } else {
+        // Production: same-origin requests don't need CORS.
+        // Still allow localhost origins so `curl` and local tools work.
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    }
+}
+
 /// Build the Axum router with all daemon API routes.
 /// Public so the CLI can merge this with other routes (e.g. static file serving).
 pub fn build_router(state: AppState) -> axum::Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = build_cors_layer();
 
     axum::Router::new()
         .route("/api/v1/health", get(handlers::health_handler))
@@ -133,7 +154,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_setup() -> (TempDir, DaemonRuntime, flowctl_scheduler::EventBus) {
-        let _tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap();
         let flow_dir = tmp.path().join(".flow");
         let paths = DaemonPaths::new(&flow_dir);
         paths.ensure_state_dir().unwrap();

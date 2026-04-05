@@ -1,52 +1,53 @@
 schema_version = 1
 
 [filters.hook_subagent]
-description = "Compact subagent-context hook — extract minimal task list from JSON blob"
+description = "Compact subagent-context hook — extract minimal id(state) per task, drop titles and metadata"
 match_command = "^flowctl\\s+hook\\s+subagent-context"
 replace = [
-  # Strip outer wrapper "Active flow-code tasks: " and the JSON structural cruft.
-  # Full line: Active flow-code tasks: {"tasks":[{...},{...}],"count":N,"success":true}
-  # First, drop the prefix
-  { pattern = "^Active flow-code tasks:\\s+", replacement = "Active: " },
-  # Strip "success":true trailer and "count" field
-  { pattern = ",?\"success\":true", replacement = "" },
-  { pattern = ",?\"count\":\\d+", replacement = "" },
-  # Strip outer {"tasks":[...]} wrapper to just [...]
-  # Patterns for before/after variants since separate removal rules above left trailing , vs none
-  { pattern = "\\{\"tasks\":", replacement = "" },
-  # Strip trailing "}" at end of line (the wrapper close)
-  { pattern = "\\}$", replacement = "" },
-  # Strip epic prefix from task IDs inside JSON: "fn-19-slug.1" → ".1"
-  { pattern = "\"id\":\"fn-\\d+(?:-[a-zA-Z0-9-]+)?(\\.\\d+)\"", replacement = "\"id\":\"$1\"" },
-  # Strip epic field (redundant with id)
-  { pattern = ",?\"epic\":\"[^\"]*\"", replacement = "" },
-  # Strip priority/assignee if null
-  { pattern = ",?\"priority\":null", replacement = "" },
-  { pattern = ",?\"assignee\":null", replacement = "" },
-  { pattern = ",?\"claim_note\":\"\"", replacement = "" },
-  { pattern = ",?\"claimed_at\":null", replacement = "" },
-  # Drop empty depends_on/files arrays
-  { pattern = ",?\"depends_on\":\\[\\]", replacement = "" },
-  { pattern = ",?\"files\":\\[\\]", replacement = "" },
-  { pattern = ",?\"impl\":null", replacement = "" },
-  { pattern = ",?\"review\":null", replacement = "" },
-  { pattern = ",?\"sync\":null", replacement = "" },
-  # Clean up any leading comma from key deletions
-  { pattern = "\\{,", replacement = "{" },
+  # 1. Rewrite prefix: "Active flow-code tasks: " → "ctx: "
+  { pattern = "^Active flow-code tasks:\\s+", replacement = "ctx: " },
+
+  # 2. Shorten task IDs in any field: "fn-16-long-slug.3" → "fn-16.3"
+  { pattern = "\"(fn-\\d+)-[a-zA-Z0-9-]+(\\.\\d+)\"", replacement = "\"$1$2\"" },
+  # 3. Shorten bare epic IDs (no task suffix): "fn-16-long-slug" → "fn-16"
+  { pattern = "\"(fn-\\d+)-[a-zA-Z0-9-]+\"", replacement = "\"$1\"" },
+
+  # 4. Compress status values
+  { pattern = "\"status\":\"in_progress\"", replacement = "\"status\":\"wip\"" },
+  { pattern = "\"status\":\"blocked\"", replacement = "\"status\":\"blk\"" },
+
+  # 5. Collapse each task object to "fn-N.X(state)" form by matching the full
+  # object and extracting just id+status (field order is alphabetic: depends_on,
+  # domain, epic, id, priority, status, title).
+  { pattern = "\\{[^{}]*\"id\":\"(fn-\\d+\\.\\d+)\"[^{}]*\"status\":\"(\\w+)\"[^{}]*\\}", replacement = "$1($2)" },
+
+  # 6. Strip the JSON wrapper and all structural punctuation
+  { pattern = "\\{\"count\":\\d+,\"tasks\":\\[", replacement = "" },
+  { pattern = "\\{\"tasks\":\\[", replacement = "" },
+  { pattern = "\\],\"count\":\\d+\\}", replacement = "" },
+  { pattern = "\\]\\}$", replacement = "" },
+
+  # 7. Replace inter-task commas with spaces
+  { pattern = ",", replacement = " " },
 ]
-max_lines = 10
+max_lines = 5
 
 [[tests.hook_subagent]]
 name = "single task"
-input = """Active flow-code tasks: {"tasks":[{"id":"fn-21-slug.1","title":"Add filters","status":"in_progress","domain":"backend","epic":"fn-21-slug","depends_on":[],"files":[],"priority":null,"assignee":null,"claimed_at":null,"claim_note":"","impl":null,"review":null,"sync":null}],"count":1,"success":true}"""
-expected = """Active: [{"id":".1","title":"Add filters","status":"in_progress","domain":"backend"}]"""
+input = """Active flow-code tasks: {"count":1,"tasks":[{"depends_on":[],"domain":"backend","epic":"fn-21-slug","id":"fn-21-slug.1","priority":null,"status":"in_progress","title":"Add filters"}]}"""
+expected = """ctx: fn-21.1(wip)"""
 
 [[tests.hook_subagent]]
 name = "empty task list"
-input = """Active flow-code tasks: {"tasks":[],"count":0,"success":true}"""
-expected = """Active: []"""
+input = """Active flow-code tasks: {"count":0,"tasks":[]}"""
+expected = """ctx: """
 
 [[tests.hook_subagent]]
-name = "two tasks"
-input = """Active flow-code tasks: {"tasks":[{"id":"fn-5-daemon.1","title":"T1","status":"in_progress","domain":"backend","epic":"fn-5-daemon","depends_on":[],"files":[],"priority":null,"assignee":null,"claimed_at":null,"claim_note":"","impl":null,"review":null,"sync":null},{"id":"fn-5-daemon.2","title":"T2","status":"in_progress","domain":"frontend","epic":"fn-5-daemon","depends_on":[],"files":[],"priority":null,"assignee":null,"claimed_at":null,"claim_note":"","impl":null,"review":null,"sync":null}],"count":2,"success":true}"""
-expected = """Active: [{"id":".1","title":"T1","status":"in_progress","domain":"backend"},{"id":".2","title":"T2","status":"in_progress","domain":"frontend"}]"""
+name = "three tasks"
+input = """Active flow-code tasks: {"count":3,"tasks":[{"depends_on":["fn-16-web-orchestration-platform-fullstack.2"],"domain":"backend","epic":"fn-16-web-orchestration-platform-fullstack","id":"fn-16-web-orchestration-platform-fullstack.3","priority":null,"status":"in_progress","title":"WebSocket: protocol enhancement + event_bus emit on mutations"},{"depends_on":[],"domain":"backend","epic":"fn-19-migrate-flowctl-to-libsql-async-native","id":"fn-19-migrate-flowctl-to-libsql-async-native.1","priority":null,"status":"in_progress","title":"Foundation: libsql deps + async Pool + fresh schema"},{"depends_on":[],"domain":"backend","epic":"fn-21-extend-flowctl-compress-filters","id":"fn-21-extend-flowctl-compress-filters.1","priority":null,"status":"in_progress","title":"Add 7 compress filter configs"}]}"""
+expected = """ctx: fn-16.3(wip) fn-19.1(wip) fn-21.1(wip)"""
+
+[[tests.hook_subagent]]
+name = "mixed statuses"
+input = """Active flow-code tasks: {"count":2,"tasks":[{"depends_on":[],"domain":"backend","epic":"fn-5-daemon","id":"fn-5-daemon.1","priority":null,"status":"blocked","title":"T1"},{"depends_on":[],"domain":"frontend","epic":"fn-5-daemon","id":"fn-5-daemon.2","priority":null,"status":"todo","title":"T2"}]}"""
+expected = """ctx: fn-5.1(blk) fn-5.2(todo)"""

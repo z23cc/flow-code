@@ -4,9 +4,10 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 
-use flowctl_core::id::is_task_id;
+use flowctl_core::id::{epic_id_from_task, is_task_id};
 use flowctl_core::state_machine::{Status, Transition};
 use flowctl_core::types::FLOW_DIR;
+use flowctl_scheduler::FlowEvent;
 use flowctl_service::lifecycle::{BlockTaskRequest, DoneTaskRequest, RestartTaskRequest, StartTaskRequest};
 use flowctl_service::ServiceError;
 
@@ -77,9 +78,18 @@ pub async fn start_task_handler(
     .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
     match result {
-        Ok(resp) => Ok(Json(
-            serde_json::json!({"success": true, "id": resp.task_id}),
-        )),
+        Ok(resp) => {
+            let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
+                task_id: resp.task_id.clone(),
+                epic_id,
+                from_status: "todo".to_string(),
+                to_status: format!("{:?}", resp.status).to_lowercase(),
+            });
+            Ok(Json(
+                serde_json::json!({"success": true, "id": resp.task_id}),
+            ))
+        }
         Err(e) => Err(service_error_to_app_error(e)),
     }
 }
@@ -109,10 +119,19 @@ pub async fn start_task_rest_handler(
     .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
     match result {
-        Ok(resp) => Ok(Json(serde_json::json!({
-            "id": resp.task_id,
-            "status": format!("{:?}", resp.status).to_lowercase()
-        }))),
+        Ok(resp) => {
+            let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
+                task_id: resp.task_id.clone(),
+                epic_id,
+                from_status: "todo".to_string(),
+                to_status: format!("{:?}", resp.status).to_lowercase(),
+            });
+            Ok(Json(serde_json::json!({
+                "id": resp.task_id,
+                "status": format!("{:?}", resp.status).to_lowercase()
+            })))
+        }
         Err(e) => Err(service_error_to_app_error(e)),
     }
 }
@@ -148,11 +167,20 @@ pub async fn done_task_rest_handler(
     .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
     match result {
-        Ok(resp) => Ok(Json(serde_json::json!({
-            "id": resp.task_id,
-            "status": format!("{:?}", resp.status).to_lowercase(),
-            "duration_seconds": resp.duration_seconds
-        }))),
+        Ok(resp) => {
+            let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
+                task_id: resp.task_id.clone(),
+                epic_id,
+                from_status: "in_progress".to_string(),
+                to_status: format!("{:?}", resp.status).to_lowercase(),
+            });
+            Ok(Json(serde_json::json!({
+                "id": resp.task_id,
+                "status": format!("{:?}", resp.status).to_lowercase(),
+                "duration_seconds": resp.duration_seconds
+            })))
+        }
         Err(e) => Err(service_error_to_app_error(e)),
     }
 }
@@ -180,10 +208,19 @@ pub async fn block_task_rest_handler(
     .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
     match result {
-        Ok(resp) => Ok(Json(serde_json::json!({
-            "id": resp.task_id,
-            "status": format!("{:?}", resp.status).to_lowercase()
-        }))),
+        Ok(resp) => {
+            let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
+                task_id: resp.task_id.clone(),
+                epic_id,
+                from_status: "in_progress".to_string(),
+                to_status: format!("{:?}", resp.status).to_lowercase(),
+            });
+            Ok(Json(serde_json::json!({
+                "id": resp.task_id,
+                "status": format!("{:?}", resp.status).to_lowercase()
+            })))
+        }
         Err(e) => Err(service_error_to_app_error(e)),
     }
 }
@@ -216,11 +253,20 @@ pub async fn restart_task_rest_handler(
     .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
     match result {
-        Ok(resp) => Ok(Json(serde_json::json!({
-            "id": resp.cascade_from,
-            "status": "todo",
-            "cascaded": resp.reset_ids
-        }))),
+        Ok(resp) => {
+            let epic_id = epic_id_from_task(&resp.cascade_from).unwrap_or_default();
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
+                task_id: resp.cascade_from.clone(),
+                epic_id,
+                from_status: "done".to_string(),
+                to_status: "todo".to_string(),
+            });
+            Ok(Json(serde_json::json!({
+                "id": resp.cascade_from,
+                "status": "todo",
+                "cascaded": resp.reset_ids
+            })))
+        }
         Err(e) => Err(service_error_to_app_error(e)),
     }
 }
@@ -237,11 +283,20 @@ pub async fn skip_task_rest_handler(
         .get(&task_id)
         .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
 
+    let from_status = format!("{:?}", task.status).to_lowercase();
     Transition::new(task.status, Status::Skipped).map_err(|e| {
         AppError::InvalidTransition(format!("cannot skip task '{task_id}': {e}"))
     })?;
 
     repo.update_status(&task_id, Status::Skipped)?;
+
+    let epic_id = epic_id_from_task(&task_id).unwrap_or_default();
+    state.event_bus.emit(FlowEvent::TaskStatusChanged {
+        task_id: task_id.clone(),
+        epic_id,
+        from_status,
+        to_status: "skipped".to_string(),
+    });
 
     Ok(Json(serde_json::json!({
         "id": task_id,
@@ -280,9 +335,18 @@ pub async fn done_task_handler(
     .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
     match result {
-        Ok(resp) => Ok(Json(
-            serde_json::json!({"success": true, "id": resp.task_id}),
-        )),
+        Ok(resp) => {
+            let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
+                task_id: resp.task_id.clone(),
+                epic_id,
+                from_status: "in_progress".to_string(),
+                to_status: format!("{:?}", resp.status).to_lowercase(),
+            });
+            Ok(Json(
+                serde_json::json!({"success": true, "id": resp.task_id}),
+            ))
+        }
         Err(e) => Err(service_error_to_app_error(e)),
     }
 }
@@ -298,11 +362,20 @@ pub async fn skip_task_handler(
         .get(&body.task_id)
         .map_err(|_| AppError::InvalidInput(format!("task not found: {}", body.task_id)))?;
 
+    let from_status = format!("{:?}", task.status).to_lowercase();
     Transition::new(task.status, Status::Skipped).map_err(|e| {
         AppError::InvalidTransition(format!("cannot skip task '{}': {}", body.task_id, e))
     })?;
 
     repo.update_status(&body.task_id, Status::Skipped)?;
+
+    let epic_id = epic_id_from_task(&body.task_id).unwrap_or_default();
+    state.event_bus.emit(FlowEvent::TaskStatusChanged {
+        task_id: body.task_id.clone(),
+        epic_id,
+        from_status,
+        to_status: "skipped".to_string(),
+    });
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -334,11 +407,20 @@ pub async fn block_task_handler(
     .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
     match result {
-        Ok(resp) => Ok(Json(serde_json::json!({
-            "success": true,
-            "id": resp.task_id,
-            "status": "blocked"
-        }))),
+        Ok(resp) => {
+            let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
+                task_id: resp.task_id.clone(),
+                epic_id,
+                from_status: "in_progress".to_string(),
+                to_status: format!("{:?}", resp.status).to_lowercase(),
+            });
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "id": resp.task_id,
+                "status": "blocked"
+            })))
+        }
         Err(e) => Err(service_error_to_app_error(e)),
     }
 }
@@ -369,10 +451,19 @@ pub async fn restart_task_handler(
     .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
 
     match result {
-        Ok(resp) => Ok(Json(serde_json::json!({
-            "success": true,
-            "reset": resp.reset_ids
-        }))),
+        Ok(resp) => {
+            let epic_id = epic_id_from_task(&resp.cascade_from).unwrap_or_default();
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
+                task_id: resp.cascade_from.clone(),
+                epic_id,
+                from_status: "done".to_string(),
+                to_status: "todo".to_string(),
+            });
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "reset": resp.reset_ids
+            })))
+        }
         Err(e) => Err(service_error_to_app_error(e)),
     }
 }

@@ -76,6 +76,38 @@ pub enum FlowEvent {
 
     /// Daemon is shutting down.
     DaemonShutdown,
+
+    /// A task's status changed (generic, for WebSocket consumers).
+    TaskStatusChanged {
+        task_id: String,
+        epic_id: String,
+        from_status: String,
+        to_status: String,
+    },
+
+    /// DAG was mutated (dependency added/removed, task added).
+    DagMutated {
+        mutation: String,
+        details: serde_json::Value,
+    },
+
+    /// Agent log message.
+    AgentLog {
+        agent_id: String,
+        task_id: String,
+        level: String,
+        message: String,
+    },
+
+    /// Epic field was updated.
+    EpicUpdated {
+        epic_id: String,
+        field: String,
+        value: serde_json::Value,
+    },
+
+    /// Heartbeat signal for WebSocket keep-alive.
+    Heartbeat,
 }
 
 impl fmt::Display for FlowEvent {
@@ -107,6 +139,17 @@ impl fmt::Display for FlowEvent {
             } => write!(f, "circuit_open:{consecutive_failures}"),
             FlowEvent::DaemonStarted { pid } => write!(f, "daemon_started:{pid}"),
             FlowEvent::DaemonShutdown => write!(f, "daemon_shutdown"),
+            FlowEvent::TaskStatusChanged { task_id, to_status, .. } => {
+                write!(f, "task_status_changed:{task_id}→{to_status}")
+            }
+            FlowEvent::DagMutated { mutation, .. } => write!(f, "dag_mutated:{mutation}"),
+            FlowEvent::AgentLog { agent_id, level, .. } => {
+                write!(f, "agent_log:{agent_id}:{level}")
+            }
+            FlowEvent::EpicUpdated { epic_id, field, .. } => {
+                write!(f, "epic_updated:{epic_id}:{field}")
+            }
+            FlowEvent::Heartbeat => write!(f, "heartbeat"),
         }
     }
 }

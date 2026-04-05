@@ -6,6 +6,8 @@ use axum::Json;
 
 use flowctl_core::state_machine::{Status, Transition};
 
+use flowctl_scheduler::FlowEvent;
+
 use super::common::{check_version, touch_updated_at, AppError, AppState};
 
 /// A node in the DAG visualization.
@@ -211,9 +213,9 @@ pub async fn dag_mutate_handler(
             ).map_err(|e| AppError::Db(e.to_string()))?;
             touch_updated_at(&conn, task_id)?;
 
-            state.event_bus.emit(flowctl_scheduler::FlowEvent::TaskReady {
-                task_id: task_id.to_string(),
-                epic_id: task.epic.clone(),
+            state.event_bus.emit(FlowEvent::DagMutated {
+                mutation: "dep_added".to_string(),
+                details: serde_json::json!({"from": depends_on, "to": task_id}),
             });
 
             Ok(Json(serde_json::json!({"success": true, "action": "add_dep"})))
@@ -237,9 +239,9 @@ pub async fn dag_mutate_handler(
             ).map_err(|e| AppError::Db(e.to_string()))?;
             touch_updated_at(&conn, task_id)?;
 
-            state.event_bus.emit(flowctl_scheduler::FlowEvent::TaskReady {
-                task_id: task_id.to_string(),
-                epic_id: task.epic.clone(),
+            state.event_bus.emit(FlowEvent::DagMutated {
+                mutation: "dep_removed".to_string(),
+                details: serde_json::json!({"from": depends_on, "to": task_id}),
             });
 
             Ok(Json(serde_json::json!({"success": true, "action": "remove_dep"})))
@@ -258,11 +260,14 @@ pub async fn dag_mutate_handler(
                 AppError::InvalidTransition(format!("cannot retry task '{}': {}", task_id, e))
             })?;
 
+            let from_status = format!("{:?}", task.status).to_lowercase();
             repo.update_status(task_id, Status::Todo)?;
 
-            state.event_bus.emit(flowctl_scheduler::FlowEvent::TaskReady {
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
                 task_id: task_id.to_string(),
                 epic_id: task.epic.clone(),
+                from_status,
+                to_status: "todo".to_string(),
             });
 
             Ok(Json(serde_json::json!({"success": true, "action": "retry_task"})))
@@ -281,11 +286,14 @@ pub async fn dag_mutate_handler(
                 AppError::InvalidTransition(format!("cannot skip task '{}': {}", task_id, e))
             })?;
 
+            let from_status = format!("{:?}", task.status).to_lowercase();
             repo.update_status(task_id, Status::Skipped)?;
 
-            state.event_bus.emit(flowctl_scheduler::FlowEvent::TaskReady {
+            state.event_bus.emit(FlowEvent::TaskStatusChanged {
                 task_id: task_id.to_string(),
                 epic_id: task.epic.clone(),
+                from_status,
+                to_status: "skipped".to_string(),
             });
 
             Ok(Json(serde_json::json!({"success": true, "action": "skip_task"})))
@@ -327,6 +335,11 @@ pub async fn add_dep_handler(
     ).map_err(|e| AppError::Db(e.to_string()))?;
     touch_updated_at(&conn, &body.to)?;
 
+    state.event_bus.emit(FlowEvent::DagMutated {
+        mutation: "dep_added".to_string(),
+        details: serde_json::json!({"from": body.from, "to": body.to}),
+    });
+
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({"from": body.from, "to": body.to})),
@@ -352,6 +365,11 @@ pub async fn remove_dep_handler(
     }
 
     touch_updated_at(&conn, &to)?;
+
+    state.event_bus.emit(FlowEvent::DagMutated {
+        mutation: "dep_removed".to_string(),
+        details: serde_json::json!({"from": from, "to": to}),
+    });
 
     Ok(Json(serde_json::json!({"from": from, "to": to})))
 }

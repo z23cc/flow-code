@@ -1,12 +1,14 @@
 //! WebSocket handler for live event streaming.
 
+use std::time::Duration;
+
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::IntoResponse;
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
-use flowctl_scheduler::TimestampedEvent;
+use flowctl_scheduler::{FlowEvent, TimestampedEvent};
 
 use super::common::AppState;
 
@@ -29,8 +31,28 @@ async fn handle_event_socket(
 ) {
     info!("WebSocket client connected for event streaming");
 
+    let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
+    heartbeat_interval.tick().await; // consume the immediate first tick
+
     loop {
         tokio::select! {
+            _ = heartbeat_interval.tick() => {
+                let heartbeat = TimestampedEvent {
+                    timestamp: chrono::Utc::now(),
+                    event: FlowEvent::Heartbeat,
+                };
+                match serde_json::to_string(&heartbeat) {
+                    Ok(json) => {
+                        if socket.send(Message::Text(json.into())).await.is_err() {
+                            debug!("WebSocket client disconnected during heartbeat");
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("failed to serialize heartbeat: {e}");
+                    }
+                }
+            }
             _ = cancel.cancelled() => {
                 debug!("daemon shutting down, closing WebSocket");
                 let _ = socket.send(Message::Close(None)).await;

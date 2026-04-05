@@ -6,6 +6,8 @@ use axum::Json;
 
 use flowctl_core::id::slugify;
 
+use flowctl_scheduler::FlowEvent;
+
 use super::common::{AppError, AppState};
 
 /// POST /api/v1/epics/create -- create a new epic.
@@ -95,6 +97,12 @@ pub async fn set_epic_plan_handler(
         rusqlite::params![chrono::Utc::now().to_rfc3339(), epic_id],
     ).map_err(|e| AppError::Db(e.to_string()))?;
 
+    state.event_bus.emit(FlowEvent::EpicUpdated {
+        epic_id: epic_id.clone(),
+        field: "plan".to_string(),
+        value: serde_json::Value::String("updated".to_string()),
+    });
+
     Ok(Json(serde_json::json!({"id": epic_id})))
 }
 
@@ -138,6 +146,12 @@ pub async fn start_epic_work_handler(
             tasks_started += 1;
         }
     }
+
+    state.event_bus.emit(FlowEvent::EpicUpdated {
+        epic_id: epic_id.clone(),
+        field: "work_started".to_string(),
+        value: serde_json::json!({"tasks_started": tasks_started}),
+    });
 
     Ok(Json(serde_json::json!({
         "id": epic_id,

@@ -102,6 +102,7 @@ Research: <repo-scout|context-scout> | Depth: <short|standard|deep> | Review: <r
 
 These flags override the corresponding AI decision without entering the analysis flow:
 - `--research=rp|grep`, `--depth=short|standard|deep`, `--review=rp|codex|export|none`, `--plan-only`
+- `--interactive` — **opt-in** interview refinement. Before Context Analysis, invoke `/flow-code:interview` with the raw request text. The interview returns refined-spec markdown (Problem / Scope / Acceptance / Open Questions). Use that refined text as the effective request for Context Analysis and Step 1. When this flag is NOT passed, the plan flow is unchanged and the zero-interaction default (CLAUDE.md:99) is preserved. There is intentionally no auto-trigger heuristic and no `--no-interview` flag — interview is opt-in only.
 
 Proceed to Step 1 immediately.
 

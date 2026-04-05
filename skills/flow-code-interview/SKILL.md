@@ -69,9 +69,14 @@ FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
    - Read spec: `$FLOWCTL cat <id>`
    - Also get epic context: `$FLOWCTL cat <epic-id>`
 
-3. **File path**: anything else with a path-like structure or .md extension
+3. **File path**: anything with a path-like structure or `.md` extension AND the file exists on disk
    - Read file contents
-   - If file doesn't exist, ask user to provide valid path
+   - If file doesn't exist, fall through to raw-text mode (below)
+
+4. **Raw text (plan-integration mode)**: first arg does NOT match a Flow ID pattern AND is NOT an existing file path
+   - Treat entire `$ARGUMENTS` as the raw request text to refine
+   - Conduct a focused refinement interview (see **Plan-integration mode** below)
+   - Used by `/flow-code:plan --interactive` to refine a vague request before planning
 
 ## Interview Process
 
@@ -94,6 +99,32 @@ Options: a) PostgreSQL b) SQLite c) MongoDB
 ## Question Categories
 
 Read [questions.md](questions.md) for all question categories and interview guidelines.
+
+## Plan-integration mode (raw-text input)
+
+When invoked with raw request text (input type 4 above) — typically from `/flow-code:plan --interactive`:
+
+- **Hard cap: 12 questions max.** This mode is a focused pre-plan refinement, not the full 40+ question spec interview. Prioritize questions that disambiguate scope, uncover missing acceptance criteria, and surface edge cases.
+- Group 2-4 related questions per `AskUserQuestion` call (same pattern as standard mode).
+- **Do NOT write to `.flow/`.** Do not create an epic, do not call `flowctl epic create`.
+- **Output contract**: emit refined-spec markdown to stdout with exactly these four sections, then return control to the caller:
+
+  ```markdown
+  ## Problem
+  <concise problem statement distilled from raw input + answers>
+
+  ## Scope
+  <what's in / what's out, key decisions made during interview>
+
+  ## Acceptance
+  - [ ] <testable criterion 1>
+  - [ ] <testable criterion 2>
+
+  ## Open Questions
+  <unresolved items for planning research, or "None" if fully clarified>
+  ```
+
+The caller (e.g. `/flow-code:plan`) uses this refined markdown as the effective request text for its own Context Analysis and scout research.
 
 ## NOT in scope (defer to /flow-code:plan)
 

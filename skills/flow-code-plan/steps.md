@@ -46,6 +46,8 @@ FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
 $FLOWCTL init --json
 ```
 
+> **Note — opt-in interactive refinement:** If the user passed `--interactive`, BEFORE running Step 0 (Context Analysis in SKILL.md), invoke `/flow-code:interview` with the raw request text. The interview returns refined-spec markdown with Problem / Scope / Acceptance / Open Questions sections; use that refined text as the effective request for Context Analysis and all subsequent steps. Without the flag, skip this entirely — Step 0.5 below remains an automated internal brainstorm and is **not** interactive. Do not add any auto-trigger heuristic (length, punctuation, verb detection); interview must be opt-in only to preserve the zero-interaction contract (CLAUDE.md:99).
+
 ## Step 0.5: Clarity Check (auto — no human input)
 
 **Clear?** (specific behavior, bug with repro, existing pattern, has acceptance criteria) → skip to Step 1.

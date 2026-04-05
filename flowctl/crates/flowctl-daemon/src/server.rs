@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use tokio::net::{TcpListener, UnixListener};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
@@ -65,12 +65,18 @@ pub fn build_router(state: AppState) -> axum::Router {
     let cors = build_cors_layer();
 
     axum::Router::new()
+        // ── Existing GET endpoints ─────────────────────────────
         .route("/api/v1/health", get(handlers::health_handler))
         .route("/api/v1/metrics", get(handlers::metrics_handler))
         .route("/api/v1/status", get(handlers::status_handler))
         .route("/api/v1/epics", get(handlers::epics_handler))
         .route("/api/v1/tasks", get(handlers::tasks_handler))
         .route("/api/v1/dag", get(handlers::dag_handler))
+        .route("/api/v1/config", get(handlers::config_handler))
+        .route("/api/v1/memory", get(handlers::memory_handler))
+        .route("/api/v1/stats", get(handlers::stats_handler))
+        .route("/api/v1/events", get(handlers::events_ws_handler))
+        // ── Existing POST endpoints (legacy flat) ──────────────
         .route("/api/v1/dag/mutate", post(handlers::dag_mutate_handler))
         .route("/api/v1/tasks/create", post(handlers::create_task_handler))
         .route("/api/v1/tasks/start", post(handlers::start_task_handler))
@@ -79,11 +85,18 @@ pub fn build_router(state: AppState) -> axum::Router {
         .route("/api/v1/tasks/skip", post(handlers::skip_task_handler))
         .route("/api/v1/tasks/block", post(handlers::block_task_handler))
         .route("/api/v1/tasks/restart", post(handlers::restart_task_handler))
-        .route("/api/v1/config", get(handlers::config_handler))
-        .route("/api/v1/memory", get(handlers::memory_handler))
-        .route("/api/v1/stats", get(handlers::stats_handler))
         .route("/api/v1/shutdown", post(handlers::shutdown_handler))
-        .route("/api/v1/events", get(handlers::events_ws_handler))
+        // ── New RESTful endpoints ──────────────────────────────
+        .route("/api/v1/epics/{id}/plan", post(handlers::set_epic_plan_handler))
+        .route("/api/v1/epics/{id}/work", post(handlers::start_epic_work_handler))
+        .route("/api/v1/tasks/{id}/start", post(handlers::start_task_rest_handler))
+        .route("/api/v1/tasks/{id}/done", post(handlers::done_task_rest_handler))
+        .route("/api/v1/tasks/{id}/block", post(handlers::block_task_rest_handler))
+        .route("/api/v1/tasks/{id}/restart", post(handlers::restart_task_rest_handler))
+        .route("/api/v1/tasks/{id}/skip", post(handlers::skip_task_rest_handler))
+        .route("/api/v1/deps", post(handlers::add_dep_handler))
+        .route("/api/v1/deps/{from}/{to}", delete(handlers::remove_dep_handler))
+        .route("/api/v1/dag/{id}", get(handlers::dag_detail_handler))
         .layer(cors)
         .with_state(state)
 }

@@ -123,6 +123,35 @@ fn row_to_approval(row: libsql::Row) -> ServiceResult<Approval> {
 #[async_trait::async_trait]
 impl ApprovalStore for LibSqlApprovalStore {
     async fn create(&self, req: CreateApprovalRequest) -> ServiceResult<Approval> {
+        // Reject orphan approvals: the referenced task must exist. Without
+        // this check a typo creates a ghost pending record with no way to
+        // reconcile it to real work.
+        let exists: i64 = {
+            let mut rows = self
+                .conn
+                .query(
+                    "SELECT COUNT(*) FROM tasks WHERE id = ?1",
+                    params![req.task_id.clone()],
+                )
+                .await
+                .map_err(|e| ServiceError::ValidationError(format!("task lookup: {e}")))?;
+            let row = rows
+                .next()
+                .await
+                .map_err(|e| ServiceError::ValidationError(format!("task lookup row: {e}")))?
+                .ok_or_else(|| {
+                    ServiceError::ValidationError("task lookup returned no rows".into())
+                })?;
+            row.get(0)
+                .map_err(|e| ServiceError::ValidationError(format!("task lookup value: {e}")))?
+        };
+        if exists == 0 {
+            return Err(ServiceError::ValidationError(format!(
+                "task {} does not exist",
+                req.task_id
+            )));
+        }
+
         let id = Self::new_id();
         let now = Utc::now().timestamp();
         let payload_str = serde_json::to_string(&req.payload)
@@ -248,9 +277,44 @@ mod tests {
 
     async fn in_mem_store() -> LibSqlApprovalStore {
         let (db, conn) = flowctl_db::open_memory_async().await.unwrap();
+        // Seed tasks referenced by the tests so the existence check passes.
+        let now = "2026-01-01T00:00:00Z";
+        for tid in &["fn-1.1", "fn-1.2"] {
+            let (epic_id, _num) = tid.split_once('.').unwrap();
+            conn.execute(
+                "INSERT OR IGNORE INTO epics
+                    (id, title, status, file_path, created_at, updated_at, body)
+                 VALUES (?1, ?1, 'open', ?1, ?2, ?2, '')",
+                params![epic_id.to_string(), now.to_string()],
+            )
+            .await
+            .expect("seed epic");
+            conn.execute(
+                "INSERT OR IGNORE INTO tasks
+                    (id, epic_id, title, status, file_path, created_at, updated_at, body)
+                 VALUES (?1, ?2, ?1, 'todo', ?1, ?3, ?3, '')",
+                params![tid.to_string(), epic_id.to_string(), now.to_string()],
+            )
+            .await
+            .expect("seed task");
+        }
         // Leak the db so conn stays valid for the test lifetime.
         Box::leak(Box::new(db));
         LibSqlApprovalStore::new(conn)
+    }
+
+    #[tokio::test]
+    async fn create_rejects_nonexistent_task() {
+        let store = in_mem_store().await;
+        let err = store
+            .create(CreateApprovalRequest {
+                task_id: "fn-999.99".into(),
+                kind: ApprovalKind::FileAccess,
+                payload: serde_json::json!({}),
+            })
+            .await
+            .expect_err("should reject nonexistent task");
+        assert!(matches!(err, ServiceError::ValidationError(_)));
     }
 
     #[tokio::test]

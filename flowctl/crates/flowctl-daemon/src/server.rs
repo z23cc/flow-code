@@ -157,20 +157,41 @@ pub async fn serve_tcp(
         .await
         .with_context(|| format!("failed to bind TCP: {addr}"))?;
 
-    info!("daemon API listening on http://{addr}");
+    // Resolve the bound port (honors port=0 ephemeral binds) and persist it
+    // to .flow/.state/flowctl.port so CLI clients can discover the TCP
+    // transport. Without this, `flowctl approval` CLIs silently fall back
+    // to direct DB writes and bypass the daemon event bus.
+    let bound_port = listener
+        .local_addr()
+        .map(|a| a.port())
+        .unwrap_or(port);
+    let port_file = runtime.paths.state_dir.join("flowctl.port");
+    if let Err(e) = std::fs::write(&port_file, bound_port.to_string()) {
+        tracing::warn!(
+            "failed to write port file {}: {} — CLI clients may bypass daemon",
+            port_file.display(),
+            e
+        );
+    }
+
+    info!("daemon API listening on http://127.0.0.1:{bound_port}");
 
     let (state, cancel) = create_state(runtime, event_bus).await?;
 
     let router = build_router(state);
 
-    axum::serve(listener, router)
+    let serve_result = axum::serve(listener, router)
         .with_graceful_shutdown(async move {
             cancel.cancelled().await;
             info!("HTTP server shutting down");
         })
         .await
-        .context("HTTP server error")?;
+        .context("HTTP server error");
 
+    // Best-effort cleanup of the port file on shutdown.
+    let _ = std::fs::remove_file(&port_file);
+
+    serve_result?;
     Ok(())
 }
 
@@ -445,6 +466,17 @@ mod tests {
         let (_tmp, runtime, event_bus) = test_setup();
         let mut event_rx = event_bus.subscribe();
         let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
+
+        // Seed epic+task so approval create() existence check passes.
+        state.db.execute(
+            "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-1', 'Test', 'open', 'epics/fn-1.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            (),
+        ).await.unwrap();
+        state.db.execute(
+            "INSERT INTO tasks (id, epic_id, title, status, file_path, created_at, updated_at) VALUES ('fn-1.1', 'fn-1', 'Test Task', 'todo', 'tasks/fn-1.1.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            (),
+        ).await.unwrap();
+
         let app = build_router(state);
 
         // Create
@@ -536,6 +568,17 @@ mod tests {
     async fn approval_reject_records_reason() {
         let (_tmp, runtime, event_bus) = test_setup();
         let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
+
+        // Seed epic+task so approval create() existence check passes.
+        state.db.execute(
+            "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-2', 'Test', 'open', 'epics/fn-2.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            (),
+        ).await.unwrap();
+        state.db.execute(
+            "INSERT INTO tasks (id, epic_id, title, status, file_path, created_at, updated_at) VALUES ('fn-2.1', 'fn-2', 'Test Task', 'todo', 'tasks/fn-2.1.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            (),
+        ).await.unwrap();
+
         let app = build_router(state);
 
         let req = axum::http::Request::builder()

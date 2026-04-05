@@ -79,9 +79,13 @@ pub async fn approve_approval_handler(
     Json(body): Json<Option<ResolveRequest>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let body = body.unwrap_or_default();
+    // Browser clients typically don't send a resolver; fall back to
+    // "dashboard" so the audit trail still records *something* rather
+    // than a null. CLI callers should pass --resolver explicitly.
+    let resolver = body.resolver.or_else(|| Some("dashboard".to_string()));
     let store = LibSqlApprovalStore::new(state.db.clone());
     let resolved = store
-        .approve(&id, body.resolver)
+        .approve(&id, resolver)
         .await
         .map_err(service_error_to_app_error)?;
 
@@ -102,9 +106,11 @@ pub async fn reject_approval_handler(
     Json(body): Json<Option<ResolveRequest>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let body = body.unwrap_or_default();
+    // Browser fallback (see approve_approval_handler for rationale).
+    let resolver = body.resolver.or_else(|| Some("dashboard".to_string()));
     let store = LibSqlApprovalStore::new(state.db.clone());
     let resolved = store
-        .reject(&id, body.resolver, body.reason)
+        .reject(&id, resolver, body.reason)
         .await
         .map_err(service_error_to_app_error)?;
 

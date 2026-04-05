@@ -965,7 +965,7 @@ fn cmd_archive(id: &str, force: bool, json_mode: bool) {
             for entry in review_entries {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
-                if name_str.contains(&format!("-{id}.")) {
+                if review_belongs_to_epic(&name_str, id) {
                     let dest = archive_dir.join(&*name);
                     let _ = fs::rename(entry.path(), &dest);
                     moved.push(format!("reviews/{name_str}"));
@@ -1081,7 +1081,8 @@ fn cmd_archive_silent(id: &str, flow_dir: &Path) {
         if let Ok(entries) = fs::read_dir(&reviews_dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name();
-                if name.to_string_lossy().contains(&format!("-{id}.")) {
+                let name_str = name.to_string_lossy();
+                if review_belongs_to_epic(&name_str, id) {
                     let _ = fs::rename(entry.path(), archive_dir.join(&name));
                 }
             }
@@ -1286,6 +1287,19 @@ fn cmd_set_auto_execute(id: &str, pending: bool, done: bool, json_mode: bool) {
     } else {
         println!("Epic {id} auto_execute set to {action}");
     }
+}
+
+// ── Shared helpers ─────────────────────────────────────────────────
+
+/// Returns true if a review filename belongs to the given epic.
+///
+/// Matches both naming schemes used in `.flow/reviews/`:
+/// - Task-suffixed reviews (plan/impl/cross-model): `*-{epic_id}.<task-num>-*.json`
+///   matched via the `-{id}.` infix
+/// - Epic-level audit receipts: `epic-audit-{id}-<timestamp>.json`
+///   matched via the `-{id}-` prefix
+fn review_belongs_to_epic(name: &str, id: &str) -> bool {
+    name.contains(&format!("-{id}.")) || name.starts_with(&format!("epic-audit-{id}-"))
 }
 
 // ── Audit command ───────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import useSWR from "swr";
 import { swrFetcher } from "../lib/api";
+import { connectEvents, type ConnectionState } from "../lib/ws";
 import HUD from "./HUD";
 
 interface Epic {
@@ -48,23 +49,52 @@ function breadcrumbFromPath(pathname: string): { label: string; to?: string }[] 
   return crumbs;
 }
 
+function WsIndicator() {
+  const [wsState, setWsState] = useState<ConnectionState>("disconnected");
+
+  useEffect(() => {
+    const conn = connectEvents();
+    conn.onConnectionChange(setWsState);
+    setWsState(conn.state);
+    return () => conn.close();
+  }, []);
+
+  const color =
+    wsState === "connected"
+      ? "bg-success"
+      : wsState === "reconnecting"
+        ? "bg-warning animate-pulse"
+        : "bg-error";
+
+  const label =
+    wsState === "connected"
+      ? "Connected"
+      : wsState === "reconnecting"
+        ? "Reconnecting"
+        : "Disconnected";
+
+  return (
+    <span className="flex items-center gap-1.5" title={label}>
+      <span className={`inline-block w-2 h-2 rounded-full ${color}`} />
+      <span className="hidden sm:inline text-[10px] text-text-muted">{label}</span>
+    </span>
+  );
+}
+
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const crumbs = breadcrumbFromPath(location.pathname);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Fetch epics to find the first open one for the G shortcut
   const { data: epics } = useSWR<Epic[]>("/epics", swrFetcher);
 
   const firstOpenEpicId =
     epics?.find((e) => e.status === "open" || e.status === "active")?.id ??
     epics?.[0]?.id;
 
-  // Keyboard shortcuts
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // Skip when focus is in an input, textarea, or contenteditable
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -74,7 +104,6 @@ export default function Layout() {
         return;
       }
 
-      // Skip if modifier keys are held
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       switch (e.key.toLowerCase()) {
@@ -110,7 +139,6 @@ export default function Layout() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  // Close sidebar on navigation (mobile)
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
@@ -120,51 +148,60 @@ export default function Layout() {
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar - hidden below 768px (bottom tabs instead), icon-only 768-1024px, full above 1024px */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-56 border-r border-border bg-bg-secondary flex flex-col transition-transform duration-200 md:static md:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        role="complementary"
+        aria-label="Sidebar navigation"
+        className={`fixed inset-y-0 left-0 z-40 border-r border-border bg-bg-secondary flex-col transition-all duration-200
+          hidden md:flex
+          md:static md:translate-x-0
+          md:w-[56px] lg:w-[200px]
+          ${sidebarOpen ? "!flex translate-x-0 w-56" : "-translate-x-full"}`}
       >
-        <div className="h-14 flex items-center justify-between px-4 border-b border-border">
-          <span className="text-accent font-bold text-lg tracking-tight">
+        <div className="h-14 flex items-center justify-between px-3 lg:px-4 border-b border-border">
+          <span className="text-accent font-bold text-lg tracking-tight hidden lg:block">
             Flow Code
           </span>
+          <span className="text-accent font-bold text-lg tracking-tight lg:hidden">
+            FC
+          </span>
           <button
-            className="md:hidden p-1 rounded hover:bg-bg-tertiary"
+            className="lg:hidden p-1 rounded hover:bg-bg-tertiary min-h-[44px] min-w-[44px] flex items-center justify-center"
             onClick={() => setSidebarOpen(false)}
+            aria-label="Close sidebar"
           >
             <X size={18} />
           </button>
         </div>
-        <nav className="flex-1 py-2 space-y-0.5 px-2">
+        <nav role="navigation" aria-label="Main navigation" className="flex-1 py-2 space-y-0.5 px-1 lg:px-2">
           {navItems.map(({ to, label, icon: Icon, shortcut }) => (
             <NavLink
               key={to}
               to={to}
               end={to === "/"}
+              tabIndex={0}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                `flex items-center gap-3 px-2 lg:px-3 py-2 rounded-md text-sm transition-colors min-h-[44px] ${
                   isActive
                     ? "bg-accent/10 text-accent"
                     : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
                 }`
               }
             >
-              <Icon size={18} />
-              <span className="flex-1">{label}</span>
-              <kbd className="hidden md:inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-bg-tertiary text-text-muted">
+              <Icon size={18} className="shrink-0" />
+              <span className="flex-1 hidden lg:block">{label}</span>
+              <kbd className="hidden lg:inline-block text-[10px] font-mono px-1.5 py-0.5 rounded bg-bg-tertiary text-text-muted">
                 {shortcut}
               </kbd>
             </NavLink>
           ))}
         </nav>
-        <div className="px-4 py-3 border-t border-border text-xs text-text-muted">
+        <div className="px-4 py-3 border-t border-border text-xs text-text-muted hidden lg:block">
           v0.1.0
         </div>
       </aside>
@@ -175,13 +212,14 @@ export default function Layout() {
         <header className="h-14 flex items-center px-4 md:px-6 border-b border-border bg-bg-secondary/50 shrink-0 gap-3">
           {/* Mobile hamburger */}
           <button
-            className="md:hidden p-1 rounded hover:bg-bg-tertiary"
+            className="md:hidden p-1 rounded hover:bg-bg-tertiary min-h-[44px] min-w-[44px] flex items-center justify-center"
             onClick={() => setSidebarOpen(true)}
+            aria-label="Open sidebar"
           >
             <Menu size={20} />
           </button>
 
-          <nav className="flex items-center gap-1 text-sm text-text-secondary min-w-0">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm text-text-secondary min-w-0">
             {crumbs.map((crumb, i) => (
               <span key={i} className="flex items-center gap-1 min-w-0">
                 {i > 0 && (
@@ -207,16 +245,19 @@ export default function Layout() {
             ))}
           </nav>
 
-          {/* Keyboard shortcut hints (desktop) */}
-          <div className="hidden md:flex items-center gap-2 ml-auto text-[10px] text-text-muted">
-            <span className="flex items-center gap-1">
-              <kbd className="font-mono px-1 py-0.5 rounded bg-bg-tertiary">G</kbd>
-              <span>DAG</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <kbd className="font-mono px-1 py-0.5 rounded bg-bg-tertiary">{"\u2318"}K</kbd>
-              <span>Commands</span>
-            </span>
+          {/* WS indicator + shortcuts (desktop) */}
+          <div className="flex items-center gap-3 ml-auto">
+            <WsIndicator />
+            <div className="hidden md:flex items-center gap-2 text-[10px] text-text-muted">
+              <span className="flex items-center gap-1">
+                <kbd className="font-mono px-1 py-0.5 rounded bg-bg-tertiary">G</kbd>
+                <span>DAG</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="font-mono px-1 py-0.5 rounded bg-bg-tertiary">{"\u2318"}K</kbd>
+                <span>Commands</span>
+              </span>
+            </div>
           </div>
         </header>
 
@@ -224,10 +265,35 @@ export default function Layout() {
         <HUD />
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+        <main role="main" className="flex-1 overflow-auto p-4 md:p-6 pb-20 md:pb-6">
           <Outlet />
         </main>
       </div>
+
+      {/* Bottom tab navigation for mobile (≤768px) */}
+      <nav
+        role="navigation"
+        aria-label="Mobile navigation"
+        className="fixed bottom-0 left-0 right-0 z-40 md:hidden border-t border-border bg-bg-secondary flex items-center justify-around h-14"
+      >
+        {navItems.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === "/"}
+            className={({ isActive }) =>
+              `flex flex-col items-center justify-center gap-0.5 min-h-[44px] min-w-[44px] px-2 py-1 text-[10px] transition-colors ${
+                isActive
+                  ? "text-accent"
+                  : "text-text-muted"
+              }`
+            }
+          >
+            <Icon size={20} />
+            <span>{label}</span>
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }

@@ -12,6 +12,7 @@ import Replay from "./pages/Replay";
 import CommandPalette from "./components/CommandPalette";
 import TaskSidebar from "./components/TaskSidebar";
 import { TaskSidebarProvider } from "./components/TaskSidebarContext";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { startToastBridge } from "./lib/toast-bridge";
 
 export default function App() {
@@ -35,6 +36,7 @@ export default function App() {
       />
       <CommandPalette />
       <TaskSidebar />
+      <ErrorBoundary>
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
@@ -46,6 +48,7 @@ export default function App() {
           <Route path="/replay/:id" element={<Replay />} />
         </Route>
       </Routes>
+      </ErrorBoundary>
     </TaskSidebarProvider>
   );
 }

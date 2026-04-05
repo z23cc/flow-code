@@ -25,3 +25,5 @@ frontend/dist/
 # OS
 .DS_Store
 .gstack/
+flowctl/node_modules/
+flowctl/bun.lock

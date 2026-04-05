@@ -60,7 +60,7 @@ export default function HUD() {
   }, []);
 
   return (
-    <div className="h-8 flex items-center px-4 md:px-6 border-b border-border bg-bg-secondary/30 text-xs font-mono shrink-0 gap-4">
+    <div aria-live="polite" className="h-8 flex items-center px-4 md:px-6 border-b border-border bg-bg-secondary/30 text-xs font-mono shrink-0 gap-4">
       <span className="text-text-secondary">
         <span className="text-success font-medium">{counts.done}</span>
         <span className="text-text-muted">/{counts.total}</span>

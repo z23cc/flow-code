@@ -8,6 +8,10 @@ import { LayoutDashboard, CheckCircle, Loader, Coins, Plus } from "lucide-react"
 import StatsCard from "../components/StatsCard";
 import Skeleton from "../components/ui/Skeleton";
 import Badge from "../components/ui/Badge";
+import EpicFilters, {
+  DEFAULT_EPIC_FILTERS,
+  type EpicFiltersValue,
+} from "../components/EpicFilters";
 
 interface Stats {
   total_epics: number;
@@ -140,6 +144,7 @@ export default function Dashboard() {
   );
 
   const [creating, setCreating] = useState(false);
+  const [filters, setFilters] = useState<EpicFiltersValue>(DEFAULT_EPIC_FILTERS);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const eventIdRef = useRef(0);
 
@@ -238,27 +243,59 @@ export default function Dashboard() {
 
       {/* Epic cards grid */}
       {epics && epics.length > 0 ? (
-        <div>
-          <h2 className="text-lg font-semibold mb-3">Epics</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-            {epics.map((epic) => (
-              <Link
-                key={epic.id}
-                to={`/epic/${epic.id}`}
-                className="block rounded-lg border border-border bg-bg-secondary p-4 hover:border-accent transition-colors"
-              >
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <h3 className="text-[15px] font-semibold truncate">{epic.title}</h3>
-                  <Badge status={epicStatusKey(epic.status)} label={epic.status.replace("_", " ")} />
+        (() => {
+          const statusOptions = Array.from(new Set(epics.map((e) => e.status))).sort();
+          const q = filters.search.trim().toLowerCase();
+          const filtered = epics.filter((e) => {
+            if (filters.status !== "all" && e.status !== filters.status) return false;
+            if (q && !e.id.toLowerCase().includes(q) && !e.title.toLowerCase().includes(q)) {
+              return false;
+            }
+            return true;
+          });
+          return (
+            <div>
+              <h2 className="text-lg font-semibold mb-3">Epics</h2>
+              <EpicFilters
+                value={filters}
+                onChange={setFilters}
+                statusOptions={statusOptions}
+                filteredCount={filtered.length}
+                totalCount={epics.length}
+              />
+              {filtered.length === 0 ? (
+                <div className="rounded-lg border border-border bg-bg-secondary p-6 text-center">
+                  <p className="text-sm text-text-muted mb-3">No epics match your filters.</p>
+                  <button
+                    onClick={() => setFilters(DEFAULT_EPIC_FILTERS)}
+                    className="text-sm text-accent hover:text-accent-hover transition-colors"
+                  >
+                    Clear filters
+                  </button>
                 </div>
-                <ProgressBar tasks={epic.tasks} />
-                <p className="text-xs text-text-muted mt-2 truncate font-mono">
-                  {epic.id}
-                </p>
-              </Link>
-            ))}
-          </div>
-        </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {filtered.map((epic) => (
+                    <Link
+                      key={epic.id}
+                      to={`/epic/${epic.id}`}
+                      className="block rounded-lg border border-border bg-bg-secondary p-4 hover:border-accent transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <h3 className="text-[15px] font-semibold truncate">{epic.title}</h3>
+                        <Badge status={epicStatusKey(epic.status)} label={epic.status.replace("_", " ")} />
+                      </div>
+                      <ProgressBar tasks={epic.tasks} />
+                      <p className="text-xs text-text-muted mt-2 truncate font-mono">
+                        {epic.id}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()
       ) : (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <LayoutDashboard size={48} className="text-text-muted mb-4" />

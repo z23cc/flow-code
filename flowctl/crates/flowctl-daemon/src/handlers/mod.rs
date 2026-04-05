@@ -18,7 +18,7 @@ pub use dag::{
 pub use epic::{create_epic_handler, set_epic_plan_handler, start_epic_work_handler};
 pub use task::{
     block_task_handler, block_task_rest_handler, create_task_handler, done_task_handler,
-    done_task_rest_handler, restart_task_handler, restart_task_rest_handler,
+    done_task_rest_handler, get_task_handler, restart_task_handler, restart_task_rest_handler,
     skip_task_handler, skip_task_rest_handler, start_task_handler, start_task_rest_handler,
 };
 pub use ws::events_ws_handler;

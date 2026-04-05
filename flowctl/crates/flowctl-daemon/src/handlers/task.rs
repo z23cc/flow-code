@@ -468,6 +468,52 @@ pub async fn restart_task_handler(
     }
 }
 
+/// GET /api/v1/tasks/:id -- fetch full task details + evidence + runtime state.
+pub async fn get_task_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let conn = state.db_lock()?;
+    let task_repo = flowctl_db::TaskRepo::new(&conn);
+    let (task, body) = task_repo
+        .get_with_body(&task_id)
+        .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+
+    let evidence_repo = flowctl_db::EvidenceRepo::new(&conn);
+    let evidence = evidence_repo
+        .get(&task_id)
+        .map_err(|e| AppError::Internal(format!("evidence fetch error: {e}")))?;
+
+    let runtime_repo = flowctl_db::RuntimeRepo::new(&conn);
+    let runtime = runtime_repo
+        .get(&task_id)
+        .map_err(|e| AppError::Internal(format!("runtime fetch error: {e}")))?;
+
+    let mut value = serde_json::to_value(&task)
+        .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("body".to_string(), serde_json::Value::String(body));
+        obj.insert(
+            "evidence".to_string(),
+            serde_json::to_value(&evidence)
+                .map_err(|e| AppError::Internal(format!("evidence serialization error: {e}")))?,
+        );
+        obj.insert(
+            "runtime".to_string(),
+            serde_json::to_value(&runtime)
+                .map_err(|e| AppError::Internal(format!("runtime serialization error: {e}")))?,
+        );
+        obj.insert(
+            "duration_seconds".to_string(),
+            match runtime.as_ref().and_then(|r| r.duration_secs) {
+                Some(d) => serde_json::Value::Number(d.into()),
+                None => serde_json::Value::Null,
+            },
+        );
+    }
+    Ok(Json(value))
+}
+
 // ── Request types ─────────────────────────────────────────────
 
 #[derive(Debug, serde::Deserialize)]

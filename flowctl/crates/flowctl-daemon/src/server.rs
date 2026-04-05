@@ -89,6 +89,7 @@ pub fn build_router(state: AppState) -> axum::Router {
         // ── New RESTful endpoints ──────────────────────────────
         .route("/api/v1/epics/{id}/plan", post(handlers::set_epic_plan_handler))
         .route("/api/v1/epics/{id}/work", post(handlers::start_epic_work_handler))
+        .route("/api/v1/tasks/{id}", get(handlers::get_task_handler))
         .route("/api/v1/tasks/{id}/start", post(handlers::start_task_rest_handler))
         .route("/api/v1/tasks/{id}/done", post(handlers::done_task_rest_handler))
         .route("/api/v1/tasks/{id}/block", post(handlers::block_task_rest_handler))

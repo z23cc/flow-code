@@ -5,6 +5,7 @@ import { Plus, GitBranch, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { swrFetcher } from "../lib/api";
 import CreateTaskForm from "../components/CreateTaskForm";
+import EvidenceModal from "../components/EvidenceModal";
 import TaskActions from "../components/TaskActions";
 import Badge from "../components/ui/Badge";
 import Table from "../components/ui/Table";
@@ -89,6 +90,7 @@ function EpicDetailSkeleton() {
 export default function EpicDetail() {
   const { id } = useParams<{ id: string }>();
   const [formOpen, setFormOpen] = useState(false);
+  const [evidenceTaskId, setEvidenceTaskId] = useState<string | null>(null);
 
   const { data, isLoading, mutate } = useSWR<TasksResponse>(
     id ? `/tasks?epic_id=${id}` : null,
@@ -136,12 +138,25 @@ export default function EpicDetail() {
       header: "Title",
       sortable: true,
       sortValue: (t: Task) => t.title,
-      render: (t: Task) => (
-        <div>
-          <span className="font-medium">{t.title}</span>
-          <span className="block text-xs text-text-muted font-mono mt-0.5">{t.id}</span>
-        </div>
-      ),
+      render: (t: Task) => {
+        const clickable = t.status === "done";
+        return (
+          <div>
+            {clickable ? (
+              <button
+                onClick={() => setEvidenceTaskId(t.id)}
+                className="text-left font-medium hover:text-accent transition-colors"
+                title="View evidence"
+              >
+                {t.title}
+              </button>
+            ) : (
+              <span className="font-medium">{t.title}</span>
+            )}
+            <span className="block text-xs text-text-muted font-mono mt-0.5">{t.id}</span>
+          </div>
+        );
+      },
     },
     {
       key: "status",
@@ -268,6 +283,13 @@ export default function EpicDetail() {
           onCreated={() => mutate()}
         />
       )}
+
+      {/* Evidence modal */}
+      <EvidenceModal
+        taskId={evidenceTaskId}
+        open={evidenceTaskId !== null}
+        onClose={() => setEvidenceTaskId(null)}
+      />
     </div>
   );
 }

@@ -106,7 +106,6 @@ Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills an
 
 - `ref/` — reference/backup repos
 - `*.upstream` — upstream backup files
-- `.claude-plugin/` — local plugin config
 - `.tasks/` — runtime state
 - `__pycache__/` — Python cache (hook scripts only)
 - `.flow/` — per-project task state (runtime, not part of plugin)

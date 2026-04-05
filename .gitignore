@@ -11,9 +11,6 @@ flowctl/target/
 # Upstream backups
 *.upstream
 
-# Plugins / local config
-.claude-plugin/
-
 # Ref repos
 ref/
 gmickel-claude-marketplace/

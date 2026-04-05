@@ -12,6 +12,7 @@ use clap_complete::{generate, Shell};
 
 use commands::{
     admin::{self, ConfigCmd},
+    approval::ApprovalCmd,
     checkpoint::CheckpointCmd,
     codex::CodexCmd,
     dep::DepCmd,
@@ -174,6 +175,11 @@ enum Commands {
     Dep {
         #[command(subcommand)]
         cmd: DepCmd,
+    },
+    /// Approval commands (request/resolve blocking decisions).
+    Approval {
+        #[command(subcommand)]
+        cmd: ApprovalCmd,
     },
     /// Requirement gap registry.
     Gap {
@@ -482,6 +488,7 @@ fn main() {
         Commands::Epic { cmd } => commands::epic::dispatch(&cmd, json),
         Commands::Task { cmd } => commands::task::dispatch(&cmd, json),
         Commands::Dep { cmd } => commands::dep::dispatch(&cmd, json),
+        Commands::Approval { cmd } => commands::approval::dispatch(&cmd, json),
         Commands::Gap { cmd } => commands::gap::dispatch(&cmd, json),
         Commands::Memory { cmd } => commands::memory::dispatch(&cmd, json),
         Commands::Outputs { cmd } => commands::outputs::dispatch(&cmd, json),

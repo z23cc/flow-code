@@ -36,6 +36,10 @@ regex = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 which = { workspace = true }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "tokio", "http1"] }
+http-body-util = "0.1"
+bytes = "1"
 
 [dev-dependencies]
 trycmd = { workspace = true }

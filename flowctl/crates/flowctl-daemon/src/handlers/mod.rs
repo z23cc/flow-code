@@ -3,6 +3,7 @@
 //! Provides REST endpoints for status, epics, tasks, and a WebSocket
 //! endpoint for streaming live events to connected clients.
 
+pub mod approvals;
 pub mod common;
 pub mod dag;
 pub mod epic;
@@ -10,6 +11,10 @@ pub mod task;
 pub mod ws;
 
 // Re-export all public types from submodules for backward compatibility.
+pub use approvals::{
+    approve_approval_handler, create_approval_handler, get_approval_handler,
+    list_approvals_handler, reject_approval_handler,
+};
 pub use common::{AppError, AppState, DaemonState};
 pub use dag::{
     add_dep_handler, dag_detail_handler, dag_handler, dag_mutate_handler, remove_dep_handler,

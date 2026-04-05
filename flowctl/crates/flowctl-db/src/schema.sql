@@ -139,6 +139,23 @@ CREATE TABLE IF NOT EXISTS monthly_rollup (
     total_cost_usd   REAL DEFAULT 0
 );
 
+-- ── Approvals (replaces stdin-blocking Teams protocol) ─────────────
+
+CREATE TABLE IF NOT EXISTS approvals (
+    id           TEXT PRIMARY KEY,
+    task_id      TEXT NOT NULL,
+    kind         TEXT NOT NULL,                    -- file_access | mutation | generic
+    payload      TEXT NOT NULL,                    -- JSON
+    status       TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | rejected
+    created_at   INTEGER NOT NULL,
+    resolved_at  INTEGER,
+    resolver     TEXT,
+    reason       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+CREATE INDEX IF NOT EXISTS idx_approvals_task ON approvals(task_id);
+
 -- ── Memory with native vector embedding (BGE-small, 384-dim) ────────
 
 CREATE TABLE IF NOT EXISTS memory (

@@ -3,6 +3,7 @@
 pub mod helpers;
 pub mod db_shim;
 pub mod admin;
+pub mod approval;
 pub mod checkpoint;
 pub mod codex;
 pub mod dep;

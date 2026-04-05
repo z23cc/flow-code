@@ -106,6 +106,12 @@ pub enum FlowEvent {
         value: serde_json::Value,
     },
 
+    /// A new approval was created and is awaiting resolution.
+    ApprovalCreated { id: String, task_id: String },
+
+    /// A pending approval was resolved (approved or rejected).
+    ApprovalResolved { id: String, status: String },
+
     /// Heartbeat signal for WebSocket keep-alive.
     Heartbeat,
 }
@@ -148,6 +154,12 @@ impl fmt::Display for FlowEvent {
             }
             FlowEvent::EpicUpdated { epic_id, field, .. } => {
                 write!(f, "epic_updated:{epic_id}:{field}")
+            }
+            FlowEvent::ApprovalCreated { id, task_id } => {
+                write!(f, "approval_created:{id}:{task_id}")
+            }
+            FlowEvent::ApprovalResolved { id, status } => {
+                write!(f, "approval_resolved:{id}:{status}")
             }
             FlowEvent::Heartbeat => write!(f, "heartbeat"),
         }

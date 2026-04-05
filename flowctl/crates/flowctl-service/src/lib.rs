@@ -19,6 +19,7 @@
 //! `libsql::Connection` is `Send + Sync` and cheap to `Clone`. All service
 //! functions are async and accept the connection by reference.
 
+pub mod approvals;
 pub mod connection;
 pub mod error;
 pub mod lifecycle;

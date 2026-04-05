@@ -1058,6 +1058,7 @@ version = "0.1.26"
 dependencies = [
  "anyhow",
  "axum",
+ "bytes",
  "chrono",
  "clap",
  "clap_complete",
@@ -1066,6 +1067,9 @@ dependencies = [
  "flowctl-db",
  "flowctl-scheduler",
  "flowctl-service",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "libsql",
  "miette",
  "regex",
@@ -1160,6 +1164,7 @@ dependencies = [
 name = "flowctl-service"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "flowctl-core",
  "flowctl-db",

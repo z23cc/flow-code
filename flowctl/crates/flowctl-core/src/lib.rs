@@ -4,6 +4,7 @@
 //! fundamental data structures, enums, and validation logic used by all
 //! other flowctl crates.
 
+pub mod approvals;
 pub mod dag;
 pub mod error;
 pub mod frontmatter;

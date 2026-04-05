@@ -100,6 +100,18 @@ pub fn build_router(state: AppState) -> axum::Router {
         .route("/api/v1/deps", post(handlers::add_dep_handler))
         .route("/api/v1/deps/{from}/{to}", delete(handlers::remove_dep_handler))
         .route("/api/v1/dag/{id}", get(handlers::dag_detail_handler))
+        // ── Approvals ──────────────────────────────────────────
+        .route("/api/v1/approvals", get(handlers::list_approvals_handler))
+        .route("/api/v1/approvals", post(handlers::create_approval_handler))
+        .route("/api/v1/approvals/{id}", get(handlers::get_approval_handler))
+        .route(
+            "/api/v1/approvals/{id}/approve",
+            post(handlers::approve_approval_handler),
+        )
+        .route(
+            "/api/v1/approvals/{id}/reject",
+            post(handlers::reject_approval_handler),
+        )
         .layer(cors)
         .with_state(state)
 }
@@ -424,6 +436,139 @@ mod tests {
         let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
         // "nonexistent.1" fails is_task_id() validation → 400 BAD_REQUEST
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn approval_create_list_resolve_roundtrip_emits_events() {
+        use flowctl_scheduler::FlowEvent;
+
+        let (_tmp, runtime, event_bus) = test_setup();
+        let mut event_rx = event_bus.subscribe();
+        let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
+        let app = build_router(state);
+
+        // Create
+        let create_body = serde_json::json!({
+            "task_id": "fn-1.1",
+            "kind": "file_access",
+            "payload": { "files": ["src/foo.rs"] }
+        });
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/approvals")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(create_body.to_string()))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app.clone(), req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let approval_id = created.get("id").unwrap().as_str().unwrap().to_string();
+        assert_eq!(created.get("status").unwrap().as_str().unwrap(), "pending");
+
+        // Event: ApprovalCreated
+        let stamped = event_rx.recv().await.unwrap();
+        assert!(matches!(
+            stamped.event,
+            FlowEvent::ApprovalCreated { ref id, ref task_id }
+                if id == &approval_id && task_id == "fn-1.1"
+        ));
+
+        // List pending
+        let req = axum::http::Request::builder()
+            .uri("/api/v1/approvals?status=pending")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app.clone(), req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list.as_array().unwrap().len(), 1);
+
+        // Approve
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/approvals/{approval_id}/approve"))
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"resolver":"alice"}"#))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app.clone(), req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let resolved: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(resolved.get("status").unwrap().as_str().unwrap(), "approved");
+        assert_eq!(resolved.get("resolver").unwrap().as_str().unwrap(), "alice");
+
+        // Event: ApprovalResolved
+        let stamped = event_rx.recv().await.unwrap();
+        assert!(matches!(
+            stamped.event,
+            FlowEvent::ApprovalResolved { ref id, ref status }
+                if id == &approval_id && status == "approved"
+        ));
+
+        // Double-approve should be rejected as invalid transition.
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/approvals/{approval_id}/approve"))
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from("null"))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app.clone(), req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+
+        // Get by id
+        let req = axum::http::Request::builder()
+            .uri(format!("/api/v1/approvals/{approval_id}"))
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn approval_reject_records_reason() {
+        let (_tmp, runtime, event_bus) = test_setup();
+        let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/approvals")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                r#"{"task_id":"fn-2.1","kind":"mutation","payload":{}}"#,
+            ))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app.clone(), req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = created.get("id").unwrap().as_str().unwrap().to_string();
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/approvals/{id}/reject"))
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                r#"{"resolver":"bob","reason":"not safe"}"#,
+            ))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let resolved: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(resolved.get("status").unwrap().as_str().unwrap(), "rejected");
+        assert_eq!(resolved.get("reason").unwrap().as_str().unwrap(), "not safe");
     }
 
     #[tokio::test]

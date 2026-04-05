@@ -1,10 +1,10 @@
 [package]
 name = "flowctl-core"
 version = "0.1.0"
-description = "Core types, ID parsing, and state machine for flowctl"
+description = "Core types, ID parsing, and state machine for flowctl (includes Apache 2.0 licensed code ported from rtk)"
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 serde = { workspace = true }
@@ -14,5 +14,6 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 regex = { workspace = true }
 petgraph = { workspace = true }
+toml = "0.8"
 
 [dev-dependencies]

@@ -1,0 +1,42 @@
+schema_version = 1
+
+[filters.status]
+description = "Compact flowctl status output — single-line summary"
+match_command = "^flowctl\\s+status"
+strip_lines_matching = [
+  "^\\s*$",
+  "^No active runs$",
+]
+replace = [
+  # "Epics: 17 open, 0 done" → "E:17o/0d"
+  { pattern = "^Epics:\\s+(\\d+)\\s+open,\\s+(\\d+)\\s+done$", replacement = "E:${1}o/${2}d" },
+  # "Tasks: 6 todo, 3 in_progress, 100 done, 0 blocked" → "T:6t/3w/100d/0b"
+  { pattern = "^Tasks:\\s+(\\d+)\\s+todo,\\s+(\\d+)\\s+in_progress,\\s+(\\d+)\\s+done,\\s+(\\d+)\\s+blocked$", replacement = "T:${1}t/${2}w/${3}d/${4}b" },
+]
+max_lines = 10
+
+[[tests.status]]
+name = "basic compaction"
+input = """
+Epics: 17 open, 0 done
+Tasks: 6 todo, 3 in_progress, 100 done, 0 blocked
+
+No active runs
+"""
+expected = """
+E:17o/0d
+T:6t/3w/100d/0b
+"""
+
+[[tests.status]]
+name = "empty state"
+input = """
+Epics: 0 open, 0 done
+Tasks: 0 todo, 0 in_progress, 0 done, 0 blocked
+
+No active runs
+"""
+expected = """
+E:0o/0d
+T:0t/0w/0d/0b
+"""

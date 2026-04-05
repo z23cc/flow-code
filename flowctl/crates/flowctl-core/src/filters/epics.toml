@@ -1,0 +1,51 @@
+schema_version = 1
+
+[filters.epics]
+description = "Compact flowctl epics output — one-line per epic, strip slug noise"
+match_command = "^flowctl\\s+epics"
+strip_lines_matching = [
+  "^Epics \\(\\d+\\):",
+  "^\\s*$",
+]
+replace = [
+  # "  [open] fn-19-migrate-flowctl-to-libsql-async-native: Migrate flowctl to libSQL... (1/7 tasks done)"
+  # → "fn-19[1/7 open]: Migrate flowctl to libSQL..."
+  { pattern = "^\\s*\\[(\\w+)\\]\\s+(fn-\\d+)[^:]*:\\s+(.+?)\\s+\\((\\d+)/(\\d+) tasks done\\)\\s*$", replacement = "$2[$4/$5 $1]: $3" },
+]
+truncate_lines_at = 38
+max_lines = 60
+
+[[tests.epics]]
+name = "basic compaction"
+input = """
+Epics (2):
+
+  [open] fn-15-react-vite-shadcnui-react-flow-leptos: React rewrite (8/8 tasks done)
+  [open] fn-19-migrate-flowctl-to-libsql-async-native: libSQL migration (1/7 tasks done)
+"""
+expected = """
+fn-15[8/8 open]: React rewrite
+fn-19[1/7 open]: libSQL migration
+"""
+
+[[tests.epics]]
+name = "done epic"
+input = """
+Epics (1):
+
+  [done] fn-5-daemon-scheduler: Daemon + Scheduler (5/5 tasks done)
+"""
+expected = """
+fn-5[5/5 done]: Daemon + Scheduler
+"""
+
+[[tests.epics]]
+name = "zero progress"
+input = """
+Epics (1):
+
+  [open] fn-12-token-compact-rtk-guard: 三层 Token 优化 (0/16 tasks done)
+"""
+expected = """
+fn-12[0/16 open]: 三层 Token 优化
+"""

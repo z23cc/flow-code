@@ -5,6 +5,7 @@
 //! other flowctl crates.
 
 pub mod approvals;
+pub mod compress;
 pub mod dag;
 pub mod error;
 pub mod frontmatter;

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
-use crate::output::{error_exit, json_output};
+use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::frontmatter;
 use flowctl_core::id::{is_epic_id, is_task_id, parse_id};
@@ -437,7 +437,9 @@ pub fn cmd_epics(json: bool) {
     } else if epics_out.is_empty() {
         println!("No epics found.");
     } else {
-        println!("Epics ({}):\n", epics_out.len());
+        use std::fmt::Write as _;
+        let mut buf = String::new();
+        writeln!(buf, "Epics ({}):\n", epics_out.len()).ok();
         for e in &epics_out {
             let tasks = e["tasks"].as_u64().unwrap_or(0);
             let done = e["done"].as_u64().unwrap_or(0);
@@ -446,14 +448,17 @@ pub fn cmd_epics(json: bool) {
             } else {
                 "0/0".to_string()
             };
-            println!(
+            writeln!(
+                buf,
                 "  [{}] {}: {} ({} tasks done)",
                 e["status"].as_str().unwrap_or(""),
                 e["id"].as_str().unwrap_or(""),
                 e["title"].as_str().unwrap_or(""),
                 progress
-            );
+            )
+            .ok();
         }
+        pretty_output("epics", &buf);
     }
 }
 
@@ -486,8 +491,10 @@ pub fn cmd_tasks(
         let status_filter = status.as_ref().map(|s| format!(" with status '{}'", s)).unwrap_or_default();
         println!("No tasks found{}{}.", scope, status_filter);
     } else {
+        use std::fmt::Write as _;
         let scope = epic.as_ref().map(|e| format!(" for {}", e)).unwrap_or_default();
-        println!("Tasks{} ({}):\n", scope, tasks_out.len());
+        let mut buf = String::new();
+        writeln!(buf, "Tasks{} ({}):\n", scope, tasks_out.len()).ok();
         for t in &tasks {
             let deps = if t.depends_on.is_empty() {
                 String::new()
@@ -499,11 +506,14 @@ pub fn cmd_tasks(
             } else {
                 String::new()
             };
-            println!(
+            writeln!(
+                buf,
                 "  [{}] {}: {}{}{}",
                 t.status, t.id, t.title, domain_tag, deps
-            );
+            )
+            .ok();
         }
+        pretty_output("tasks", &buf);
     }
 }
 

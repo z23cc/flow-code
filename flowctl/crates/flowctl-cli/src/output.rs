@@ -38,6 +38,33 @@ pub fn init_compact(explicit: bool) {
     COMPACT.store(enabled, Ordering::Relaxed);
 }
 
+/// Is compact mode currently active?
+pub fn is_compact() -> bool {
+    COMPACT.load(Ordering::Relaxed)
+}
+
+/// Print pretty (non-JSON) output, routed through a built-in compress filter when
+/// compact mode is active. Falls back to the raw text if the named filter does not
+/// exist (backward-compat — passthrough on miss).
+///
+/// The `filter_name` must correspond to a filter embedded in `flowctl-core/src/filters/`.
+pub fn pretty_output(filter_name: &str, text: &str) {
+    if is_compact() {
+        if let Some(filtered) = flowctl_core::compress::apply_filter(filter_name, text) {
+            if filtered.is_empty() {
+                // empty filter output — nothing to print
+                return;
+            }
+            println!("{}", filtered);
+            return;
+        }
+    }
+    print!("{}", text);
+    if !text.ends_with('\n') {
+        println!();
+    }
+}
+
 /// Strip compact fields from a JSON value (recursive into arrays/objects).
 fn strip_compact(val: &mut Value) {
     match val {

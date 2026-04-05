@@ -7,7 +7,7 @@ use std::process::Command;
 
 use serde_json::json;
 
-use crate::output::{error_exit, json_output};
+use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::types::{
     CONFIG_FILE, EPICS_DIR, MEMORY_DIR, META_FILE, REVIEWS_DIR, SCHEMA_VERSION,
@@ -180,19 +180,26 @@ pub fn cmd_status(json: bool, interrupted: bool) {
     } else if !flow_exists {
         println!(".flow/ not initialized");
     } else {
-        println!(
+        use std::fmt::Write as _;
+        let mut buf = String::new();
+        writeln!(
+            buf,
             "Epics: {} open, {} done",
             epic_counts["open"], epic_counts["done"]
-        );
-        println!(
+        )
+        .ok();
+        writeln!(
+            buf,
             "Tasks: {} todo, {} in_progress, {} done, {} blocked",
             task_counts["todo"],
             task_counts["in_progress"],
             task_counts["done"],
             task_counts["blocked"]
-        );
-        println!();
-        println!("No active runs");
+        )
+        .ok();
+        writeln!(buf).ok();
+        writeln!(buf, "No active runs").ok();
+        pretty_output("status", &buf);
     }
 }
 

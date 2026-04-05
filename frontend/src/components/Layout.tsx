@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import useSWR from "swr";
 import { swrFetcher } from "../lib/api";
+import HUD from "./HUD";
 
 interface Epic {
   id: string;
@@ -206,12 +207,21 @@ export default function Layout() {
             ))}
           </nav>
 
-          {/* Keyboard shortcut hint (desktop) */}
-          <div className="hidden md:flex items-center gap-1 ml-auto text-[10px] text-text-muted">
-            <kbd className="font-mono px-1 py-0.5 rounded bg-bg-tertiary">G</kbd>
-            <span>DAG</span>
+          {/* Keyboard shortcut hints (desktop) */}
+          <div className="hidden md:flex items-center gap-2 ml-auto text-[10px] text-text-muted">
+            <span className="flex items-center gap-1">
+              <kbd className="font-mono px-1 py-0.5 rounded bg-bg-tertiary">G</kbd>
+              <span>DAG</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <kbd className="font-mono px-1 py-0.5 rounded bg-bg-tertiary">{"\u2318"}K</kbd>
+              <span>Commands</span>
+            </span>
           </div>
         </header>
+
+        {/* HUD status bar */}
+        <HUD />
 
         {/* Page content */}
         <main className="flex-1 overflow-auto p-4 md:p-6">

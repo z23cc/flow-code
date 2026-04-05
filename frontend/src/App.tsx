@@ -9,6 +9,9 @@ import Agents from "./pages/Agents";
 import Memory from "./pages/Memory";
 import Settings from "./pages/Settings";
 import Replay from "./pages/Replay";
+import CommandPalette from "./components/CommandPalette";
+import TaskSidebar from "./components/TaskSidebar";
+import { TaskSidebarProvider } from "./components/TaskSidebarContext";
 import { startToastBridge } from "./lib/toast-bridge";
 
 export default function App() {
@@ -18,7 +21,7 @@ export default function App() {
   }, []);
 
   return (
-    <>
+    <TaskSidebarProvider>
       <Toaster
         theme="dark"
         position="bottom-right"
@@ -30,6 +33,8 @@ export default function App() {
           },
         }}
       />
+      <CommandPalette />
+      <TaskSidebar />
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
@@ -41,6 +46,6 @@ export default function App() {
           <Route path="/replay/:id" element={<Replay />} />
         </Route>
       </Routes>
-    </>
+    </TaskSidebarProvider>
   );
 }

@@ -126,7 +126,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_setup() -> (TempDir, DaemonRuntime, flowctl_scheduler::EventBus) {
-        let tmp = TempDir::new().unwrap();
+        let _tmp = TempDir::new().unwrap();
         let flow_dir = tmp.path().join(".flow");
         let paths = DaemonPaths::new(&flow_dir);
         paths.ensure_state_dir().unwrap();

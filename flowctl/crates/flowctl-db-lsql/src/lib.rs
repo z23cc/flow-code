@@ -21,12 +21,14 @@
 
 pub mod error;
 pub mod events;
+pub mod memory;
 pub mod metrics;
 pub mod pool;
 pub mod repo;
 
 pub use error::DbError;
 pub use events::{EventLog, TaskTokenSummary, TokenRecord, TokenUsageRow};
+pub use memory::{MemoryEntry, MemoryFilter, MemoryRepo};
 pub use metrics::StatsQuery;
 pub use pool::{open_async, open_memory_async, resolve_libsql_path};
 pub use repo::{

@@ -51,6 +51,9 @@ include_dir = "0.7"
 # libSQL (async, native vectors) — target DB engine
 libsql = { version = "0.9", default-features = false, features = ["core"] }
 
+# AI embeddings (memory semantic search)
+fastembed = "5.12"
+
 # CLI (cli crate)
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"

@@ -21,15 +21,10 @@ pub mod indexer;
 pub mod metrics;
 pub mod migration;
 pub mod pool;
-pub mod pool_async;
 pub mod repo;
 
 pub use error::DbError;
 pub use pool::{cleanup, open, open_memory, resolve_db_path, resolve_state_dir};
-pub use pool_async::{open_async, open_memory_async, resolve_libsql_path};
-
-// Re-export libsql types for callers that need them during migration.
-pub use libsql::{Connection as AsyncConnection, Database as AsyncDatabase};
 pub use indexer::{reindex, ReindexResult};
 pub use migration::{migrate_runtime_state, needs_reindex, has_legacy_state, MigrationResult};
 pub use repo::{EpicRepo, EvidenceRepo, EventRepo, EventRow, FileLockRepo, PhaseProgressRepo, RuntimeRepo, TaskRepo};

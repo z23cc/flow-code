@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/flowctl-core",
     "crates/flowctl-db",
+    "crates/flowctl-db-lsql",
     "crates/flowctl-scheduler",
     "crates/flowctl-service",
     "crates/flowctl-cli",

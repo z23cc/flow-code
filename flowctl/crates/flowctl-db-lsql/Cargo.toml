@@ -1,16 +1,15 @@
 [package]
-name = "flowctl-db"
+name = "flowctl-db-lsql"
 version = "0.1.0"
-description = "SQLite storage layer for flowctl"
+description = "Async libSQL storage layer for flowctl (successor to flowctl-db)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
 flowctl-core = { workspace = true }
-rusqlite = { workspace = true }
-rusqlite_migration = { workspace = true }
-include_dir = { workspace = true }
+libsql = { workspace = true }
+tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

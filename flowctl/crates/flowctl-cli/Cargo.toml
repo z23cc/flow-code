@@ -11,7 +11,7 @@ name = "flowctl"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["daemon"]
 daemon = ["dep:flowctl-daemon", "dep:flowctl-web", "dep:tokio", "dep:leptos", "dep:leptos_axum", "dep:any_spawner", "dep:axum"]
 
 [dependencies]

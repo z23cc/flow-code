@@ -18,6 +18,10 @@ flowctl/target/
 ref/
 gmickel-claude-marketplace/
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
 # OS
 .DS_Store
 .gstack/

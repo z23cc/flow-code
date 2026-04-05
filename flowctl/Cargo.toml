@@ -14,7 +14,7 @@ members = [
 edition = "2021"
 rust-version = "1.80"
 license = "MIT"
-repository = "https://github.com/anthropics/flow-code"
+repository = "https://github.com/z23cc/flow-code"
 
 # ── Shared dependencies (nushell convention) ──────────────────────────
 # Define all deps once here; crates reference via `dep.workspace = true`
@@ -46,7 +46,12 @@ petgraph = "0.7"
 libsql = { version = "0.9", default-features = false, features = ["core"] }
 
 # AI embeddings (memory semantic search)
-fastembed = "5.12"
+# Use rustls to avoid OpenSSL cross-compile headaches on release builds.
+fastembed = { version = "5.12", default-features = false, features = [
+    "ort-download-binaries-rustls-tls",
+    "hf-hub-rustls-tls",
+    "image-models",
+] }
 
 # CLI (cli crate)
 clap = { version = "4", features = ["derive"] }

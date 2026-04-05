@@ -36,7 +36,7 @@ pub fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventB
 }
 
 /// Build the Axum router with all daemon API routes.
-/// Public so the CLI can merge this with other routes (e.g. Leptos SSR).
+/// Public so the CLI can merge this with other routes (e.g. static file serving).
 pub fn build_router(state: AppState) -> axum::Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)

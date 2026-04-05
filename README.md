@@ -299,6 +299,39 @@ You can always run interview again after planning to catch anything missed. Inte
 
 ---
 
+## Web UI
+
+flow-code ships a React web UI for browsing `.flow/` state. **It is a read-only dashboard plus light CRUD, not an orchestrator.** All agent execution happens in your Claude Code terminal session.
+
+### Divide of labor
+
+| Surface | Responsibility |
+|---|---|
+| **Claude Code terminal** | Run agents: `/flow-code:plan`, `/flow-code:work`, `/flow-code:brainstorm`, reviews, worker spawning, permission prompts |
+| **Web UI** | Browse epics/tasks/specs/DAG/memory/evidence; light CRUD (create epic, edit deps, add gaps, archive epics) |
+| **`flowctl` CLI** | Scripting, CI, automation, anything headless |
+
+### Launch
+
+```bash
+# Build the frontend once
+cd frontend && bun install && bun run build
+
+# Start the daemon with TCP port (serves API + static web UI on same port)
+flowctl serve --port 3737
+
+# Open in browser
+open http://localhost:3737
+```
+
+Without `--port`, `flowctl serve` binds a Unix socket only (CLI/MCP clients, no browser).
+
+### What the Web UI does not do
+
+The web UI never starts, stops, or manages Claude Code / Codex agents. When you want to execute an epic, the web UI shows you the exact command to paste into your Claude Code terminal (e.g., `/flow-code:work fn-3-add-oauth`). This is deliberate — agent execution, permission prompts, and live worker output belong in the terminal where Claude Code runs.
+
+---
+
 ## Agent Readiness Assessment
 
 > Inspired by [Factory.ai's Agent Readiness framework](https://factory.ai/news/agent-readiness)

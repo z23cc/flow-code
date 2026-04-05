@@ -165,6 +165,7 @@ mod tests {
         assert!(tables.contains(&"token_usage".to_string()));
         assert!(tables.contains(&"daily_rollup".to_string()));
         assert!(tables.contains(&"monthly_rollup".to_string()));
+        assert!(tables.contains(&"memory".to_string()));
     }
 
     #[test]

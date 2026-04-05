@@ -137,6 +137,25 @@ CREATE TABLE monthly_rollup (
     total_cost_usd   REAL DEFAULT 0
 );
 
+-- ═══ Memory (structured, CE-inspired) ═══
+
+CREATE TABLE memory (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_type    TEXT NOT NULL,
+    content       TEXT NOT NULL,
+    summary       TEXT,
+    hash          TEXT UNIQUE,
+    module        TEXT,
+    severity      TEXT,
+    problem_type  TEXT,
+    component     TEXT,
+    tags          TEXT DEFAULT '[]',
+    track         TEXT,
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    last_verified TEXT,
+    refs          INTEGER NOT NULL DEFAULT 0
+);
+
 -- ═══ Indexes ═══
 
 CREATE INDEX idx_tasks_epic ON tasks(epic_id);
@@ -145,6 +164,10 @@ CREATE INDEX idx_events_entity ON events(epic_id, task_id);
 CREATE INDEX idx_events_ts ON events(timestamp);
 CREATE INDEX idx_events_type ON events(event_type, timestamp);
 CREATE INDEX idx_token_epic ON token_usage(epic_id);
+CREATE INDEX idx_memory_type ON memory(entry_type);
+CREATE INDEX idx_memory_module ON memory(module);
+CREATE INDEX idx_memory_track ON memory(track);
+CREATE INDEX idx_memory_severity ON memory(severity);
 
 -- ═══ Auto-aggregation triggers ═══
 

@@ -184,6 +184,10 @@ pub fn cmd_parse_findings(
     _register: bool,
     _source: String,
 ) {
+    use flowctl_core::review_protocol::{
+        filter_by_confidence, AutofixClass, FindingOwner, ReviewFinding, Severity,
+    };
+
     // Read input from file or stdin
     let text = if file == "-" {
         use std::io::Read;
@@ -203,9 +207,10 @@ pub fn cmd_parse_findings(
         }
     };
 
-    let mut findings: Vec<serde_json::Value> = Vec::new();
+    let mut findings: Vec<ReviewFinding> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
-    let required_keys = ["title", "severity", "location", "recommendation"];
+    // CE schema required keys
+    let required_keys = ["severity", "file", "line", "confidence", "evidence"];
 
     // Tiered extraction:
     // 1. <findings>...</findings> tag
@@ -239,12 +244,11 @@ pub fn cmd_parse_findings(
 
     if let Some(raw) = raw_json {
         // Remove trailing commas before ] or }
-        let cleaned = raw
-            .replace(",]", "]")
-            .replace(",}", "}");
+        let cleaned = raw.replace(",]", "]").replace(",}", "}");
 
         match serde_json::from_str::<serde_json::Value>(&cleaned) {
             Ok(serde_json::Value::Array(arr)) => {
+                let mut raw_findings: Vec<ReviewFinding> = Vec::new();
                 for (i, item) in arr.iter().enumerate() {
                     if !item.is_object() {
                         warnings.push(format!("Finding {} is not an object, skipping", i));
@@ -263,8 +267,90 @@ pub fn cmd_parse_findings(
                         ));
                         continue;
                     }
-                    findings.push(item.clone());
+
+                    let severity = match item.get("severity").and_then(|v| v.as_str()) {
+                        Some("P0") | Some("critical") => Severity::P0,
+                        Some("P1") | Some("warning") => Severity::P1,
+                        Some("P2") => Severity::P2,
+                        _ => Severity::P3,
+                    };
+                    let category = item
+                        .get("category")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("general")
+                        .to_string();
+                    let description = item
+                        .get("description")
+                        .or_else(|| item.get("title"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let file_path = item.get("file").and_then(|v| v.as_str()).map(String::from);
+                    let line = item.get("line").and_then(|v| v.as_u64()).map(|n| n as u32);
+                    let confidence = item
+                        .get("confidence")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.8);
+                    let autofix_class =
+                        match item.get("autofix_class").and_then(|v| v.as_str()) {
+                            Some("safe_auto") => AutofixClass::SafeAuto,
+                            Some("gated_auto") => AutofixClass::GatedAuto,
+                            Some("advisory") => AutofixClass::Advisory,
+                            _ => AutofixClass::Manual,
+                        };
+                    let owner = match item.get("owner").and_then(|v| v.as_str()) {
+                        Some("review-fixer") => FindingOwner::ReviewFixer,
+                        Some("downstream-resolver") => FindingOwner::DownstreamResolver,
+                        Some("human") => FindingOwner::Human,
+                        Some("release") => FindingOwner::Release,
+                        _ => FindingOwner::ReviewFixer,
+                    };
+                    let evidence = item
+                        .get("evidence")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let pre_existing = item
+                        .get("pre_existing")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let requires_verification = item
+                        .get("requires_verification")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let suggested_fix = item
+                        .get("suggested_fix")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let why_it_matters = item
+                        .get("why_it_matters")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+
+                    raw_findings.push(ReviewFinding {
+                        severity,
+                        category,
+                        description,
+                        file: file_path,
+                        line,
+                        confidence,
+                        autofix_class,
+                        owner,
+                        evidence,
+                        pre_existing,
+                        requires_verification,
+                        suggested_fix,
+                        why_it_matters,
+                    });
                 }
+
+                // Apply confidence filtering
+                findings = filter_by_confidence(raw_findings);
+
                 // Cap at 50
                 if findings.len() > 50 {
                     warnings.push(format!(
@@ -286,8 +372,12 @@ pub fn cmd_parse_findings(
     }
 
     if json_mode {
+        let findings_json: Vec<serde_json::Value> = findings
+            .iter()
+            .map(|f| serde_json::to_value(f).unwrap_or(json!({})))
+            .collect();
         json_output(json!({
-            "findings": findings,
+            "findings": findings_json,
             "count": findings.len(),
             "registered": 0,
             "warnings": warnings,
@@ -298,10 +388,21 @@ pub fn cmd_parse_findings(
             eprintln!("  Warning: {}", w);
         }
         for f in &findings {
-            let sev = f["severity"].as_str().unwrap_or("unknown");
-            let title = f["title"].as_str().unwrap_or("");
-            let location = f["location"].as_str().unwrap_or("");
-            println!("  [{}] {} \u{2014} {}", sev, title, location);
+            let loc = f
+                .file
+                .as_deref()
+                .map(|fp| {
+                    if let Some(ln) = f.line {
+                        format!("{}:{}", fp, ln)
+                    } else {
+                        fp.to_string()
+                    }
+                })
+                .unwrap_or_default();
+            println!(
+                "  [{}] {} \u{2014} {} (confidence: {:.0}%)",
+                f.severity, f.description, loc, f.confidence * 100.0
+            );
         }
     }
 }

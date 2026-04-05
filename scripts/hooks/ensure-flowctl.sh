@@ -56,7 +56,9 @@ try_download() {
     case "$OS" in
         Linux)  OS_T="unknown-linux-gnu" ;;
         Darwin) OS_T="apple-darwin" ;;
-        MINGW*|MSYS*|CYGWIN*) OS_T="pc-windows-msvc" ;;
+        MINGW*|MSYS*|CYGWIN*)
+            log "Windows is not supported natively — run under WSL"
+            return 1 ;;
         *) log "unsupported OS: $OS"; return 1 ;;
     esac
     case "$ARCH" in
@@ -64,12 +66,14 @@ try_download() {
         aarch64|arm64) ARCH_T="aarch64" ;;
         *) log "unsupported arch: $ARCH"; return 1 ;;
     esac
+    # Intel Macs are unsupported (ort-sys has no prebuilt binary)
+    if [ "$OS_T" = "apple-darwin" ] && [ "$ARCH_T" = "x86_64" ]; then
+        log "Intel Mac unsupported by prebuilt binaries — building from source"
+        return 1
+    fi
     PLATFORM="${ARCH_T}-${OS_T}"
-
-    case "$OS_T" in
-        pc-windows-msvc) EXT="zip"; BIN_NAME="flowctl.exe" ;;
-        *) EXT="tar.gz"; BIN_NAME="flowctl" ;;
-    esac
+    EXT="tar.gz"
+    BIN_NAME="flowctl"
 
     REPO="z23cc/flow-code"
     ARCHIVE="flowctl-${PINNED}-${PLATFORM}.${EXT}"

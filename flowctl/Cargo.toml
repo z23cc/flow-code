@@ -50,7 +50,6 @@ libsql = { version = "0.9", default-features = false, features = ["core"] }
 fastembed = { version = "5.12", default-features = false, features = [
     "ort-download-binaries-rustls-tls",
     "hf-hub-rustls-tls",
-    "image-models",
 ] }
 
 # CLI (cli crate)

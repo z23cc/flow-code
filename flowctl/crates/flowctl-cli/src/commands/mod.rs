@@ -10,6 +10,7 @@ pub mod epic;
 pub mod gap;
 pub mod hook;
 pub mod memory;
+pub mod outputs;
 pub mod query;
 pub mod ralph;
 pub mod rp;

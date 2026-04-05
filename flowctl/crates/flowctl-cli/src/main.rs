@@ -19,6 +19,7 @@ use commands::{
     gap::GapCmd,
     hook::HookCmd,
     memory::MemoryCmd,
+    outputs::OutputsCmd,
     query,
     ralph::RalphCmd,
     rp::RpCmd,
@@ -183,6 +184,11 @@ enum Commands {
     Memory {
         #[command(subcommand)]
         cmd: MemoryCmd,
+    },
+    /// Outputs commands (narrative handoff between tasks).
+    Outputs {
+        #[command(subcommand)]
+        cmd: OutputsCmd,
     },
     /// Checkpoint commands.
     Checkpoint {
@@ -478,6 +484,7 @@ fn main() {
         Commands::Dep { cmd } => commands::dep::dispatch(&cmd, json),
         Commands::Gap { cmd } => commands::gap::dispatch(&cmd, json),
         Commands::Memory { cmd } => commands::memory::dispatch(&cmd, json),
+        Commands::Outputs { cmd } => commands::outputs::dispatch(&cmd, json),
         Commands::Checkpoint { cmd } => commands::checkpoint::dispatch(&cmd, json),
         Commands::Stack { cmd } => commands::stack::dispatch(&cmd, json),
         Commands::Invariants { cmd } => commands::stack::dispatch_invariants(&cmd, json),

@@ -15,6 +15,7 @@ use crate::commands::helpers::get_flow_dir;
 fn get_default_config() -> serde_json::Value {
     json!({
         "memory": {"enabled": true},
+        "outputs": {"enabled": true},
         "planSync": {"enabled": true, "crossEpic": false},
         "review": {"backend": null},
         "scouts": {"github": false},

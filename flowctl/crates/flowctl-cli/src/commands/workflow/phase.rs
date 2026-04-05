@@ -61,14 +61,16 @@ const PHASE_DEFS: &[PhaseDef] = &[
     PhaseDef { id: "3",   title: "Commit",                done_condition: "Changes committed with conventional commit message" },
     PhaseDef { id: "4",   title: "Review",                done_condition: "SHIP verdict received from reviewer" },
     PhaseDef { id: "5",   title: "Complete",              done_condition: "flowctl done called and task status is done" },
+    PhaseDef { id: "5c",  title: "Outputs Dump",          done_condition: "Narrative summary written to .flow/outputs/<task-id>.md" },
     PhaseDef { id: "5b",  title: "Memory Auto-Save",      done_condition: "Non-obvious lessons saved to memory (if any)" },
     PhaseDef { id: "6",   title: "Return",                done_condition: "Summary returned to main conversation" },
 ];
 
 /// Canonical ordering of all phases — used to merge sequences.
-const CANONICAL_ORDER: &[&str] = &["0", "1", "2a", "2", "2.5", "3", "4", "5", "5b", "6"];
+const CANONICAL_ORDER: &[&str] = &["0", "1", "2a", "2", "2.5", "3", "4", "5", "5c", "5b", "6"];
 
 /// Default phase sequence (Worktree + Teams, always includes Phase 0).
+/// Phase 5c is appended when `outputs.enabled` is true (default).
 const PHASE_SEQ_DEFAULT: &[&str] = &["0", "1", "2", "2.5", "3", "5", "5b", "6"];
 const PHASE_SEQ_TDD: &[&str]    = &["0", "1", "2a", "2", "2.5", "3", "5", "5b", "6"];
 const PHASE_SEQ_REVIEW: &[&str] = &["0", "1", "2", "2.5", "3", "4", "5", "5b", "6"];
@@ -77,12 +79,31 @@ fn get_phase_def(phase_id: &str) -> Option<&'static PhaseDef> {
     PHASE_DEFS.iter().find(|p| p.id == phase_id)
 }
 
+/// Read `outputs.enabled` from .flow/config.json. Default: true.
+fn is_outputs_enabled() -> bool {
+    use flowctl_core::types::{CONFIG_FILE, FLOW_DIR};
+    let cfg_path = std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join(FLOW_DIR)
+        .join(CONFIG_FILE);
+    if !cfg_path.exists() {
+        return true;
+    }
+    match std::fs::read_to_string(&cfg_path) {
+        Ok(content) => {
+            let cfg: serde_json::Value =
+                serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+            cfg.get("outputs")
+                .and_then(|m| m.get("enabled"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true)
+        }
+        Err(_) => true,
+    }
+}
+
 /// Build the phase sequence based on mode flags.
 fn build_phase_sequence(tdd: bool, review: bool) -> Vec<&'static str> {
-    if !tdd && !review {
-        return PHASE_SEQ_DEFAULT.to_vec();
-    }
-
     let mut phases = HashSet::new();
     for p in PHASE_SEQ_DEFAULT {
         phases.insert(*p);
@@ -96,6 +117,9 @@ fn build_phase_sequence(tdd: bool, review: bool) -> Vec<&'static str> {
         for p in PHASE_SEQ_REVIEW {
             phases.insert(*p);
         }
+    }
+    if is_outputs_enabled() {
+        phases.insert("5c");
     }
     CANONICAL_ORDER.iter().copied().filter(|p| phases.contains(p)).collect()
 }

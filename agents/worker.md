@@ -156,6 +156,17 @@ This returns a compact index (~50 tokens/entry). If you see relevant entries, fe
 ```
 Only fetch full content for entries relevant to your task's technology/domain.
 
+**Check prior outputs** (if `outputs.enabled` is true, default):
+```bash
+<FLOWCTL> config get outputs.enabled --json
+<FLOWCTL> outputs list --epic <EPIC_ID> --limit 3 --json
+```
+For each entry returned, fetch its content and include verbatim in your context:
+```bash
+<FLOWCTL> outputs show <prior-task-id>
+```
+These are lightweight narrative handoffs from earlier tasks in this epic — read them to understand what upstream work surprised the previous worker, what decisions they made, and what gotchas to watch for. Skip gracefully if the list is empty (new epic) or if `outputs.enabled` is false.
+
 Parse the spec carefully. Identify:
 - Acceptance criteria
 - Dependencies on other tasks
@@ -473,6 +484,43 @@ Status MUST be `done`. If not:
 3. Verify again with `<FLOWCTL> show <TASK_ID> --json`
 4. **Do NOT send "Task complete" message until status is confirmed `done`**
 <!-- /section:core -->
+
+<!-- section:outputs -->
+## Phase 5c: Outputs Dump (if outputs.enabled)
+
+**Skip if `outputs.enabled` is false.** This is gated on its own config key — independent from `memory.enabled`. Outputs are a lightweight narrative handoff layer (plain markdown, no verification), separate from the verified memory system.
+
+After completing the task, write a ≤200-word narrative dump to `.flow/outputs/<TASK_ID>.md` for the next worker in this epic:
+
+```bash
+# Check if outputs is enabled (default: true)
+OUTPUTS_ENABLED=$(<FLOWCTL> config get outputs.enabled --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('value', True))" 2>/dev/null || echo "True")
+
+if [ "$OUTPUTS_ENABLED" = "True" ] || [ "$OUTPUTS_ENABLED" = "true" ]; then
+  <FLOWCTL> outputs write <TASK_ID> --file - << 'EOF'
+## Summary
+
+<1–3 sentence summary of what you implemented, ≤200 words total>
+
+## Surprises
+
+- <Thing that surprised you during implementation, or "None">
+- <Another gotcha, if any>
+
+## Decisions
+
+- <Key design/architecture decision + rationale>
+- <Another decision, if any>
+EOF
+fi
+```
+
+**Rules:**
+- All three sections are allowed to be missing or empty — downstream readers handle that gracefully
+- Focus on narrative handoff: what would help the next worker, not comprehensive docs
+- Don't repeat spec content — only things you learned while working
+- This is narrative handoff, NOT verified memory. Save verified pitfalls/conventions in Phase 5b.
+<!-- /section:outputs -->
 
 <!-- section:memory -->
 ## Phase 5b: Memory Auto-Save (if memory enabled)

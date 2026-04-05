@@ -295,11 +295,14 @@ pub const PHASE_DEFS: &[(&str, &str, &str)] = &[
     ("3", "Commit", "Changes committed with conventional commit message"),
     ("4", "Review", "SHIP verdict received from reviewer"),
     ("5", "Complete", "flowctl done called and task status is done"),
+    ("5c", "Outputs Dump", "Narrative summary written to .flow/outputs/<task-id>.md"),
     ("5b", "Memory Auto-Save", "Non-obvious lessons saved to memory (if any)"),
     ("6", "Return", "Summary returned to main conversation"),
 ];
 
 /// Phase sequences by mode (from Python constants.py).
+/// Phase `5c` (outputs_dump) is NOT in these static sequences — it is added
+/// dynamically by `worker-phase next` based on the `outputs.enabled` config.
 pub const PHASE_SEQ_DEFAULT: &[&str] = &["0", "1", "2", "2.5", "3", "5", "5b", "6"];
 pub const PHASE_SEQ_TDD: &[&str] = &["0", "1", "2a", "2", "2.5", "3", "5", "5b", "6"];
 pub const PHASE_SEQ_REVIEW: &[&str] = &["0", "1", "2", "2.5", "3", "4", "5", "5b", "6"];
@@ -529,7 +532,7 @@ mod tests {
 
     #[test]
     fn test_phase_defs_complete() {
-        assert_eq!(PHASE_DEFS.len(), 10);
+        assert_eq!(PHASE_DEFS.len(), 11);
         // Verify all phase sequences reference valid phase IDs
         let valid_ids: Vec<&str> = PHASE_DEFS.iter().map(|(id, _, _)| *id).collect();
         for seq_id in PHASE_SEQ_DEFAULT {

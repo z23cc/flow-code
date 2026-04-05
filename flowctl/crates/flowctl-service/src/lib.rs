@@ -22,6 +22,7 @@
 pub mod connection;
 pub mod error;
 pub mod lifecycle;
+pub mod outputs;
 
 // Re-export key types at crate root.
 pub use connection::{open_async, FileConnectionProvider};

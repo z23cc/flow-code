@@ -79,6 +79,33 @@ echo "Review backend: $BACKEND (override: --review=rp|codex|none)"
 Arguments: $ARGUMENTS
 Format: `<flow-epic-id> [focus areas]`
 
+## Capability Gaps Pre-Check
+
+**Before any backend runs the review**, verify capability-scout output:
+
+```bash
+EPIC_ID="${1:-}"
+CAP_GAPS_FILE=".flow/epics/${EPIC_ID}/capability-gaps.md"
+
+if [[ -f "$CAP_GAPS_FILE" ]]; then
+  echo "Capability gaps file present: $CAP_GAPS_FILE"
+  # Check for unresolved required gaps in the registry
+  UNRESOLVED=$($FLOWCTL gap list --epic "$EPIC_ID" --json 2>/dev/null \
+    | python3 -c 'import sys,json; d=json.load(sys.stdin); print(sum(1 for g in d if g.get("source")=="capability-scout" and g.get("priority")=="required" and not g.get("resolved")))' 2>/dev/null || echo "0")
+  if [[ "$UNRESOLVED" -gt 0 ]]; then
+    echo "BLOCK SHIP: $UNRESOLVED unresolved required capability gap(s). Resolve via 'flowctl gap resolve' or downgrade priority with justification before SHIP."
+    # Record as a blocking finding; do not exit — let reviewer also see context
+  fi
+fi
+```
+
+**Rules:**
+- If `capability-gaps.md` is missing AND capability-scout was not explicitly skipped (`--no-capability-scan`), note as a warning but do not block (scout may have failed open).
+- If unresolved `required`-priority gaps with `source=capability-scout` exist in the gap registry, the final verdict MUST NOT be SHIP until gaps are resolved or downgraded with justification.
+- Downgrade path: `flowctl gap resolve <gap-id>` after addressing, OR epic spec must explicitly justify why the gap is acceptable (and gap re-registered at lower priority).
+
+Include the capability-gaps.md contents (if present) in the context sent to the backend reviewer so it can factor gaps into its verdict.
+
 ## Workflow
 
 **See [workflow.md](workflow.md) for full details on each backend.**

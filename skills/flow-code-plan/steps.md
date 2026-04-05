@@ -86,7 +86,7 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 
 ### Scout decision guide
 
-- **Always**: `repo-scout` (or `context-scout` if multi-module/unfamiliar code + rp-cli available). `memory-scout` if memory.enabled.
+- **Always**: `repo-scout` (or `context-scout` if multi-module/unfamiliar code + rp-cli available). `memory-scout` if memory.enabled. `capability-scout` unless `--no-capability-scan` passed (non-blocking; fails open — planning continues if it errors).
 - **Add when needed**: `practice-scout` for security/auth/payments/concurrency. `docs-scout` for external APIs/libraries. `github-scout` for novel patterns (requires scouts.github). `epic-scout` if 2+ open epics. `docs-gap-scout` if user-facing changes.
 - **Constraints**: min 1 (repo or context), max 7. Run ALL selected scouts in ONE parallel Agent/Task call.
 
@@ -99,6 +99,7 @@ Must capture:
 - Architecture patterns and data flow (especially with context-scout)
 - Epic dependencies (from epic-scout)
 - Doc updates needed (from docs-gap-scout) - add to task acceptance criteria
+- Capability gaps (from capability-scout) - persist in Step 5 (see below)
 
 ## Step 1b: Apply memory lessons (if memory.enabled)
 
@@ -310,6 +311,34 @@ Default to standard unless complexity demands more or less.
    $FLOWCTL show <epic-id> --json
    $FLOWCTL cat <epic-id>
    ```
+
+## Step 5.5: Write capability-gaps.md (if capability-scout ran)
+
+**Skip if `--no-capability-scan` was passed, or capability-scout was not run, or scout errored (fails open).**
+
+After epic creation, persist capability-scout findings to `.flow/epics/<epic-id>/capability-gaps.md` (human-readable markdown, NOT JSON — plan-review scans this file).
+
+```bash
+mkdir -p .flow/epics/<epic-id>
+cat > .flow/epics/<epic-id>/capability-gaps.md <<'EOF'
+# Capability Gaps — <epic-id>
+
+Source: capability-scout (plan-time)
+
+<human summary table + references from capability-scout output>
+EOF
+```
+
+For each `priority: required` gap in the scout's JSON output, persist in the gap registry:
+
+```bash
+$FLOWCTL gap add --epic <epic-id> \
+  --capability "<capability>: <details>" \
+  --priority required \
+  --source capability-scout --json
+```
+
+`important` and `nice-to-have` gaps are recorded in the markdown file only — not in the gap registry (don't over-fill with noise).
 
 ## Step 6: Validate
 

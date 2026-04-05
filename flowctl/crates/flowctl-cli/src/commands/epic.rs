@@ -158,7 +158,7 @@ fn validate_epic_id(id: &str) {
 fn load_epic(epic_path: &Path, id: &str) -> frontmatter::Document<Epic> {
     // Try DB first.
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::EpicRepo::new(&conn);
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Ok((epic, body)) = repo.get_with_body(id) {
             return frontmatter::Document { frontmatter: epic, body };
         }
@@ -177,7 +177,7 @@ fn load_epic(epic_path: &Path, id: &str) -> frontmatter::Document<Epic> {
 fn save_epic(epic_path: &Path, doc: &frontmatter::Document<Epic>) {
     // Write to DB.
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::EpicRepo::new(&conn);
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
             eprintln!("warning: DB write failed for {}: {e}", doc.frontmatter.id);
         }
@@ -193,15 +193,15 @@ fn save_epic(epic_path: &Path, doc: &frontmatter::Document<Epic>) {
 }
 
 /// Try to open DB connection for SQLite dual-write.
-fn try_open_db() -> Option<rusqlite::Connection> {
+fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
     let cwd = env::current_dir().ok()?;
-    flowctl_db::open(&cwd).ok()
+    crate::commands::db_shim::open(&cwd).ok()
 }
 
 /// Upsert epic into SQLite if DB is available.
 fn db_upsert_epic(epic: &Epic) {
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::EpicRepo::new(&conn);
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         let _ = repo.upsert(epic);
     }
 }
@@ -670,7 +670,7 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
                     }
                     // SQLite update
                     if let Some(conn) = try_open_db() {
-                        let repo = flowctl_db::TaskRepo::new(&conn);
+                        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
                         let _ = repo.upsert(&task_doc.frontmatter);
                     }
                 }
@@ -1315,7 +1315,7 @@ pub fn cmd_replay(json_mode: bool, epic_id: &str, dry_run: bool, force: bool) {
     validate_epic_id(epic_id);
 
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let conn = flowctl_db::open(&cwd).ok();
+    let conn = crate::commands::db_shim::open(&cwd).ok();
 
     // Load tasks for this epic
     let tasks = load_epic_tasks(conn.as_ref(), &flow_dir, epic_id);
@@ -1367,7 +1367,7 @@ pub fn cmd_replay(json_mode: bool, epic_id: &str, dry_run: bool, force: bool) {
     for task in &to_reset {
         // Reset in DB if available
         if let Some(ref c) = conn {
-            let task_repo = flowctl_db::TaskRepo::new(c);
+            let task_repo = crate::commands::db_shim::TaskRepo::new(c);
             if let Err(e) = task_repo.update_status(&task.id, flowctl_core::state_machine::Status::Todo) {
                 eprintln!("Warning: failed to reset {} in DB: {}", task.id, e);
             }
@@ -1409,13 +1409,13 @@ pub fn cmd_replay(json_mode: bool, epic_id: &str, dry_run: bool, force: bool) {
 
 /// Load tasks for an epic from DB or Markdown.
 fn load_epic_tasks(
-    conn: Option<&rusqlite::Connection>,
+    conn: Option<&crate::commands::db_shim::Connection>,
     flow_dir: &Path,
     epic_id: &str,
 ) -> Vec<flowctl_core::types::Task> {
     // Try DB first
     if let Some(c) = conn {
-        let task_repo = flowctl_db::TaskRepo::new(c);
+        let task_repo = crate::commands::db_shim::TaskRepo::new(c);
         if let Ok(tasks) = task_repo.list_by_epic(epic_id) {
             if !tasks.is_empty() {
                 return tasks;
@@ -1457,7 +1457,7 @@ pub fn cmd_diff(json_mode: bool, epic_id: &str) {
     validate_epic_id(epic_id);
 
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let conn = flowctl_db::open(&cwd).ok();
+    let conn = crate::commands::db_shim::open(&cwd).ok();
 
     // Load epic to get branch name
     let branch = load_epic_branch(conn.as_ref(), &flow_dir, epic_id);
@@ -1562,13 +1562,13 @@ pub fn cmd_diff(json_mode: bool, epic_id: &str) {
 
 /// Load branch name for an epic from DB or Markdown.
 fn load_epic_branch(
-    conn: Option<&rusqlite::Connection>,
+    conn: Option<&crate::commands::db_shim::Connection>,
     flow_dir: &Path,
     epic_id: &str,
 ) -> Option<String> {
     // Try DB
     if let Some(c) = conn {
-        let epic_repo = flowctl_db::EpicRepo::new(c);
+        let epic_repo = crate::commands::db_shim::EpicRepo::new(c);
         if let Ok(epic) = epic_repo.get(epic_id) {
             return epic.branch_name.filter(|b| !b.is_empty());
         }

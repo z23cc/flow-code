@@ -19,10 +19,10 @@ webhook = ["dep:reqwest"]
 
 [dependencies]
 flowctl-core = { workspace = true }
-flowctl-db = { workspace = true }
+flowctl-db-lsql = { workspace = true }
 flowctl-service = { workspace = true }
 flowctl-scheduler = { workspace = true }
-rusqlite = { workspace = true }
+libsql = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

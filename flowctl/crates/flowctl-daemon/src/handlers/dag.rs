@@ -40,9 +40,9 @@ pub async fn dag_handler(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<DagQuery>,
 ) -> Result<Json<DagResponse>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::TaskRepo::new(&conn);
-    let tasks = repo.list_by_epic(&params.epic_id)?;
+    let conn = state.db.clone();
+    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let tasks = repo.list_by_epic(&params.epic_id).await?;
 
     if tasks.is_empty() {
         return Ok(Json(DagResponse {
@@ -126,9 +126,9 @@ pub async fn dag_detail_handler(
     State(state): State<AppState>,
     axum::extract::Path(epic_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::TaskRepo::new(&conn);
-    let tasks = repo.list_by_epic(&epic_id)?;
+    let conn = state.db.clone();
+    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let tasks = repo.list_by_epic(&epic_id).await?;
 
     if tasks.is_empty() {
         return Ok(Json(serde_json::json!({
@@ -176,8 +176,8 @@ pub async fn dag_mutate_handler(
     State(state): State<AppState>,
     Json(body): Json<DagMutateRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::TaskRepo::new(&conn);
+    let conn = state.db.clone();
+    let repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
 
     match body.action.as_str() {
         "add_dep" => {
@@ -188,14 +188,14 @@ pub async fn dag_mutate_handler(
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::InvalidInput("missing params.depends_on".into()))?;
 
-            let task = repo.get(task_id)
-                .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
-            let _dep = repo.get(depends_on)
-                .map_err(|_| AppError::InvalidInput(format!("dependency task not found: {depends_on}")))?;
+            let task = repo.get(task_id).await
+                .map_err(|_| AppError::NotFound(format!("task not found: {task_id}")))?;
+            let _dep = repo.get(depends_on).await
+                .map_err(|_| AppError::NotFound(format!("dependency task not found: {depends_on}")))?;
 
             check_version(&task, &body.version)?;
 
-            let epic_tasks = repo.list_by_epic(&task.epic)?;
+            let epic_tasks = repo.list_by_epic(&task.epic).await?;
             let test_tasks: Vec<flowctl_core::types::Task> = epic_tasks.into_iter().map(|mut t| {
                 if t.id == task_id && !t.depends_on.contains(&depends_on.to_string()) {
                     t.depends_on.push(depends_on.to_string());
@@ -209,9 +209,9 @@ pub async fn dag_mutate_handler(
 
             conn.execute(
                 "INSERT OR IGNORE INTO task_deps (task_id, depends_on) VALUES (?1, ?2)",
-                rusqlite::params![task_id, depends_on],
-            ).map_err(|e| AppError::Db(e.to_string()))?;
-            touch_updated_at(&conn, task_id)?;
+                libsql::params![task_id.to_string(), depends_on.to_string()],
+            ).await.map_err(|e| AppError::Db(e.to_string()))?;
+            touch_updated_at(&conn, task_id).await?;
 
             state.event_bus.emit(FlowEvent::DagMutated {
                 mutation: "dep_added".to_string(),
@@ -229,15 +229,15 @@ pub async fn dag_mutate_handler(
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::InvalidInput("missing params.depends_on".into()))?;
 
-            let task = repo.get(task_id)
-                .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+            let task = repo.get(task_id).await
+                .map_err(|_| AppError::NotFound(format!("task not found: {task_id}")))?;
             check_version(&task, &body.version)?;
 
             conn.execute(
                 "DELETE FROM task_deps WHERE task_id = ?1 AND depends_on = ?2",
-                rusqlite::params![task_id, depends_on],
-            ).map_err(|e| AppError::Db(e.to_string()))?;
-            touch_updated_at(&conn, task_id)?;
+                libsql::params![task_id.to_string(), depends_on.to_string()],
+            ).await.map_err(|e| AppError::Db(e.to_string()))?;
+            touch_updated_at(&conn, task_id).await?;
 
             state.event_bus.emit(FlowEvent::DagMutated {
                 mutation: "dep_removed".to_string(),
@@ -252,8 +252,8 @@ pub async fn dag_mutate_handler(
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::InvalidInput("missing params.task_id".into()))?;
 
-            let task = repo.get(task_id)
-                .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+            let task = repo.get(task_id).await
+                .map_err(|_| AppError::NotFound(format!("task not found: {task_id}")))?;
             check_version(&task, &body.version)?;
 
             Transition::new(task.status, Status::Todo).map_err(|e| {
@@ -261,7 +261,7 @@ pub async fn dag_mutate_handler(
             })?;
 
             let from_status = format!("{:?}", task.status).to_lowercase();
-            repo.update_status(task_id, Status::Todo)?;
+            repo.update_status(task_id, Status::Todo).await?;
 
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
                 task_id: task_id.to_string(),
@@ -278,8 +278,8 @@ pub async fn dag_mutate_handler(
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::InvalidInput("missing params.task_id".into()))?;
 
-            let task = repo.get(task_id)
-                .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+            let task = repo.get(task_id).await
+                .map_err(|_| AppError::NotFound(format!("task not found: {task_id}")))?;
             check_version(&task, &body.version)?;
 
             Transition::new(task.status, Status::Skipped).map_err(|e| {
@@ -287,7 +287,7 @@ pub async fn dag_mutate_handler(
             })?;
 
             let from_status = format!("{:?}", task.status).to_lowercase();
-            repo.update_status(task_id, Status::Skipped)?;
+            repo.update_status(task_id, Status::Skipped).await?;
 
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
                 task_id: task_id.to_string(),
@@ -308,16 +308,16 @@ pub async fn add_dep_handler(
     State(state): State<AppState>,
     Json(body): Json<AddDepRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::TaskRepo::new(&conn);
+    let conn = state.db.clone();
+    let repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
 
-    let from_task = repo.get(&body.from)
-        .map_err(|_| AppError::InvalidInput(format!("task not found: {}", body.from)))?;
-    let _to_task = repo.get(&body.to)
-        .map_err(|_| AppError::InvalidInput(format!("task not found: {}", body.to)))?;
+    let from_task = repo.get(&body.from).await
+        .map_err(|_| AppError::NotFound(format!("task not found: {}", body.from)))?;
+    let _to_task = repo.get(&body.to).await
+        .map_err(|_| AppError::NotFound(format!("task not found: {}", body.to)))?;
 
     // Cycle check: build hypothetical task list with new dep.
-    let epic_tasks = repo.list_by_epic(&from_task.epic)?;
+    let epic_tasks = repo.list_by_epic(&from_task.epic).await?;
     let test_tasks: Vec<flowctl_core::types::Task> = epic_tasks.into_iter().map(|mut t| {
         if t.id == body.to && !t.depends_on.contains(&body.from) {
             t.depends_on.push(body.from.clone());
@@ -331,9 +331,9 @@ pub async fn add_dep_handler(
 
     conn.execute(
         "INSERT OR IGNORE INTO task_deps (task_id, depends_on) VALUES (?1, ?2)",
-        rusqlite::params![body.to, body.from],
-    ).map_err(|e| AppError::Db(e.to_string()))?;
-    touch_updated_at(&conn, &body.to)?;
+        libsql::params![body.to.clone(), body.from.clone()],
+    ).await.map_err(|e| AppError::Db(e.to_string()))?;
+    touch_updated_at(&conn, &body.to).await?;
 
     state.event_bus.emit(FlowEvent::DagMutated {
         mutation: "dep_added".to_string(),
@@ -351,20 +351,20 @@ pub async fn remove_dep_handler(
     State(state): State<AppState>,
     axum::extract::Path((from, to)): axum::extract::Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
+    let conn = state.db.clone();
 
     let changed = conn.execute(
         "DELETE FROM task_deps WHERE task_id = ?1 AND depends_on = ?2",
-        rusqlite::params![to, from],
-    ).map_err(|e| AppError::Db(e.to_string()))?;
+        libsql::params![to.clone(), from.clone()],
+    ).await.map_err(|e| AppError::Db(e.to_string()))?;
 
     if changed == 0 {
-        return Err(AppError::InvalidInput(format!(
+        return Err(AppError::NotFound(format!(
             "dependency not found: {from} → {to}"
         )));
     }
 
-    touch_updated_at(&conn, &to)?;
+    touch_updated_at(&conn, &to).await?;
 
     state.event_bus.emit(FlowEvent::DagMutated {
         mutation: "dep_removed".to_string(),

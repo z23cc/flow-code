@@ -39,9 +39,32 @@ pub(crate) fn ensure_flow_exists() -> PathBuf {
 }
 
 /// Try to open a DB connection.
-pub(crate) fn try_open_db() -> Option<rusqlite::Connection> {
+pub(crate) fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
     let cwd = env::current_dir().ok()?;
-    flowctl_db::open(&cwd).ok()
+    crate::commands::db_shim::open(&cwd).ok()
+}
+
+/// Try to open a libSQL async DB connection (for service-layer calls).
+pub(crate) fn try_open_lsql_conn() -> Option<libsql::Connection> {
+    let cwd = env::current_dir().ok()?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    rt.block_on(async {
+        let db = flowctl_db_lsql::open_async(&cwd).await.ok()?;
+        db.connect().ok()
+    })
+}
+
+/// Block the current thread on a future (for invoking async service calls
+/// from sync CLI code).
+pub(crate) fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("failed to create tokio runtime");
+    rt.block_on(fut)
 }
 
 /// Load a single epic from Markdown frontmatter.
@@ -58,7 +81,7 @@ fn load_epic_md(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
 pub(crate) fn load_tasks_for_epic(flow_dir: &Path, epic_id: &str) -> HashMap<String, Task> {
     // Try DB first
     if let Some(conn) = try_open_db() {
-        let task_repo = flowctl_db::TaskRepo::new(&conn);
+        let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Ok(tasks) = task_repo.list_by_epic(epic_id) {
             if !tasks.is_empty() {
                 let mut map = HashMap::new();
@@ -107,7 +130,7 @@ pub(crate) fn load_tasks_for_epic(flow_dir: &Path, epic_id: &str) -> HashMap<Str
 /// Load an epic, trying DB first then Markdown.
 pub(crate) fn load_epic(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::EpicRepo::new(&conn);
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Ok(epic) = repo.get(epic_id) {
             return Some(epic);
         }
@@ -118,7 +141,7 @@ pub(crate) fn load_epic(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
 /// Get runtime state for a task.
 pub(crate) fn get_runtime(task_id: &str) -> Option<RuntimeState> {
     let conn = try_open_db()?;
-    let repo = flowctl_db::RuntimeRepo::new(&conn);
+    let repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
     repo.get(task_id).ok().flatten()
 }
 

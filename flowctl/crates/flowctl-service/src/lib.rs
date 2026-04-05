@@ -16,14 +16,13 @@
 //!
 //! # Connection management
 //!
-//! rusqlite `Connection` is `!Send`. The service layer provides a
-//! `ConnectionProvider` trait that async callers (daemon) wrap with
-//! `tokio::task::spawn_blocking`, while sync callers (CLI) use directly.
+//! `libsql::Connection` is `Send + Sync` and cheap to `Clone`. All service
+//! functions are async and accept the connection by reference.
 
 pub mod connection;
 pub mod error;
 pub mod lifecycle;
 
 // Re-export key types at crate root.
-pub use connection::{open_sync, ConnectionProvider, FileConnectionProvider};
+pub use connection::{open_async, FileConnectionProvider};
 pub use error::{ServiceError, ServiceResult};

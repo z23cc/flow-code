@@ -19,6 +19,8 @@ pub enum AppError {
     InvalidTransition(String),
     /// Invalid input (bad ID format, missing fields, etc.)
     InvalidInput(String),
+    /// Resource not found.
+    NotFound(String),
     /// Internal error (serialization failure, lock poisoned, etc.)
     Internal(String),
 }
@@ -29,15 +31,22 @@ impl IntoResponse for AppError {
             AppError::Db(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::InvalidTransition(msg) => (StatusCode::CONFLICT, msg.clone()),
             AppError::InvalidInput(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
         };
         (status, Json(serde_json::json!({"error": message}))).into_response()
     }
 }
 
-impl From<flowctl_db::DbError> for AppError {
-    fn from(e: flowctl_db::DbError) -> Self {
-        AppError::Db(e.to_string())
+impl From<flowctl_db_lsql::DbError> for AppError {
+    fn from(e: flowctl_db_lsql::DbError) -> Self {
+        use flowctl_db_lsql::DbError;
+        match e {
+            DbError::NotFound(msg) => AppError::NotFound(msg),
+            DbError::Constraint(msg) => AppError::InvalidInput(msg),
+            DbError::InvalidInput(msg) => AppError::InvalidInput(msg),
+            other => AppError::Db(other.to_string()),
+        }
     }
 }
 
@@ -45,33 +54,28 @@ impl From<flowctl_db::DbError> for AppError {
 pub type AppState = Arc<DaemonState>;
 
 /// Combined daemon state: runtime + event bus + shared DB connection.
+///
+/// `libsql::Connection` is `Send + Sync + Clone` (cheap), so we hold it by
+/// value and callers `state.db.clone()` when they need an owned copy for a
+/// repository.
 pub struct DaemonState {
     pub runtime: DaemonRuntime,
     pub event_bus: flowctl_scheduler::EventBus,
-    pub db: Arc<std::sync::Mutex<rusqlite::Connection>>,
-}
-
-impl DaemonState {
-    /// Acquire DB lock, returning AppError instead of panicking.
-    pub fn db_lock(&self) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>, AppError> {
-        self.db
-            .lock()
-            .map_err(|_| AppError::Internal("DB lock poisoned".to_string()))
-    }
+    pub db: libsql::Connection,
 }
 
 /// Map service-layer errors to HTTP-appropriate AppErrors.
 pub fn service_error_to_app_error(e: ServiceError) -> AppError {
     match e {
-        ServiceError::TaskNotFound(msg) => AppError::InvalidInput(msg),
-        ServiceError::EpicNotFound(msg) => AppError::InvalidInput(msg),
+        ServiceError::TaskNotFound(msg) => AppError::NotFound(msg),
+        ServiceError::EpicNotFound(msg) => AppError::NotFound(msg),
         ServiceError::InvalidTransition(msg) => AppError::InvalidTransition(msg),
         ServiceError::DependencyUnsatisfied { task, dependency } => {
             AppError::InvalidInput(format!("task {task} blocked by {dependency}"))
         }
         ServiceError::CrossActorViolation(msg) => AppError::InvalidInput(msg),
         ServiceError::ValidationError(msg) => AppError::InvalidInput(msg),
-        ServiceError::DbError(e) => AppError::Db(e.to_string()),
+        ServiceError::DbError(e) => AppError::from(e),
         ServiceError::IoError(e) => AppError::Internal(e.to_string()),
         ServiceError::CoreError(e) => AppError::Internal(e.to_string()),
     }
@@ -89,10 +93,12 @@ pub fn check_version(task: &flowctl_core::types::Task, version: &str) -> Result<
 }
 
 /// Update the `updated_at` timestamp for a task.
-pub fn touch_updated_at(conn: &rusqlite::Connection, task_id: &str) -> Result<(), AppError> {
+pub async fn touch_updated_at(conn: &libsql::Connection, task_id: &str) -> Result<(), AppError> {
     conn.execute(
         "UPDATE tasks SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![chrono::Utc::now().to_rfc3339(), task_id],
-    ).map_err(|e| AppError::Db(e.to_string()))?;
+        libsql::params![chrono::Utc::now().to_rfc3339(), task_id.to_string()],
+    )
+    .await
+    .map_err(|e| AppError::Db(e.to_string()))?;
     Ok(())
 }

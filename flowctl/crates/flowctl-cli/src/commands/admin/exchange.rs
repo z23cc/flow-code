@@ -15,11 +15,11 @@ pub fn cmd_export(json: bool, epic_filter: Option<String>, _format: String) {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
     }
     let cwd = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let conn = flowctl_db::open(&cwd)
+    let conn = crate::commands::db_shim::open(&cwd)
         .unwrap_or_else(|e| error_exit(&format!("Failed to open DB: {e}")));
 
-    let epic_repo = flowctl_db::EpicRepo::new(&conn);
-    let task_repo = flowctl_db::TaskRepo::new(&conn);
+    let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
 
     let epics_dir = flow_dir.join(EPICS_DIR);
     let _ = fs::create_dir_all(&epics_dir);
@@ -75,11 +75,11 @@ pub fn cmd_import(json: bool) {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
     }
     let cwd = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let conn = flowctl_db::open(&cwd)
+    let conn = crate::commands::db_shim::open(&cwd)
         .unwrap_or_else(|e| error_exit(&format!("Failed to open DB: {e}")));
 
-    let state_dir = flowctl_db::resolve_state_dir(&cwd).ok();
-    let result = flowctl_db::reindex(&conn, &flow_dir, state_dir.as_deref())
+    let state_dir = crate::commands::db_shim::resolve_state_dir(&cwd).ok();
+    let result = crate::commands::db_shim::reindex(&conn, &flow_dir, state_dir.as_deref())
         .unwrap_or_else(|e| error_exit(&format!("Import failed: {e}")));
 
     if json {

@@ -128,7 +128,7 @@ pub(super) fn cmd_task_create(
 
     // Upsert into SQLite if DB available
     if let Some(conn) = try_open_db() {
-        let repo = flowctl_db::TaskRepo::new(&conn);
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         let _ = repo.upsert(&task);
     }
 

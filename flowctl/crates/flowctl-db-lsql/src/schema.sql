@@ -1,10 +1,10 @@
--- flowctl SQLite schema reference (canonical version lives in migrations/)
--- This file is for documentation and IDE support only.
--- See migrations/01-initial/up.sql for the migration that creates these tables.
+-- flowctl libSQL schema (fresh, no migrations).
+-- Consolidates migrations 01-04 plus adds native vector column on memory.
+-- Applied once on DB open via pool::apply_schema().
 
--- ═══ Indexed from Markdown frontmatter (rebuildable via reindex) ═══
+-- ── Indexed from Markdown (rebuildable via reindex) ─────────────────
 
-CREATE TABLE epics (
+CREATE TABLE IF NOT EXISTS epics (
     id          TEXT PRIMARY KEY,
     title       TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'open',
@@ -12,10 +12,11 @@ CREATE TABLE epics (
     plan_review TEXT DEFAULT 'unknown',
     file_path   TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    body        TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE tasks (
+CREATE TABLE IF NOT EXISTS tasks (
     id          TEXT PRIMARY KEY,
     epic_id     TEXT NOT NULL REFERENCES epics(id),
     title       TEXT NOT NULL,
@@ -24,62 +25,63 @@ CREATE TABLE tasks (
     domain      TEXT DEFAULT 'general',
     file_path   TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    body        TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE task_deps (
+CREATE TABLE IF NOT EXISTS task_deps (
     task_id     TEXT NOT NULL,
     depends_on  TEXT NOT NULL,
     PRIMARY KEY (task_id, depends_on)
 );
 
-CREATE TABLE epic_deps (
+CREATE TABLE IF NOT EXISTS epic_deps (
     epic_id     TEXT NOT NULL,
     depends_on  TEXT NOT NULL,
     PRIMARY KEY (epic_id, depends_on)
 );
 
-CREATE TABLE file_ownership (
+CREATE TABLE IF NOT EXISTS file_ownership (
     file_path   TEXT NOT NULL,
     task_id     TEXT NOT NULL,
     PRIMARY KEY (file_path, task_id)
 );
 
--- ═══ Runtime-only data (not in Markdown, not rebuildable) ═══
+-- ── Runtime-only (not in Markdown, not rebuildable) ─────────────────
 
-CREATE TABLE runtime_state (
-    task_id       TEXT PRIMARY KEY,
-    assignee      TEXT,
-    claimed_at    TEXT,
-    completed_at  TEXT,
-    duration_secs INTEGER,
+CREATE TABLE IF NOT EXISTS runtime_state (
+    task_id        TEXT PRIMARY KEY,
+    assignee       TEXT,
+    claimed_at     TEXT,
+    completed_at   TEXT,
+    duration_secs  INTEGER,
     blocked_reason TEXT,
-    baseline_rev  TEXT,
-    final_rev     TEXT,
-    retry_count   INTEGER NOT NULL DEFAULT 0
+    baseline_rev   TEXT,
+    final_rev      TEXT,
+    retry_count    INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE file_locks (
-    file_path   TEXT PRIMARY KEY,
-    task_id     TEXT NOT NULL,
-    locked_at   TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS file_locks (
+    file_path  TEXT PRIMARY KEY,
+    task_id    TEXT NOT NULL,
+    locked_at  TEXT NOT NULL
 );
 
-CREATE TABLE heartbeats (
-    task_id     TEXT PRIMARY KEY,
-    last_beat   TEXT NOT NULL,
-    worker_pid  INTEGER
+CREATE TABLE IF NOT EXISTS heartbeats (
+    task_id    TEXT PRIMARY KEY,
+    last_beat  TEXT NOT NULL,
+    worker_pid INTEGER
 );
 
-CREATE TABLE phase_progress (
-    task_id     TEXT NOT NULL,
-    phase       TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'pending',
+CREATE TABLE IF NOT EXISTS phase_progress (
+    task_id      TEXT NOT NULL,
+    phase        TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pending',
     completed_at TEXT,
     PRIMARY KEY (task_id, phase)
 );
 
-CREATE TABLE evidence (
+CREATE TABLE IF NOT EXISTS evidence (
     task_id       TEXT PRIMARY KEY,
     commits       TEXT,
     tests         TEXT,
@@ -89,9 +91,9 @@ CREATE TABLE evidence (
     review_iters  INTEGER
 );
 
--- ═══ Event log + metrics (append-only, runtime-only) ═══
+-- ── Event log + metrics (append-only) ───────────────────────────────
 
-CREATE TABLE events (
+CREATE TABLE IF NOT EXISTS events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     epic_id     TEXT NOT NULL,
@@ -102,7 +104,7 @@ CREATE TABLE events (
     session_id  TEXT
 );
 
-CREATE TABLE token_usage (
+CREATE TABLE IF NOT EXISTS token_usage (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     epic_id         TEXT NOT NULL,
@@ -116,7 +118,7 @@ CREATE TABLE token_usage (
     estimated_cost  REAL
 );
 
-CREATE TABLE daily_rollup (
+CREATE TABLE IF NOT EXISTS daily_rollup (
     day              TEXT NOT NULL,
     epic_id          TEXT,
     tasks_started    INTEGER DEFAULT 0,
@@ -128,7 +130,7 @@ CREATE TABLE daily_rollup (
     PRIMARY KEY (day, epic_id)
 );
 
-CREATE TABLE monthly_rollup (
+CREATE TABLE IF NOT EXISTS monthly_rollup (
     month            TEXT PRIMARY KEY,
     epics_completed  INTEGER DEFAULT 0,
     tasks_completed  INTEGER DEFAULT 0,
@@ -137,9 +139,9 @@ CREATE TABLE monthly_rollup (
     total_cost_usd   REAL DEFAULT 0
 );
 
--- ═══ Memory (structured, CE-inspired) ═══
+-- ── Memory with native vector embedding (BGE-small, 384-dim) ────────
 
-CREATE TABLE memory (
+CREATE TABLE IF NOT EXISTS memory (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     entry_type    TEXT NOT NULL,
     content       TEXT NOT NULL,
@@ -153,25 +155,29 @@ CREATE TABLE memory (
     track         TEXT,
     created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     last_verified TEXT,
-    refs          INTEGER NOT NULL DEFAULT 0
+    refs          INTEGER NOT NULL DEFAULT 0,
+    embedding     F32_BLOB(384)
 );
 
--- ═══ Indexes ═══
+-- ── Indexes ─────────────────────────────────────────────────────────
 
-CREATE INDEX idx_tasks_epic ON tasks(epic_id);
-CREATE INDEX idx_tasks_status ON tasks(status);
-CREATE INDEX idx_events_entity ON events(epic_id, task_id);
-CREATE INDEX idx_events_ts ON events(timestamp);
-CREATE INDEX idx_events_type ON events(event_type, timestamp);
-CREATE INDEX idx_token_epic ON token_usage(epic_id);
-CREATE INDEX idx_memory_type ON memory(entry_type);
-CREATE INDEX idx_memory_module ON memory(module);
-CREATE INDEX idx_memory_track ON memory(track);
-CREATE INDEX idx_memory_severity ON memory(severity);
+CREATE INDEX IF NOT EXISTS idx_tasks_epic ON tasks(epic_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_events_entity ON events(epic_id, task_id);
+CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, timestamp);
+CREATE INDEX IF NOT EXISTS idx_token_epic ON token_usage(epic_id);
+CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(entry_type);
+CREATE INDEX IF NOT EXISTS idx_memory_module ON memory(module);
+CREATE INDEX IF NOT EXISTS idx_memory_track ON memory(track);
+CREATE INDEX IF NOT EXISTS idx_memory_severity ON memory(severity);
 
--- ═══ Auto-aggregation triggers ═══
+-- Native libSQL vector index for semantic memory search
+CREATE INDEX IF NOT EXISTS memory_emb_idx ON memory(libsql_vector_idx(embedding));
 
-CREATE TRIGGER trg_daily_rollup AFTER INSERT ON events
+-- ── Auto-aggregation trigger ────────────────────────────────────────
+
+CREATE TRIGGER IF NOT EXISTS trg_daily_rollup AFTER INSERT ON events
 WHEN NEW.event_type IN ('task_completed', 'task_failed', 'task_started')
 BEGIN
     INSERT INTO daily_rollup (day, epic_id, tasks_completed, tasks_failed, tasks_started)

@@ -9,9 +9,14 @@ use flowctl_core::state_machine::{Status, Transition};
 use flowctl_core::types::FLOW_DIR;
 use flowctl_scheduler::FlowEvent;
 use flowctl_service::lifecycle::{BlockTaskRequest, DoneTaskRequest, RestartTaskRequest, StartTaskRequest};
-use flowctl_service::ServiceError;
 
 use super::common::{service_error_to_app_error, AppError, AppState};
+
+fn flow_dir() -> std::path::PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join(FLOW_DIR)
+}
 
 /// POST /api/v1/tasks/create -- create a new task.
 pub async fn create_task_handler(
@@ -26,7 +31,7 @@ pub async fn create_task_handler(
         )));
     }
 
-    let conn = state.db_lock()?;
+    let conn = state.db.clone();
     let task = flowctl_core::types::Task {
         schema_version: 1,
         id: body.id.clone(),
@@ -44,8 +49,8 @@ pub async fn create_task_handler(
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    let repo = flowctl_db::TaskRepo::new(&conn);
-    repo.upsert_with_body(&task, &body.body.unwrap_or_default())?;
+    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    repo.upsert_with_body(&task, &body.body.unwrap_or_default()).await?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({"success": true, "id": body.id})),
@@ -58,26 +63,15 @@ pub async fn start_task_handler(
     Json(body): Json<TaskIdRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let task_id = body.task_id.clone();
-    let db = state.db.clone();
+    let conn = state.db.clone();
+    let flow_dir = flow_dir();
+    let req = StartTaskRequest {
+        task_id,
+        force: false,
+        actor: "daemon".to_string(),
+    };
 
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = db
-            .lock()
-            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
-        let flow_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(FLOW_DIR);
-        let req = StartTaskRequest {
-            task_id,
-            force: false,
-            actor: "daemon".to_string(),
-        };
-        flowctl_service::lifecycle::start_task(Some(&conn), &flow_dir, req)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
-
-    match result {
+    match flowctl_service::lifecycle::start_task(Some(&conn), &flow_dir, req).await {
         Ok(resp) => {
             let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -103,22 +97,11 @@ pub async fn start_task_rest_handler(
     let body = body.unwrap_or_default();
     let force = body.force.unwrap_or(false);
     let actor = body.actor.unwrap_or_else(|| "daemon".to_string());
-    let db = state.db.clone();
+    let conn = state.db.clone();
+    let flow_dir = flow_dir();
+    let req = StartTaskRequest { task_id, force, actor };
 
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = db
-            .lock()
-            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
-        let flow_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(FLOW_DIR);
-        let req = StartTaskRequest { task_id, force, actor };
-        flowctl_service::lifecycle::start_task(Some(&conn), &flow_dir, req)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
-
-    match result {
+    match flowctl_service::lifecycle::start_task(Some(&conn), &flow_dir, req).await {
         Ok(resp) => {
             let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -143,30 +126,19 @@ pub async fn done_task_rest_handler(
     Json(body): Json<Option<DoneTaskRestRequest>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let body = body.unwrap_or_default();
-    let db = state.db.clone();
+    let conn = state.db.clone();
+    let flow_dir = flow_dir();
+    let req = DoneTaskRequest {
+        task_id,
+        summary: body.summary,
+        summary_file: None,
+        evidence_json: body.evidence,
+        evidence_inline: None,
+        force: false,
+        actor: "daemon".to_string(),
+    };
 
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = db
-            .lock()
-            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
-        let flow_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(FLOW_DIR);
-        let req = DoneTaskRequest {
-            task_id,
-            summary: body.summary,
-            summary_file: None,
-            evidence_json: body.evidence,
-            evidence_inline: None,
-            force: false, // MUST be false per Phase 0 bug fix
-            actor: "daemon".to_string(),
-        };
-        flowctl_service::lifecycle::done_task(Some(&conn), &flow_dir, req)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
-
-    match result {
+    match flowctl_service::lifecycle::done_task(Some(&conn), &flow_dir, req).await {
         Ok(resp) => {
             let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -192,22 +164,11 @@ pub async fn block_task_rest_handler(
     Json(body): Json<BlockTaskRestRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let reason = body.reason;
-    let db = state.db.clone();
+    let conn = state.db.clone();
+    let flow_dir = flow_dir();
+    let req = BlockTaskRequest { task_id, reason };
 
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = db
-            .lock()
-            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
-        let flow_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(FLOW_DIR);
-        let req = BlockTaskRequest { task_id, reason };
-        flowctl_service::lifecycle::block_task(Some(&conn), &flow_dir, req)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
-
-    match result {
+    match flowctl_service::lifecycle::block_task(Some(&conn), &flow_dir, req).await {
         Ok(resp) => {
             let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -233,26 +194,15 @@ pub async fn restart_task_rest_handler(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let body = body.unwrap_or_default();
     let force = body.force.unwrap_or(true);
-    let db = state.db.clone();
+    let conn = state.db.clone();
+    let flow_dir = flow_dir();
+    let req = RestartTaskRequest {
+        task_id,
+        dry_run: false,
+        force,
+    };
 
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = db
-            .lock()
-            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
-        let flow_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(FLOW_DIR);
-        let req = RestartTaskRequest {
-            task_id,
-            dry_run: false,
-            force,
-        };
-        flowctl_service::lifecycle::restart_task(Some(&conn), &flow_dir, req)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
-
-    match result {
+    match flowctl_service::lifecycle::restart_task(Some(&conn), &flow_dir, req).await {
         Ok(resp) => {
             let epic_id = epic_id_from_task(&resp.cascade_from).unwrap_or_default();
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -277,18 +227,19 @@ pub async fn skip_task_rest_handler(
     axum::extract::Path(task_id): axum::extract::Path<String>,
     Json(_body): Json<SkipTaskRestRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::TaskRepo::new(&conn);
+    let conn = state.db.clone();
+    let repo = flowctl_db_lsql::TaskRepo::new(conn);
     let task = repo
         .get(&task_id)
-        .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+        .await
+        .map_err(|_| AppError::NotFound(format!("task not found: {task_id}")))?;
 
     let from_status = format!("{:?}", task.status).to_lowercase();
     Transition::new(task.status, Status::Skipped).map_err(|e| {
         AppError::InvalidTransition(format!("cannot skip task '{task_id}': {e}"))
     })?;
 
-    repo.update_status(&task_id, Status::Skipped)?;
+    repo.update_status(&task_id, Status::Skipped).await?;
 
     let epic_id = epic_id_from_task(&task_id).unwrap_or_default();
     state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -311,30 +262,19 @@ pub async fn done_task_handler(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let task_id = body.task_id.clone();
     let summary = body.summary.clone();
-    let db = state.db.clone();
+    let conn = state.db.clone();
+    let flow_dir = flow_dir();
+    let req = DoneTaskRequest {
+        task_id,
+        summary,
+        summary_file: None,
+        evidence_json: None,
+        evidence_inline: None,
+        force: false,
+        actor: "daemon".to_string(),
+    };
 
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = db
-            .lock()
-            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
-        let flow_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(FLOW_DIR);
-        let req = DoneTaskRequest {
-            task_id,
-            summary,
-            summary_file: None,
-            evidence_json: None,
-            evidence_inline: None,
-            force: false,
-            actor: "daemon".to_string(),
-        };
-        flowctl_service::lifecycle::done_task(Some(&conn), &flow_dir, req)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
-
-    match result {
+    match flowctl_service::lifecycle::done_task(Some(&conn), &flow_dir, req).await {
         Ok(resp) => {
             let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -356,18 +296,19 @@ pub async fn skip_task_handler(
     State(state): State<AppState>,
     Json(body): Json<TaskReasonRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::TaskRepo::new(&conn);
+    let conn = state.db.clone();
+    let repo = flowctl_db_lsql::TaskRepo::new(conn);
     let task = repo
         .get(&body.task_id)
-        .map_err(|_| AppError::InvalidInput(format!("task not found: {}", body.task_id)))?;
+        .await
+        .map_err(|_| AppError::NotFound(format!("task not found: {}", body.task_id)))?;
 
     let from_status = format!("{:?}", task.status).to_lowercase();
     Transition::new(task.status, Status::Skipped).map_err(|e| {
         AppError::InvalidTransition(format!("cannot skip task '{}': {}", body.task_id, e))
     })?;
 
-    repo.update_status(&body.task_id, Status::Skipped)?;
+    repo.update_status(&body.task_id, Status::Skipped).await?;
 
     let epic_id = epic_id_from_task(&body.task_id).unwrap_or_default();
     state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -391,22 +332,11 @@ pub async fn block_task_handler(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let task_id = body.task_id.clone();
     let reason = body.reason.clone();
-    let db = state.db.clone();
+    let conn = state.db.clone();
+    let flow_dir = flow_dir();
+    let req = BlockTaskRequest { task_id, reason };
 
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = db
-            .lock()
-            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
-        let flow_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(FLOW_DIR);
-        let req = BlockTaskRequest { task_id, reason };
-        flowctl_service::lifecycle::block_task(Some(&conn), &flow_dir, req)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
-
-    match result {
+    match flowctl_service::lifecycle::block_task(Some(&conn), &flow_dir, req).await {
         Ok(resp) => {
             let epic_id = epic_id_from_task(&resp.task_id).unwrap_or_default();
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -431,26 +361,15 @@ pub async fn restart_task_handler(
     Json(body): Json<TaskIdRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let task_id = body.task_id.clone();
-    let db = state.db.clone();
+    let conn = state.db.clone();
+    let flow_dir = flow_dir();
+    let req = RestartTaskRequest {
+        task_id,
+        dry_run: false,
+        force: true,
+    };
 
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = db
-            .lock()
-            .map_err(|_| ServiceError::ValidationError("DB lock poisoned".to_string()))?;
-        let flow_dir = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(FLOW_DIR);
-        let req = RestartTaskRequest {
-            task_id,
-            dry_run: false,
-            force: true,
-        };
-        flowctl_service::lifecycle::restart_task(Some(&conn), &flow_dir, req)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("spawn_blocking failed: {e}")))?;
-
-    match result {
+    match flowctl_service::lifecycle::restart_task(Some(&conn), &flow_dir, req).await {
         Ok(resp) => {
             let epic_id = epic_id_from_task(&resp.cascade_from).unwrap_or_default();
             state.event_bus.emit(FlowEvent::TaskStatusChanged {
@@ -473,20 +392,23 @@ pub async fn get_task_handler(
     State(state): State<AppState>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let task_repo = flowctl_db::TaskRepo::new(&conn);
+    let conn = state.db.clone();
+    let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
     let (task, body) = task_repo
         .get_with_body(&task_id)
-        .map_err(|_| AppError::InvalidInput(format!("task not found: {task_id}")))?;
+        .await
+        .map_err(|_| AppError::NotFound(format!("task not found: {task_id}")))?;
 
-    let evidence_repo = flowctl_db::EvidenceRepo::new(&conn);
+    let evidence_repo = flowctl_db_lsql::EvidenceRepo::new(conn.clone());
     let evidence = evidence_repo
         .get(&task_id)
+        .await
         .map_err(|e| AppError::Internal(format!("evidence fetch error: {e}")))?;
 
-    let runtime_repo = flowctl_db::RuntimeRepo::new(&conn);
+    let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn);
     let runtime = runtime_repo
         .get(&task_id)
+        .await
         .map_err(|e| AppError::Internal(format!("runtime fetch error: {e}")))?;
 
     let mut value = serde_json::to_value(&task)

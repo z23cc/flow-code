@@ -72,9 +72,9 @@ pub async fn status_handler(State(state): State<AppState>) -> impl IntoResponse 
 pub async fn epics_handler(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::EpicRepo::new(&conn);
-    let epics = repo.list(None)?;
+    let conn = state.db.clone();
+    let repo = flowctl_db_lsql::EpicRepo::new(conn);
+    let epics = repo.list(None).await?;
     let value = serde_json::to_value(&epics)
         .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
     Ok(Json(value))
@@ -85,14 +85,13 @@ pub async fn tasks_handler(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<TasksQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let repo = flowctl_db::TaskRepo::new(&conn);
-    let result = if let Some(ref epic_id) = params.epic_id {
-        repo.list_by_epic(epic_id)
+    let conn = state.db.clone();
+    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let tasks = if let Some(ref epic_id) = params.epic_id {
+        repo.list_by_epic(epic_id).await?
     } else {
-        repo.list_all(None, None)
+        repo.list_all(None, None).await?
     };
-    let tasks = result?;
     let value = serde_json::to_value(&tasks)
         .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
     Ok(Json(value))
@@ -123,16 +122,16 @@ pub async fn tokens_handler(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<TokensQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let log = flowctl_db::EventLog::new(&conn);
+    let conn = state.db.clone();
+    let log = flowctl_db_lsql::EventLog::new(conn);
 
     if let Some(ref task_id) = params.task_id {
-        let rows = log.tokens_by_task(task_id)?;
+        let rows = log.tokens_by_task(task_id).await?;
         let value = serde_json::to_value(&rows)
             .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
         Ok(Json(value))
     } else if let Some(ref epic_id) = params.epic_id {
-        let summaries = log.tokens_by_epic(epic_id)?;
+        let summaries = log.tokens_by_epic(epic_id).await?;
         let value = serde_json::to_value(&summaries)
             .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
         Ok(Json(value))
@@ -171,41 +170,43 @@ pub async fn memory_handler(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<MemoryQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
+    let conn = state.db.clone();
 
-    let mut sql = String::from("SELECT id, entry_type, content, summary, module, severity, problem_type, track, created_at FROM memory WHERE 1=1");
-    let mut bind_values: Vec<String> = Vec::new();
+    // Build SQL with optional filters.
+    let mut sql = String::from(
+        "SELECT id, entry_type, content, summary, module, severity, problem_type, track, created_at FROM memory WHERE 1=1",
+    );
+    let mut bind: Vec<libsql::Value> = Vec::new();
 
     if let Some(ref track) = params.track {
-        bind_values.push(track.clone());
-        sql.push_str(&format!(" AND track = ?{}", bind_values.len()));
+        bind.push(libsql::Value::Text(track.clone()));
+        sql.push_str(&format!(" AND track = ?{}", bind.len()));
     }
     if let Some(ref module) = params.module {
-        bind_values.push(module.clone());
-        sql.push_str(&format!(" AND module = ?{}", bind_values.len()));
+        bind.push(libsql::Value::Text(module.clone()));
+        sql.push_str(&format!(" AND module = ?{}", bind.len()));
     }
     sql.push_str(" ORDER BY created_at DESC");
 
-    let mut stmt = conn.prepare(&sql).map_err(|e| AppError::Db(e.to_string()))?;
-    let params_slice: Vec<&dyn rusqlite::types::ToSql> =
-        bind_values.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    let rows = stmt
-        .query_map(params_slice.as_slice(), |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, i64>(0)?,
-                "entry_type": row.get::<_, String>(1)?,
-                "content": row.get::<_, String>(2)?,
-                "summary": row.get::<_, Option<String>>(3)?,
-                "module": row.get::<_, Option<String>>(4)?,
-                "severity": row.get::<_, Option<String>>(5)?,
-                "problem_type": row.get::<_, Option<String>>(6)?,
-                "track": row.get::<_, Option<String>>(7)?,
-                "created_at": row.get::<_, String>(8)?,
-            }))
-        })
+    let mut rows = conn
+        .query(&sql, bind)
+        .await
         .map_err(|e| AppError::Db(e.to_string()))?;
 
-    let entries: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+    while let Some(row) = rows.next().await.map_err(|e| AppError::Db(e.to_string()))? {
+        entries.push(serde_json::json!({
+            "id": row.get::<i64>(0).unwrap_or(0),
+            "entry_type": row.get::<String>(1).unwrap_or_default(),
+            "content": row.get::<String>(2).unwrap_or_default(),
+            "summary": row.get::<Option<String>>(3).unwrap_or_default(),
+            "module": row.get::<Option<String>>(4).unwrap_or_default(),
+            "severity": row.get::<Option<String>>(5).unwrap_or_default(),
+            "problem_type": row.get::<Option<String>>(6).unwrap_or_default(),
+            "track": row.get::<Option<String>>(7).unwrap_or_default(),
+            "created_at": row.get::<String>(8).unwrap_or_default(),
+        }));
+    }
     Ok(Json(serde_json::json!({"entries": entries})))
 }
 
@@ -213,9 +214,9 @@ pub async fn memory_handler(
 pub async fn stats_handler(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db_lock()?;
-    let stats = flowctl_db::StatsQuery::new(&conn);
-    let summary = stats.summary()?;
+    let conn = state.db.clone();
+    let stats = flowctl_db_lsql::StatsQuery::new(conn);
+    let summary = stats.summary().await?;
     let value = serde_json::to_value(&summary)
         .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
     Ok(Json(value))

@@ -51,7 +51,7 @@ pub fn dispatch(cmd: &CheckpointCmd, json: bool) {
 /// Checkpoints are stored in the state directory alongside the main database.
 fn checkpoint_path(epic_id: &str) -> Result<std::path::PathBuf, String> {
     let cwd = env::current_dir().map_err(|e| format!("Cannot get cwd: {}", e))?;
-    let state_dir = flowctl_db::resolve_state_dir(&cwd)
+    let state_dir = crate::commands::db_shim::resolve_state_dir(&cwd)
         .map_err(|e| format!("Cannot resolve state dir: {}", e))?;
     Ok(state_dir.join(format!("checkpoint-{}.db", epic_id)))
 }
@@ -59,7 +59,7 @@ fn checkpoint_path(epic_id: &str) -> Result<std::path::PathBuf, String> {
 /// Resolve the main database path.
 fn db_path() -> Result<std::path::PathBuf, String> {
     let cwd = env::current_dir().map_err(|e| format!("Cannot get cwd: {}", e))?;
-    flowctl_db::resolve_db_path(&cwd).map_err(|e| format!("Cannot resolve db path: {}", e))
+    crate::commands::db_shim::resolve_db_path(&cwd).map_err(|e| format!("Cannot resolve db path: {}", e))
 }
 
 fn validate_prerequisites(epic_id: &str) {

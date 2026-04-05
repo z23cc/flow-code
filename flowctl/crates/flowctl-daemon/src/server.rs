@@ -18,19 +18,21 @@ use crate::handlers::{
 use crate::lifecycle::{set_socket_permissions, DaemonRuntime};
 
 /// Create shared app state with a DB connection.
-pub fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBus) -> Result<(AppState, tokio_util::sync::CancellationToken)> {
+pub async fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBus) -> Result<(AppState, tokio_util::sync::CancellationToken)> {
     // Derive the project root from .flow/.state/ → parent of .flow/
     let working_dir = runtime.paths.state_dir
         .parent()  // .flow/
         .and_then(|p| p.parent())  // project root
         .context("cannot resolve project root from state_dir")?;
-    let conn = flowctl_db::open(working_dir)
+    let db = flowctl_db_lsql::open_async(working_dir)
+        .await
         .with_context(|| format!("failed to open db in {}", working_dir.display()))?;
+    let conn = db.connect().context("failed to connect to libsql db")?;
     let cancel = runtime.cancel.clone();
     let state = Arc::new(DaemonState {
         runtime,
         event_bus,
-        db: Arc::new(std::sync::Mutex::new(conn)),
+        db: conn,
     });
     Ok((state, cancel))
 }
@@ -117,7 +119,7 @@ pub async fn serve(runtime: DaemonRuntime, event_bus: flowctl_scheduler::EventBu
 
     info!("daemon API listening on {}", socket_path.display());
 
-    let (state, cancel) = create_state(runtime, event_bus)?;
+    let (state, cancel) = create_state(runtime, event_bus).await?;
 
     let router = build_router(state);
 
@@ -145,7 +147,7 @@ pub async fn serve_tcp(
 
     info!("daemon API listening on http://{addr}");
 
-    let (state, cancel) = create_state(runtime, event_bus)?;
+    let (state, cancel) = create_state(runtime, event_bus).await?;
 
     let router = build_router(state);
 
@@ -169,11 +171,13 @@ mod tests {
 
     fn test_setup() -> (TempDir, DaemonRuntime, flowctl_scheduler::EventBus) {
         let tmp = TempDir::new().unwrap();
-        let flow_dir = tmp.path().join(".flow");
+        // Use the temp dir root as the working_dir (create_state walks up two
+        // parents from state_dir; give it room to do so).
+        let project_root = tmp.path().join("proj");
+        std::fs::create_dir_all(&project_root).unwrap();
+        let flow_dir = project_root.join(".flow");
         let paths = DaemonPaths::new(&flow_dir);
         paths.ensure_state_dir().unwrap();
-        // Create DB so create_state() works.
-        let _ = flowctl_db::open(&flow_dir);
         let runtime = DaemonRuntime::new(paths);
         let (event_bus, _critical_rx) = flowctl_scheduler::EventBus::with_default_capacity();
         (tmp, runtime, event_bus)
@@ -256,16 +260,16 @@ mod tests {
     use axum::http::StatusCode;
 
     /// Create a test router backed by an in-memory-like DB (via test_setup).
-    fn test_router() -> (TempDir, axum::Router) {
+    async fn test_router() -> (TempDir, axum::Router) {
         let (tmp, runtime, event_bus) = test_setup();
-        let (state, _cancel) = create_state(runtime, event_bus).unwrap();
+        let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
         let router = build_router(state);
         (tmp, router)
     }
 
     #[tokio::test]
     async fn epics_endpoint_empty_db() {
-        let (_tmp, app) = test_router();
+        let (_tmp, app) = test_router().await;
         let req = axum::http::Request::builder()
             .uri("/api/v1/epics")
             .body(axum::body::Body::empty())
@@ -279,7 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn tasks_endpoint_empty_db() {
-        let (_tmp, app) = test_router();
+        let (_tmp, app) = test_router().await;
         let req = axum::http::Request::builder()
             .uri("/api/v1/tasks")
             .body(axum::body::Body::empty())
@@ -294,14 +298,11 @@ mod tests {
     #[tokio::test]
     async fn create_task_with_valid_data() {
         let (_tmp, runtime, event_bus) = test_setup();
-        let (state, _cancel) = create_state(runtime, event_bus).unwrap();
-        {
-            let conn = state.db.lock().unwrap();
-            conn.execute(
-                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-99-test', 'Test', 'open', 'epics/fn-99-test.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-                [],
-            ).unwrap();
-        }
+        let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
+        state.db.execute(
+            "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-99-test', 'Test', 'open', 'epics/fn-99-test.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            (),
+        ).await.unwrap();
         let app = build_router(state);
 
         let create_body = serde_json::json!({
@@ -321,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_task_rejects_invalid_id() {
-        let (_tmp, app) = test_router();
+        let (_tmp, app) = test_router().await;
         let create_body = serde_json::json!({
             "id": "../../bad-id",
             "epic_id": "test-epic",
@@ -342,18 +343,15 @@ mod tests {
         // Setup: create epic + task in todo state, then start it (should succeed),
         // then try to start again from in_progress (should fail with CONFLICT).
         let (_tmp, runtime, event_bus) = test_setup();
-        let (state, _cancel) = create_state(runtime, event_bus).unwrap();
-        {
-            let conn = state.db.lock().unwrap();
-            conn.execute(
-                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-1', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-                [],
-            ).unwrap();
-            conn.execute(
-                "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('fn-1.1', 'fn-1', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-                [],
-            ).unwrap();
-        }
+        let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
+        state.db.execute(
+            "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-1', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            (),
+        ).await.unwrap();
+        state.db.execute(
+            "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('fn-1.1', 'fn-1', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            (),
+        ).await.unwrap();
         let app = build_router(state.clone());
 
         // Start: todo → in_progress (should succeed)
@@ -392,18 +390,15 @@ mod tests {
     #[tokio::test]
     async fn done_task_rejects_from_todo() {
         let (_tmp, runtime, event_bus) = test_setup();
-        let (state, _cancel) = create_state(runtime, event_bus).unwrap();
-        {
-            let conn = state.db.lock().unwrap();
-            conn.execute(
-                "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-2', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-                [],
-            ).unwrap();
-            conn.execute(
-                "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('fn-2.1', 'fn-2', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-                [],
-            ).unwrap();
-        }
+        let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
+        state.db.execute(
+            "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-2', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            (),
+        ).await.unwrap();
+        state.db.execute(
+            "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('fn-2.1', 'fn-2', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+            (),
+        ).await.unwrap();
         let app = build_router(state);
 
         // done from todo → should be rejected
@@ -419,7 +414,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_nonexistent_task_returns_error() {
-        let (_tmp, app) = test_router();
+        let (_tmp, app) = test_router().await;
         let req = axum::http::Request::builder()
             .method("POST")
             .uri("/api/v1/tasks/start")
@@ -427,6 +422,7 @@ mod tests {
             .body(axum::body::Body::from(r#"{"task_id":"nonexistent.1"}"#))
             .unwrap();
         let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+        // "nonexistent.1" fails is_task_id() validation → 400 BAD_REQUEST
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 

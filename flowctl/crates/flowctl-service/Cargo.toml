@@ -8,7 +8,7 @@ license.workspace = true
 
 [dependencies]
 flowctl-core = { workspace = true }
-flowctl-db-lsql = { workspace = true }
+flowctl-db = { workspace = true }
 libsql = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

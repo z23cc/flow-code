@@ -31,7 +31,7 @@ pub enum ServiceError {
 
     /// Underlying database error.
     #[error("database error: {0}")]
-    DbError(#[from] flowctl_db_lsql::DbError),
+    DbError(#[from] flowctl_db::DbError),
 
     /// I/O error (file reads, state directory operations).
     #[error("io error: {0}")]

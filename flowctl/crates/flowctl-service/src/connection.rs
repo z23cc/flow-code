@@ -11,7 +11,7 @@ use crate::error::{ServiceError, ServiceResult};
 
 /// File-backed connection provider using a working directory.
 ///
-/// Wraps `flowctl_db_lsql::open_async()` so callers can re-open as needed.
+/// Wraps `flowctl_db::open_async()` so callers can re-open as needed.
 #[derive(Debug, Clone)]
 pub struct FileConnectionProvider {
     working_dir: PathBuf,
@@ -32,23 +32,23 @@ impl FileConnectionProvider {
 
     /// Open a new libSQL connection asynchronously.
     pub async fn connect(&self) -> ServiceResult<Connection> {
-        let db = flowctl_db_lsql::open_async(&self.working_dir)
+        let db = flowctl_db::open_async(&self.working_dir)
             .await
             .map_err(ServiceError::from)?;
         db.connect().map_err(|e| {
-            ServiceError::DbError(flowctl_db_lsql::DbError::LibSql(e))
+            ServiceError::DbError(flowctl_db::DbError::LibSql(e))
         })
     }
 }
 
 /// Open a connection asynchronously (convenience wrapper around
-/// `flowctl_db_lsql::open_async`).
+/// `flowctl_db::open_async`).
 pub async fn open_async(working_dir: &Path) -> ServiceResult<Connection> {
-    let db = flowctl_db_lsql::open_async(working_dir)
+    let db = flowctl_db::open_async(working_dir)
         .await
         .map_err(ServiceError::from)?;
     db.connect()
-        .map_err(|e| ServiceError::DbError(flowctl_db_lsql::DbError::LibSql(e)))
+        .map_err(|e| ServiceError::DbError(flowctl_db::DbError::LibSql(e)))
 }
 
 #[cfg(test)]

@@ -114,7 +114,7 @@ fn validate_task_id(id: &str) -> ServiceResult<()> {
 /// Load a task, trying DB first then Markdown.
 async fn load_task(conn: Option<&Connection>, flow_dir: &Path, task_id: &str) -> Option<Task> {
     if let Some(conn) = conn {
-        let repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+        let repo = flowctl_db::TaskRepo::new(conn.clone());
         if let Ok(task) = repo.get(task_id).await {
             return Some(task);
         }
@@ -133,7 +133,7 @@ fn load_task_md(flow_dir: &Path, task_id: &str) -> Option<Task> {
 
 async fn load_epic(conn: Option<&Connection>, flow_dir: &Path, epic_id: &str) -> Option<Epic> {
     if let Some(conn) = conn {
-        let repo = flowctl_db_lsql::EpicRepo::new(conn.clone());
+        let repo = flowctl_db::EpicRepo::new(conn.clone());
         if let Ok(epic) = repo.get(epic_id).await {
             return Some(epic);
         }
@@ -148,7 +148,7 @@ async fn load_epic(conn: Option<&Connection>, flow_dir: &Path, epic_id: &str) ->
 
 async fn get_runtime(conn: Option<&Connection>, task_id: &str) -> Option<RuntimeState> {
     let conn = conn?;
-    let repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
+    let repo = flowctl_db::RuntimeRepo::new(conn.clone());
     repo.get(task_id).await.ok().flatten()
 }
 
@@ -161,7 +161,7 @@ async fn load_tasks_for_epic(
     use std::collections::HashMap;
 
     if let Some(conn) = conn {
-        let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+        let task_repo = flowctl_db::TaskRepo::new(conn.clone());
         if let Ok(tasks) = task_repo.list_by_epic(epic_id).await {
             if !tasks.is_empty() {
                 let mut map = HashMap::new();
@@ -286,7 +286,7 @@ async fn propagate_upstream_failure(
 
         // Update SQLite
         if let Some(conn) = conn {
-            let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+            let task_repo = flowctl_db::TaskRepo::new(conn.clone());
             let _ = task_repo.update_status(tid, Status::UpstreamFailed).await;
         }
 
@@ -324,10 +324,10 @@ async fn handle_task_failure(
         let new_retry_count = current_retry_count + 1;
 
         if let Some(conn) = conn {
-            let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+            let task_repo = flowctl_db::TaskRepo::new(conn.clone());
             let _ = task_repo.update_status(task_id, Status::UpForRetry).await;
 
-            let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
+            let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
             let rt = RuntimeState {
                 task_id: task_id.to_string(),
                 assignee: runtime.as_ref().and_then(|r| r.assignee.clone()),
@@ -358,7 +358,7 @@ async fn handle_task_failure(
         (Status::UpForRetry, Vec::new())
     } else {
         if let Some(conn) = conn {
-            let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+            let task_repo = flowctl_db::TaskRepo::new(conn.clone());
             let _ = task_repo.update_status(task_id, Status::Failed).await;
         }
 
@@ -527,12 +527,12 @@ pub async fn start_task(
 
     // Write SQLite (authoritative)
     if let Some(conn) = conn {
-        let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+        let task_repo = flowctl_db::TaskRepo::new(conn.clone());
         task_repo
             .update_status(&req.task_id, Status::InProgress)
             .await
             .map_err(ServiceError::from)?;
-        let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
+        let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
         runtime_repo
             .upsert(&runtime_state)
             .await
@@ -757,10 +757,10 @@ pub async fn done_task(
 
     // Write SQLite (authoritative)
     if let Some(conn) = conn {
-        let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+        let task_repo = flowctl_db::TaskRepo::new(conn.clone());
         let _ = task_repo.update_status(&req.task_id, Status::Done).await;
 
-        let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
+        let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
         let now = Utc::now();
         let rt = RuntimeState {
             task_id: req.task_id.clone(),
@@ -781,7 +781,7 @@ pub async fn done_task(
             prs: prs.clone(),
             ..Evidence::default()
         };
-        let evidence_repo = flowctl_db_lsql::EvidenceRepo::new(conn.clone());
+        let evidence_repo = flowctl_db::EvidenceRepo::new(conn.clone());
         let _ = evidence_repo.upsert(&req.task_id, &ev).await;
     }
 
@@ -866,10 +866,10 @@ pub async fn block_task(
 
     // Write SQLite (authoritative)
     if let Some(conn) = conn {
-        let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+        let task_repo = flowctl_db::TaskRepo::new(conn.clone());
         let _ = task_repo.update_status(&req.task_id, Status::Blocked).await;
 
-        let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
+        let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
         let existing = runtime_repo.get(&req.task_id).await.ok().flatten();
         let rt = RuntimeState {
             task_id: req.task_id.clone(),
@@ -1063,10 +1063,10 @@ pub async fn restart_task(
     let mut reset_ids = Vec::new();
     for tid in &to_reset {
         if let Some(conn) = conn {
-            let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+            let task_repo = flowctl_db::TaskRepo::new(conn.clone());
             let _ = task_repo.update_status(tid, Status::Todo).await;
 
-            let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn.clone());
+            let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
             let rt = RuntimeState {
                 task_id: tid.clone(),
                 assignee: None,

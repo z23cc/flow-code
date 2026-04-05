@@ -191,7 +191,7 @@ fn mcp_context() -> Result<(PathBuf, Option<libsql::Connection>), String> {
         .build()
         .map_err(|e| format!("runtime: {e}"))?;
     let conn = rt.block_on(async {
-        let db = flowctl_db_lsql::open_async(&cwd).await.ok()?;
+        let db = flowctl_db::open_async(&cwd).await.ok()?;
         db.connect().ok()
     });
     Ok((flow_dir, conn))

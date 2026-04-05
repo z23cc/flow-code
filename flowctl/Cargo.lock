@@ -1063,7 +1063,7 @@ dependencies = [
  "clap_complete",
  "flowctl-core",
  "flowctl-daemon",
- "flowctl-db-lsql",
+ "flowctl-db",
  "flowctl-scheduler",
  "flowctl-service",
  "libsql",
@@ -1103,7 +1103,7 @@ dependencies = [
  "bytes",
  "chrono",
  "flowctl-core",
- "flowctl-db-lsql",
+ "flowctl-db",
  "flowctl-scheduler",
  "flowctl-service",
  "http-body-util",
@@ -1124,7 +1124,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "flowctl-db-lsql"
+name = "flowctl-db"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -1162,7 +1162,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "flowctl-core",
- "flowctl-db-lsql",
+ "flowctl-db",
  "libsql",
  "serde",
  "serde_json",

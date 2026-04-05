@@ -73,7 +73,7 @@ pub async fn epics_handler(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let repo = flowctl_db_lsql::EpicRepo::new(conn);
+    let repo = flowctl_db::EpicRepo::new(conn);
     let epics = repo.list(None).await?;
     let value = serde_json::to_value(&epics)
         .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
@@ -86,7 +86,7 @@ pub async fn tasks_handler(
     axum::extract::Query(params): axum::extract::Query<TasksQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let repo = flowctl_db::TaskRepo::new(conn);
     let tasks = if let Some(ref epic_id) = params.epic_id {
         repo.list_by_epic(epic_id).await?
     } else {
@@ -123,7 +123,7 @@ pub async fn tokens_handler(
     axum::extract::Query(params): axum::extract::Query<TokensQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let log = flowctl_db_lsql::EventLog::new(conn);
+    let log = flowctl_db::EventLog::new(conn);
 
     if let Some(ref task_id) = params.task_id {
         let rows = log.tokens_by_task(task_id).await?;
@@ -215,7 +215,7 @@ pub async fn stats_handler(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let stats = flowctl_db_lsql::StatsQuery::new(conn);
+    let stats = flowctl_db::StatsQuery::new(conn);
     let summary = stats.summary().await?;
     let value = serde_json::to_value(&summary)
         .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;

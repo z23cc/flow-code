@@ -38,9 +38,9 @@ impl IntoResponse for AppError {
     }
 }
 
-impl From<flowctl_db_lsql::DbError> for AppError {
-    fn from(e: flowctl_db_lsql::DbError) -> Self {
-        use flowctl_db_lsql::DbError;
+impl From<flowctl_db::DbError> for AppError {
+    fn from(e: flowctl_db::DbError) -> Self {
+        use flowctl_db::DbError;
         match e {
             DbError::NotFound(msg) => AppError::NotFound(msg),
             DbError::Constraint(msg) => AppError::InvalidInput(msg),

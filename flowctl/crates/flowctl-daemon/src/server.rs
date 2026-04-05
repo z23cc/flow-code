@@ -24,7 +24,7 @@ pub async fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::
         .parent()  // .flow/
         .and_then(|p| p.parent())  // project root
         .context("cannot resolve project root from state_dir")?;
-    let db = flowctl_db_lsql::open_async(working_dir)
+    let db = flowctl_db::open_async(working_dir)
         .await
         .with_context(|| format!("failed to open db in {}", working_dir.display()))?;
     let conn = db.connect().context("failed to connect to libsql db")?;

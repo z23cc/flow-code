@@ -56,7 +56,7 @@ pub async fn create_epic_handler(
         updated_at: chrono::Utc::now(),
     };
 
-    let repo = flowctl_db_lsql::EpicRepo::new(conn);
+    let repo = flowctl_db::EpicRepo::new(conn);
     repo.upsert(&epic).await?;
 
     Ok((
@@ -74,7 +74,7 @@ pub async fn set_epic_plan_handler(
     Json(body): Json<SetPlanRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let repo = flowctl_db_lsql::EpicRepo::new(conn.clone());
+    let repo = flowctl_db::EpicRepo::new(conn.clone());
 
     // Verify epic exists.
     let epic = repo
@@ -123,7 +123,7 @@ pub async fn start_epic_work_handler(
     axum::extract::Path(epic_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let epic_repo = flowctl_db_lsql::EpicRepo::new(conn.clone());
+    let epic_repo = flowctl_db::EpicRepo::new(conn.clone());
 
     // Verify epic exists.
     let _epic = epic_repo
@@ -132,7 +132,7 @@ pub async fn start_epic_work_handler(
         .map_err(|_| AppError::NotFound(format!("epic not found: {epic_id}")))?;
 
     // Precondition: epic must have tasks.
-    let task_repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let task_repo = flowctl_db::TaskRepo::new(conn);
     let tasks = task_repo.list_by_epic(&epic_id).await?;
     if tasks.is_empty() {
         return Err(AppError::InvalidInput(format!(

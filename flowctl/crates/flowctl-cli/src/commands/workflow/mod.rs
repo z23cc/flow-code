@@ -52,7 +52,7 @@ pub(crate) fn try_open_lsql_conn() -> Option<libsql::Connection> {
         .build()
         .ok()?;
     rt.block_on(async {
-        let db = flowctl_db_lsql::open_async(&cwd).await.ok()?;
+        let db = flowctl_db::open_async(&cwd).await.ok()?;
         db.connect().ok()
     })
 }

@@ -3,7 +3,7 @@
 //! Tests the DB → Markdown → DB path by:
 //! 1. Creating an in-memory DB with test data
 //! 2. Writing Markdown files using frontmatter::write
-//! 3. Re-importing via flowctl_db_lsql::reindex
+//! 3. Re-importing via flowctl_db::reindex
 //! 4. Verifying data matches
 
 use std::fs;
@@ -58,9 +58,9 @@ async fn export_import_round_trip() {
     fs::create_dir_all(&flow_dir).unwrap();
 
     // Step 1: Create DB with test data.
-    let (_db, conn) = flowctl_db_lsql::open_memory_async().await.unwrap();
-    let epic_repo = flowctl_db_lsql::EpicRepo::new(conn.clone());
-    let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+    let (_db, conn) = flowctl_db::open_memory_async().await.unwrap();
+    let epic_repo = flowctl_db::EpicRepo::new(conn.clone());
+    let task_repo = flowctl_db::TaskRepo::new(conn.clone());
 
     let epic = make_test_epic("fn-50-roundtrip", "Round Trip Test");
     let epic_body = "## Description\nThis is the epic body content.";
@@ -96,8 +96,8 @@ async fn export_import_round_trip() {
     fs::write(tasks_dir.join("fn-50-roundtrip.1.md"), &tcontent).unwrap();
 
     // Step 3: Import into a fresh DB.
-    let (_db2, conn2) = flowctl_db_lsql::open_memory_async().await.unwrap();
-    let result = flowctl_db_lsql::reindex(&conn2, &flow_dir, None)
+    let (_db2, conn2) = flowctl_db::open_memory_async().await.unwrap();
+    let result = flowctl_db::reindex(&conn2, &flow_dir, None)
         .await
         .unwrap();
 
@@ -105,12 +105,12 @@ async fn export_import_round_trip() {
     assert_eq!(result.tasks_indexed, 1);
 
     // Step 4: Verify data matches.
-    let repo2 = flowctl_db_lsql::EpicRepo::new(conn2.clone());
+    let repo2 = flowctl_db::EpicRepo::new(conn2.clone());
     let (reimported_epic, reimported_body) = repo2.get_with_body("fn-50-roundtrip").await.unwrap();
     assert_eq!(reimported_epic.title, "Round Trip Test");
     assert_eq!(reimported_body.trim(), epic_body.trim());
 
-    let trepo2 = flowctl_db_lsql::TaskRepo::new(conn2);
+    let trepo2 = flowctl_db::TaskRepo::new(conn2);
     let (reimported_task, reimported_tbody) =
         trepo2.get_with_body("fn-50-roundtrip.1").await.unwrap();
     assert_eq!(reimported_task.title, "First Task");
@@ -126,8 +126,8 @@ async fn export_empty_db_produces_no_files() {
     fs::create_dir_all(&epics_dir).unwrap();
     fs::create_dir_all(&tasks_dir).unwrap();
 
-    let (_db, conn) = flowctl_db_lsql::open_memory_async().await.unwrap();
-    let epic_repo = flowctl_db_lsql::EpicRepo::new(conn);
+    let (_db, conn) = flowctl_db::open_memory_async().await.unwrap();
+    let epic_repo = flowctl_db::EpicRepo::new(conn);
     let epics = epic_repo.list(None).await.unwrap();
     assert!(epics.is_empty());
 }

@@ -373,9 +373,9 @@ fn db_task_status(work_dir: &Path, task_id: &str) -> String {
         .build()
         .unwrap();
     rt.block_on(async {
-        let db = flowctl_db_lsql::open_async(work_dir).await.expect("open db");
+        let db = flowctl_db::open_async(work_dir).await.expect("open db");
         let conn = db.connect().expect("connect");
-        let repo = flowctl_db_lsql::TaskRepo::new(conn);
+        let repo = flowctl_db::TaskRepo::new(conn);
         let task = repo.get(task_id).await.expect("get task");
         task.status.to_string()
     })

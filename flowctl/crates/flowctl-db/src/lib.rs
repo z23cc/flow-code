@@ -1,8 +1,7 @@
-//! flowctl-db-lsql: Async libSQL storage layer for flowctl.
+//! flowctl-db: Async libSQL storage layer for flowctl.
 //!
-//! Successor to `flowctl-db` (rusqlite-based). All DB access is async,
-//! Tokio-native. Memory table uses libSQL's native vector column
-//! (`F32_BLOB(384)`) for semantic search via `vector_top_k`.
+//! All DB access is async, Tokio-native. Memory table uses libSQL's native
+//! vector column (`F32_BLOB(384)`) for semantic search via `vector_top_k`.
 //!
 //! # Architecture
 //!
@@ -13,11 +12,10 @@
 //! - **Connections are cheap clones.** `libsql::Connection` is `Send + Sync`,
 //!   pass by value. Do not wrap in `Arc<Mutex<_>>`.
 //!
-//! # Why a separate crate?
+//! # History
 //!
-//! libsql 0.9 cannot coexist with `rusqlite(bundled)` in the same test
-//! binary — their C-level static init collides. Keeping the new stack in
-//! its own crate gives clean test isolation during migration.
+//! This crate was rewritten from rusqlite to libsql in fn-19 (April 2026).
+//! The old rusqlite implementation is no longer available.
 
 pub mod error;
 pub mod events;

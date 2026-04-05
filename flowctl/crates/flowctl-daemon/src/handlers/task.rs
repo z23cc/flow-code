@@ -49,7 +49,7 @@ pub async fn create_task_handler(
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let repo = flowctl_db::TaskRepo::new(conn);
     repo.upsert_with_body(&task, &body.body.unwrap_or_default()).await?;
     Ok((
         StatusCode::CREATED,
@@ -228,7 +228,7 @@ pub async fn skip_task_rest_handler(
     Json(_body): Json<SkipTaskRestRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let repo = flowctl_db::TaskRepo::new(conn);
     let task = repo
         .get(&task_id)
         .await
@@ -297,7 +297,7 @@ pub async fn skip_task_handler(
     Json(body): Json<TaskReasonRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let repo = flowctl_db::TaskRepo::new(conn);
     let task = repo
         .get(&body.task_id)
         .await
@@ -393,19 +393,19 @@ pub async fn get_task_handler(
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let task_repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+    let task_repo = flowctl_db::TaskRepo::new(conn.clone());
     let (task, body) = task_repo
         .get_with_body(&task_id)
         .await
         .map_err(|_| AppError::NotFound(format!("task not found: {task_id}")))?;
 
-    let evidence_repo = flowctl_db_lsql::EvidenceRepo::new(conn.clone());
+    let evidence_repo = flowctl_db::EvidenceRepo::new(conn.clone());
     let evidence = evidence_repo
         .get(&task_id)
         .await
         .map_err(|e| AppError::Internal(format!("evidence fetch error: {e}")))?;
 
-    let runtime_repo = flowctl_db_lsql::RuntimeRepo::new(conn);
+    let runtime_repo = flowctl_db::RuntimeRepo::new(conn);
     let runtime = runtime_repo
         .get(&task_id)
         .await

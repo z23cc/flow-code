@@ -41,7 +41,7 @@ pub async fn dag_handler(
     axum::extract::Query(params): axum::extract::Query<DagQuery>,
 ) -> Result<Json<DagResponse>, AppError> {
     let conn = state.db.clone();
-    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let repo = flowctl_db::TaskRepo::new(conn);
     let tasks = repo.list_by_epic(&params.epic_id).await?;
 
     if tasks.is_empty() {
@@ -127,7 +127,7 @@ pub async fn dag_detail_handler(
     axum::extract::Path(epic_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let repo = flowctl_db_lsql::TaskRepo::new(conn);
+    let repo = flowctl_db::TaskRepo::new(conn);
     let tasks = repo.list_by_epic(&epic_id).await?;
 
     if tasks.is_empty() {
@@ -177,7 +177,7 @@ pub async fn dag_mutate_handler(
     Json(body): Json<DagMutateRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let conn = state.db.clone();
-    let repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+    let repo = flowctl_db::TaskRepo::new(conn.clone());
 
     match body.action.as_str() {
         "add_dep" => {
@@ -309,7 +309,7 @@ pub async fn add_dep_handler(
     Json(body): Json<AddDepRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
     let conn = state.db.clone();
-    let repo = flowctl_db_lsql::TaskRepo::new(conn.clone());
+    let repo = flowctl_db::TaskRepo::new(conn.clone());
 
     let from_task = repo.get(&body.from).await
         .map_err(|_| AppError::NotFound(format!("task not found: {}", body.from)))?;

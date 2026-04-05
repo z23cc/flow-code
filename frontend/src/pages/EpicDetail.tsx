@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import useSWR from "swr";
-import { Plus, GitBranch, Play } from "lucide-react";
-import { swrFetcher, apiPost } from "../lib/api";
+import { Plus, GitBranch, Copy } from "lucide-react";
+import { toast } from "sonner";
+import { swrFetcher } from "../lib/api";
 import CreateTaskForm from "../components/CreateTaskForm";
 import TaskActions from "../components/TaskActions";
 import Badge from "../components/ui/Badge";
@@ -88,7 +89,6 @@ function EpicDetailSkeleton() {
 export default function EpicDetail() {
   const { id } = useParams<{ id: string }>();
   const [formOpen, setFormOpen] = useState(false);
-  const [starting, setStarting] = useState(false);
 
   const { data, isLoading, mutate } = useSWR<TasksResponse>(
     id ? `/tasks?epic_id=${id}` : null,
@@ -109,7 +109,7 @@ export default function EpicDetail() {
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const progress = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
-  const canStartWork = total > 0;
+  const workCommand = `/flow-code:work ${id ?? ""}`;
 
   const stats = [
     { label: "Total", value: total, color: "text-text-primary" },
@@ -118,16 +118,15 @@ export default function EpicDetail() {
     { label: "Blocked", value: blockedCount, color: "text-error" },
   ];
 
-  async function handleStartWork() {
+  async function handleCopyCommand() {
     if (!id) return;
-    setStarting(true);
     try {
-      await apiPost(`/epics/${id}/work`);
-      mutate();
-    } catch (err) {
-      console.error("Failed to start work:", err);
-    } finally {
-      setStarting(false);
+      await navigator.clipboard.writeText(workCommand);
+      toast.success("Command copied", {
+        description: "Run it in your Claude Code terminal to execute this epic.",
+      });
+    } catch {
+      toast.error("Copy failed — select and copy manually");
     }
   }
 
@@ -206,12 +205,14 @@ export default function EpicDetail() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={handleStartWork}
-            disabled={!canStartWork || starting}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-success text-bg-primary hover:opacity-90 transition-opacity disabled:opacity-50"
+            onClick={handleCopyCommand}
+            disabled={!id}
+            title={workCommand}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-bg-tertiary text-text-primary border border-border hover:border-accent transition-colors disabled:opacity-50 font-mono"
           >
-            <Play size={16} />
-            {starting ? "Starting..." : "Start Work"}
+            <Copy size={16} />
+            <span className="hidden sm:inline">Copy:&nbsp;</span>
+            {workCommand}
           </button>
           <button
             onClick={() => setFormOpen(true)}
@@ -221,6 +222,11 @@ export default function EpicDetail() {
             Create Task
           </button>
         </div>
+      </div>
+
+      {/* Execution explainer */}
+      <div className="mb-4 text-xs text-text-muted">
+        Agent execution happens in your Claude Code terminal. This web UI is for browsing and data management.
       </div>
 
       {/* Stats row */}

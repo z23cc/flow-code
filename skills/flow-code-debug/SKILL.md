@@ -44,6 +44,36 @@ If you haven't completed Phase 1, you cannot propose fixes.
 
 6. **Trace data flow** — where does the bad value originate? Trace backward through the call chain to the source. Fix at source, not at symptom.
 
+## Phase 1.5: RP Deep Investigation (optional)
+
+**After Phase 1, before Pattern Analysis.** Uses RepoPrompt to gather cross-file context around the bug. Three-tier fallback — skip entirely if RP is unavailable.
+
+```
+IF mcp__RepoPrompt__context_builder is available (check your tool list):
+  Call context_builder with:
+    instructions: "Investigate bug: <symptoms from Phase 1>. Hypotheses: <your hypotheses>.
+      Trace the data flow, find related code paths, and identify likely root cause."
+    response_type: "question"
+  Timeout: 120 seconds. If no response within 120s, log:
+    "RP context_builder timed out after 120s, skipping RP investigation"
+  and proceed to Phase 2.
+
+ELIF rp-cli is available (check: which rp-cli >/dev/null 2>&1):
+  Run with 120s timeout:
+    timeout 120 rp-cli -e 'builder "Investigate bug: <symptoms>. Hypotheses: <hypotheses>.
+      Trace data flow, find related code paths, identify likely root cause."
+      --response-type question'
+  If timeout or failure, log:
+    "rp-cli builder timed out or failed, skipping RP investigation"
+  and proceed to Phase 2.
+
+ELSE (no RP available):
+  Skip Phase 1.5 entirely — proceed to Phase 2 (existing behavior, zero change).
+END
+```
+
+**Use RP findings to guide Phase 2**: RP may surface related code, similar patterns, or architectural context that informs your pattern analysis. Feed these findings into Phase 2 as additional evidence alongside your own investigation.
+
 ## Phase 2: Pattern Analysis
 
 1. **Find working examples** — similar working code in same codebase
@@ -124,6 +154,7 @@ If you haven't completed Phase 1, you cannot propose fixes.
 | Phase | Key Activities | Done When |
 |-------|---------------|-----------|
 | 1. Root Cause | Read errors, reproduce, check changes, trace data | Understand WHAT and WHY |
+| 1.5 RP Investigate | context_builder(question) with symptoms + hypotheses | Cross-file context gathered (or skipped if no RP) |
 | 2. Pattern | Find working examples, compare differences | Identified the delta |
 | 3. Hypothesis | Form theory, test ONE variable | Confirmed or new hypothesis |
 | 4. Implement | Write test, fix root cause, verify | Bug resolved, guards pass |

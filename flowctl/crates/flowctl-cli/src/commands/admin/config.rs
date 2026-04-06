@@ -1,4 +1,4 @@
-//! Config, state-path, and migrate-state commands.
+//! Config and state-path commands.
 
 use std::env;
 use std::fs;
@@ -6,7 +6,7 @@ use std::fs;
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::output::{error_exit, json_output, stub};
+use crate::output::{error_exit, json_output};
 
 use flowctl_core::types::CONFIG_FILE;
 
@@ -44,13 +44,6 @@ pub fn cmd_state_path(json_mode: bool, task: Option<String>) {
     } else {
         println!("{}", state_dir.display());
     }
-}
-
-// ── Migrate-state command (stub - complex migration logic) ─────────
-
-pub fn cmd_migrate_state(json: bool, clean: bool) {
-    let _ = clean;
-    stub("migrate-state", json);
 }
 
 // ── Config commands ────────────────────────────────────────────────

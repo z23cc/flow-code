@@ -113,20 +113,3 @@ pub fn error_exit(message: &str) -> ! {
     eprintln!("{}", serde_json::to_string(&out).unwrap());
     std::process::exit(1);
 }
-
-/// Print a stub "not yet implemented" response for a command.
-pub fn stub(command_name: &str, json_mode: bool) {
-    if json_mode {
-        json_output(json!({
-            "status": "not_implemented",
-            "command": command_name,
-            "message": format!("{} is not yet implemented in Rust flowctl", command_name),
-        }));
-    } else {
-        eprintln!(
-            "flowctl {}: not yet implemented (Rust port in progress)",
-            command_name
-        );
-        std::process::exit(1);
-    }
-}

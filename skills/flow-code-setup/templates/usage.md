@@ -84,11 +84,7 @@ Runtime state (status, assignee, etc.) is stored in `.git/flow-state/`, shared a
 
 ```bash
 .flow/bin/flowctl state-path              # Show state directory
-.flow/bin/flowctl migrate-state           # Migrate existing repo
-.flow/bin/flowctl migrate-state --clean   # Migrate + remove runtime from tracked files
 ```
-
-Migration is optional — existing repos work without changes.
 
 ## More Info
 

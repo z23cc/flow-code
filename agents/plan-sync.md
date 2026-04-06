@@ -81,6 +81,7 @@ Look for references to:
 - Names/APIs from completed task spec (now stale)
 - Assumptions about data structures
 - Integration points that changed
+- File paths in `## Investigation targets` sections — if the completed task renamed or moved files that are listed as Required/Optional targets in downstream tasks, those paths are now stale
 
 Flag tasks that need updates.
 
@@ -130,6 +131,7 @@ Changes should:
 - Update variable/function names to match actual
 - Correct API signatures
 - Fix data structure assumptions
+- Update stale file paths in `## Investigation targets` (e.g., if `src/old.ts` was moved to `src/new.ts`)
 - Add note: `<!-- Updated by plan-sync: fn-X.Y used <actual> not <planned> -->`
 
 **DO NOT:**

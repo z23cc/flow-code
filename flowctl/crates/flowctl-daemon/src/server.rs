@@ -378,18 +378,29 @@ mod tests {
 
     #[tokio::test]
     async fn start_task_validates_transition() {
-        // Setup: create epic + task in todo state, then start it (should succeed),
-        // then try to start again from in_progress (should fail with CONFLICT).
         let (_tmp, runtime, event_bus) = test_setup();
         let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
-        state.db.execute(
-            "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-1', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-            (),
-        ).await.unwrap();
-        state.db.execute(
-            "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('fn-1.1', 'fn-1', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-            (),
-        ).await.unwrap();
+        // Create epic + task via json_store
+        use chrono::Utc;
+        let epic = flowctl_core::types::Epic {
+            schema_version: 1, id: "fn-1".into(), title: "E".into(),
+            status: flowctl_core::types::EpicStatus::Open,
+            branch_name: None, plan_review: flowctl_core::types::ReviewStatus::Unknown,
+            completion_review: flowctl_core::types::ReviewStatus::Unknown,
+            depends_on_epics: vec![], default_impl: None, default_review: None,
+            default_sync: None, auto_execute_pending: None, auto_execute_set_at: None,
+            archived: false, file_path: None, created_at: Utc::now(), updated_at: Utc::now(),
+        };
+        flowctl_core::json_store::epic_write(&state.flow_dir, &epic).unwrap();
+        let task = flowctl_core::types::Task {
+            schema_version: 1, id: "fn-1.1".into(), epic: "fn-1".into(), title: "T".into(),
+            status: flowctl_core::Status::Todo, priority: None,
+            domain: flowctl_core::types::Domain::General, depends_on: vec![],
+            files: vec![], r#impl: None, review: None, sync: None, file_path: None,
+            created_at: Utc::now(), updated_at: Utc::now(),
+        };
+        flowctl_core::json_store::task_write_definition(&state.flow_dir, &task).unwrap();
+        flowctl_core::json_store::state_write(&state.flow_dir, "fn-1.1", &flowctl_core::json_store::TaskState::default()).unwrap();
         let app = build_router(state.clone());
 
         // Start: todo → in_progress (should succeed)
@@ -429,14 +440,26 @@ mod tests {
     async fn done_task_rejects_from_todo() {
         let (_tmp, runtime, event_bus) = test_setup();
         let (state, _cancel) = create_state(runtime, event_bus).await.unwrap();
-        state.db.execute(
-            "INSERT INTO epics (id, title, status, file_path, created_at, updated_at) VALUES ('fn-2', 'E', 'open', 'e.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-            (),
-        ).await.unwrap();
-        state.db.execute(
-            "INSERT INTO tasks (id, epic_id, title, status, domain, file_path, created_at, updated_at) VALUES ('fn-2.1', 'fn-2', 'T', 'todo', 'general', 't.md', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
-            (),
-        ).await.unwrap();
+        use chrono::Utc;
+        let epic = flowctl_core::types::Epic {
+            schema_version: 1, id: "fn-2".into(), title: "E".into(),
+            status: flowctl_core::types::EpicStatus::Open,
+            branch_name: None, plan_review: flowctl_core::types::ReviewStatus::Unknown,
+            completion_review: flowctl_core::types::ReviewStatus::Unknown,
+            depends_on_epics: vec![], default_impl: None, default_review: None,
+            default_sync: None, auto_execute_pending: None, auto_execute_set_at: None,
+            archived: false, file_path: None, created_at: Utc::now(), updated_at: Utc::now(),
+        };
+        flowctl_core::json_store::epic_write(&state.flow_dir, &epic).unwrap();
+        let task = flowctl_core::types::Task {
+            schema_version: 1, id: "fn-2.1".into(), epic: "fn-2".into(), title: "T".into(),
+            status: flowctl_core::Status::Todo, priority: None,
+            domain: flowctl_core::types::Domain::General, depends_on: vec![],
+            files: vec![], r#impl: None, review: None, sync: None, file_path: None,
+            created_at: Utc::now(), updated_at: Utc::now(),
+        };
+        flowctl_core::json_store::task_write_definition(&state.flow_dir, &task).unwrap();
+        flowctl_core::json_store::state_write(&state.flow_dir, "fn-2.1", &flowctl_core::json_store::TaskState::default()).unwrap();
         let app = build_router(state);
 
         // done from todo → should be rejected

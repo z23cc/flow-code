@@ -97,7 +97,7 @@ fn require_db() -> crate::commands::db_shim::Connection {
         .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")))
 }
 
-/// Verify .flow/ exists, epic ID is valid, and epic exists in DB.
+/// Verify .flow/ exists, epic ID is valid, and epic exists (DB or JSON).
 fn validate_epic(_json: bool, epic_id: &str) {
     let flow_dir = get_flow_dir();
     if !flow_dir.exists() {
@@ -106,12 +106,18 @@ fn validate_epic(_json: bool, epic_id: &str) {
     if !is_epic_id(epic_id) {
         error_exit(&format!("Invalid epic ID: {}", epic_id));
     }
-    // Verify epic exists in DB
+    // Check DB first, fall back to JSON file existence.
+    // Epic may exist only in JSON if DB upsert hasn't run yet.
     let conn = require_db();
     let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    if repo.get(epic_id).is_err() {
-        error_exit(&format!("Epic not found: {}", epic_id));
+    if repo.get(epic_id).is_ok() {
+        return;
     }
+    let json_path = flow_dir.join("epics").join(format!("{epic_id}.json"));
+    if json_path.exists() {
+        return;
+    }
+    error_exit(&format!("Epic not found: {}", epic_id));
 }
 
 // ── Commands ───────────────────────────────────────────────────────

@@ -29,10 +29,15 @@ pub async fn create_state(runtime: DaemonRuntime, event_bus: flowctl_scheduler::
         .with_context(|| format!("failed to open db in {}", working_dir.display()))?;
     let conn = db.connect().context("failed to connect to libsql db")?;
     let cancel = runtime.cancel.clone();
+    // .flow/.state/ → parent is .flow/
+    let flow_dir = runtime.paths.state_dir.parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| working_dir.to_path_buf());
     let state = Arc::new(DaemonState {
         runtime,
         event_bus,
         db: conn,
+        flow_dir,
     });
     Ok((state, cancel))
 }

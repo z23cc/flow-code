@@ -398,5 +398,4 @@ If review was decided in Context Analysis:
 $FLOWCTL epic auto-exec <epic-id> --pending --json
 ```
 
-- **≤ 10 tasks**: Invoke `/flow-code:work <epic-id> --no-review` directly.
-- **> 10 tasks**: Recommend Ralph (`/flow-code:ralph-init`) or `/flow-code:work <epic-id>`.
+Invoke `/flow-code:work <epic-id> --no-review` directly (Teams mode handles parallelism regardless of task count).

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Is This
 
-Flow-Code is a Claude Code plugin for structured, plan-first development. It provides slash commands (`/flow-code:plan`, `/flow-code:work`, etc.), skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with SQLite storage, HTTP daemon, and MCP server support.
+Flow-Code is a Claude Code plugin for structured, plan-first development. It provides slash commands (`/flow-code:plan`, `/flow-code:work`, etc.), skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with SQLite storage and MCP server support.
 
 ## Core Architecture
 
@@ -13,7 +13,7 @@ commands/flow-code/*.md  → Slash command definitions (user-invocable entry poi
 skills/*/SKILL.md        → Skill implementations (loaded by Skill tool, never Read directly)
 agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
 bin/flowctl               → Rust binary (built from flowctl/ workspace)
-flowctl/                  → Rust Cargo workspace (6 crates: core, db, scheduler, cli, daemon, tui)
+flowctl/                  → Rust Cargo workspace (3 crates: core, db, cli)
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
@@ -96,7 +96,7 @@ Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills an
 - **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
 - **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`
 - **Worker self-review**: Phase 2.5 runs guard + structured diff review (correctness, quality, performance, testing) before commit
-- **Plan auto-execute**: `/flow-code:plan` defaults to auto-execute work after planning (≤10 tasks direct, >10 suggests Ralph); `--plan-only` to opt out
+- **Plan auto-execute**: `/flow-code:plan` defaults to auto-execute work after planning (Teams mode handles any task count); `--plan-only` to opt out
 - **Goal-backward verification**: worker Phase 5 re-reads acceptance criteria and verifies each is actually satisfied before completing
 - **Full-auto by default**: `/flow-code:plan` and `/flow-code:work` require zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + Teams + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
 - **Cross-platform**: flowctl is a single Rust binary (macOS/Linux). RP plan-review auto-degrades to Codex on platforms where rp-cli is unavailable. Bash hooks degrade gracefully on Windows (skip, don't block)

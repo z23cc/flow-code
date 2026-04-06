@@ -95,9 +95,9 @@ Format: `{"mode":"codex","task":"<id>","verdict":"<verdict>","session_id":"<thre
 
 Use when `BACKEND="rp"`.
 
-## Phase 1: Identify Changes (RP)
+**This workflow follows the shared RP review protocol** defined in `skills/_shared/rp-review-protocol.md`. The steps below set impl-review-specific variables, then delegate to the shared protocol.
 
-**Run this BEFORE setup-review so the builder gets a real summary.**
+### Phase 1: Identify Changes (RP)
 
 ```bash
 BRANCH="$(git branch --show-current)"
@@ -116,83 +116,26 @@ CHANGED_FILES="$(git diff ${DIFF_BASE}..HEAD --name-only)"
 git diff ${DIFF_BASE}..HEAD --stat
 ```
 
-Save:
-- Branch name
-- Changed files list
-- Commit summary
-- DIFF_BASE (for reference in review prompt)
+Save branch name, changed files list, commit summary, and DIFF_BASE.
 
-Compose a 1-2 sentence `REVIEW_SUMMARY` describing the changes for the setup-review command below.
-
----
-
-### Atomic Setup Block
-
-**Only run ONCE. Uses the summary composed in Phase 1.**
+### Set Shared Protocol Variables
 
 ```bash
-# Atomic: pick-window + builder (uses REVIEW_SUMMARY from Phase 1)
-eval "$($FLOWCTL rp setup-review --repo-root "$REPO_ROOT" --summary "$REVIEW_SUMMARY" --create)"
-
-# Verify we have W and T
-if [[ -z "${W:-}" || -z "${T:-}" ]]; then
-  echo "<promise>RETRY</promise>"
-  exit 0
-fi
-
-echo "Setup complete: W=$W T=$T"
+REVIEW_TYPE="impl"
+REVIEW_ENTITY_ID="<TASK_ID>"
+REVIEW_SUMMARY="Impl review for $BRANCH: <1-2 sentence description of changes>"
+RECEIPT_TYPE="impl_review"
+PARSE_SOURCE="impl-review"
+STATUS_CMD_SHIP=""   # impl-review does not update epic status
+STATUS_CMD_FAIL=""   # impl-review does not update epic status
+FIX_ACTION="impl"   # Fix code + run tests + commit
 ```
 
-If this block fails, output `<promise>RETRY</promise>` and stop. Do not improvise.
-**Do NOT re-run setup-review** — the builder runs inside it. Re-running = double context build.
+**REVIEW_CONTEXT** — the git diff, changed files list, and commit summary from Phase 1.
 
----
+**PROMPT_CRITERIA** — impl-review-specific review template:
 
-## Phase 2: Augment Selection (RP)
-
-Builder selects context automatically. Review and add must-haves:
-
-```bash
-# See what builder selected
-$FLOWCTL rp select-get --window "$W" --tab "$T"
-
-# Add ALL changed files
-for f in $CHANGED_FILES; do
-  $FLOWCTL rp select-add --window "$W" --tab "$T" "$f"
-done
-
-# Add task spec if known
-$FLOWCTL rp select-add --window "$W" --tab "$T" .flow/specs/<task-id>.md
 ```
-
-**Why this matters:** Chat only sees selected files.
-
----
-
-## Phase 3: Execute Review (RP)
-
-### Build combined prompt
-
-Get builder's handoff:
-```bash
-HANDOFF="$($FLOWCTL rp prompt-get --window "$W" --tab "$T")"
-```
-
-Write combined prompt:
-```bash
-cat > /tmp/review-prompt.md << 'EOF'
-[PASTE HANDOFF HERE]
-
----
-
-## IMPORTANT: File Contents
-RepoPrompt includes the actual source code of selected files in a `<file_contents>` XML section at the end of this message. You MUST:
-1. Locate the `<file_contents>` section
-2. Read and analyze the actual source code within it
-3. Base your review on the code, not summaries or descriptions
-
-If you cannot find `<file_contents>`, ask for the files to be re-attached before proceeding.
-
 ## Changes Under Review
 Branch: [BRANCH_NAME]
 Files: [LIST CHANGED FILES]
@@ -210,7 +153,7 @@ You MUST conduct the review in two distinct layers, in order. Do NOT merge them.
 
 ### Layer 1: Spec Compliance
 
-Answer: "Did the implementation build what was asked — nothing more, nothing less?"
+Answer: "Did the implementation build what was asked -- nothing more, nothing less?"
 
 For each spec requirement, check:
 - [ ] Implemented as specified (not a different interpretation)
@@ -262,9 +205,8 @@ For each issue:
 - **Problem**: What's wrong
 - **Suggestion**: How to fix
 
-**Structured findings (preferred):** Return findings as a JSON array inside a `<findings>` block. Each finding must include the fields below. Suppress findings with confidence < 0.6 unless severity is P0.
+**Structured findings (preferred):** Return findings as a JSON array inside a <findings> block. Each finding must include the fields below. Suppress findings with confidence < 0.6 unless severity is P0.
 
-```
 <findings>
 [
   {
@@ -279,127 +221,37 @@ For each issue:
   }
 ]
 </findings>
-```
 
 **Backward compatibility:** If structured JSON is not possible, free-text findings are still accepted by parse-findings.
 
 **REQUIRED**: You MUST end your response with exactly one verdict tag. This is mandatory:
-`<verdict>SHIP</verdict>` or `<verdict>NEEDS_WORK</verdict>` or `<verdict>MAJOR_RETHINK</verdict>`
+<verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict> or <verdict>MAJOR_RETHINK</verdict>
 
 Verdict rules:
-- Any spec compliance gap → NEEDS_WORK (regardless of code quality)
-- Any Critical code quality issue → NEEDS_WORK
-- Only Minor/Nitpick issues remaining → SHIP
+- Any spec compliance gap -> NEEDS_WORK (regardless of code quality)
+- Any Critical code quality issue -> NEEDS_WORK
+- Only Minor/Nitpick issues remaining -> SHIP
 
 Do NOT skip this tag. The automation depends on it.
-EOF
 ```
 
-### Send to RepoPrompt
+### Execute Review
 
-```bash
-$FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/review-prompt.md --new-chat --chat-name "Impl Review: $BRANCH"
-```
+**Follow `skills/_shared/rp-review-protocol.md`** — RP Backend: context_builder Review (Steps 1-3) and Fix Loop.
 
-**WAIT** for response. Takes 1-5+ minutes.
+Use `context_builder(instructions=REVIEW_CONTEXT + PROMPT_CRITERIA, response_type="review")` for initial review. On NEEDS_WORK, use `oracle_send(chat_id, message)` for re-reviews.
 
----
+### Impl-Specific Fix Actions
 
-## Phase 4: Receipt + Status (RP)
-
-### Write receipt (if REVIEW_RECEIPT_PATH set)
-
-```bash
-if [[ -n "${REVIEW_RECEIPT_PATH:-}" ]]; then
-  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  mkdir -p "$(dirname "$REVIEW_RECEIPT_PATH")"
-  cat > "$REVIEW_RECEIPT_PATH" <<EOF
-{"type":"impl_review","id":"<TASK_ID>","mode":"rp","timestamp":"$ts"}
-EOF
-  echo "REVIEW_RECEIPT_WRITTEN: $REVIEW_RECEIPT_PATH"
-fi
-```
-
-If no verdict tag in response, output `<promise>RETRY</promise>` and stop.
-
----
-
-## Fix Loop (RP)
-
-**CRITICAL: Do NOT ask user for confirmation. Automatically fix ALL valid issues and re-review — our goal is production-grade world-class software and architecture. Never use AskUserQuestion in this loop.**
-
-**CRITICAL: You MUST fix the code BEFORE re-reviewing. Never re-review without making changes.**
-
-**MAX ITERATIONS**: Limit fix+re-review cycles to **${MAX_REVIEW_ITERATIONS:-3}** iterations (default 3, configurable in Ralph's config.env). If still NEEDS_WORK after max rounds, output `<promise>RETRY</promise>` and stop — let the next Ralph iteration start fresh.
-
-If verdict is NEEDS_WORK:
-
-1. **Parse issues** - Extract ALL issues by severity (Critical → Major → Minor). Register findings as gaps:
-   ```bash
-   # Save review response to temp file, then register findings as gaps
-   echo "$REVIEW_RESPONSE" > /tmp/review-response.txt
-   FINDINGS_RESULT="$($FLOWCTL parse-findings --file /tmp/review-response.txt --epic "$EPIC_ID" --register --source impl-review --json)"
-   REGISTERED="$(echo "$FINDINGS_RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("registered",0))' 2>/dev/null || echo 0)"
-   echo "Registered $REGISTERED findings as gaps"
-   ```
-2. **Verify before fixing** - For each issue, check:
+When fixing NEEDS_WORK issues:
+1. **Verify before fixing** - For each issue, check:
    - Will this change break existing tests or functionality? If yes, skip with a note in re-review.
-   - Is the suggested addition actually used? (YAGNI check — grep for callers before adding code)
+   - Is the suggested addition actually used? (YAGNI check)
    - Do you understand the suggestion? If unclear, skip it and note "unclear, skipped" in re-review.
-   - Only implement issues you can verify are correct for this codebase.
-3. **Fix verified issues** - Address each verified issue in order (blocking → simple → complex)
-4. **Run tests/lints** - Verify fixes don't break anything
-5. **Commit fixes** (MANDATORY before re-review):
-   ```bash
-   git add -A
-   git commit -m "fix: address review feedback"
-   ```
-   **If you skip this and re-review without committing changes, reviewer will return NEEDS_WORK again.**
-
-6. **Request re-review** (only AFTER step 5):
-
-   **IMPORTANT**: Do NOT re-add files already in the selection. RepoPrompt auto-refreshes
-   file contents on every message. Only use `select-add` for NEW files created during fixes:
-   ```bash
-   # Only if fixes created new files not in original selection
-   if [[ -n "$NEW_FILES" ]]; then
-     $FLOWCTL rp select-add --window "$W" --tab "$T" $NEW_FILES
-   fi
-   ```
-
-   Then send re-review request (NO --new-chat, stay in same chat).
-
-   **CRITICAL: Do NOT summarize fixes.** RP auto-refreshes file contents - reviewer sees your changes automatically. Just request re-review. Any summary wastes tokens and duplicates what reviewer already sees.
-
-   ```bash
-   cat > /tmp/re-review.md << 'EOF'
-   Issues addressed. Please re-review.
-
-   **REQUIRED**: End with `<verdict>SHIP</verdict>` or `<verdict>NEEDS_WORK</verdict>` or `<verdict>MAJOR_RETHINK</verdict>`
-   EOF
-
-   $FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/re-review.md
-   ```
-7. **Repeat** until Ship
-
-**Anti-pattern**: Re-adding already-selected files before re-review. RP auto-refreshes; re-adding can cause issues.
+2. **Fix verified issues** - Address each in order (blocking -> simple -> complex)
+3. **Run tests/lints** - Verify fixes don't break anything
+4. **Commit fixes**: `git add -A && git commit -m "fix: address review feedback"`
 
 ---
 
-## Anti-patterns
-
-**All backends:**
-- **Reviewing yourself** - You coordinate; the backend reviews
-- **No receipt** - If REVIEW_RECEIPT_PATH is set, you MUST write receipt
-- **Ignoring verdict** - Must extract and act on verdict tag
-- **Mixing backends** - Stick to one backend for the entire review session
-
-**RP backend only:**
-- **Calling builder directly** - Must use `setup-review` which wraps it
-- **Skipping setup-review** - Window selection MUST happen via this command
-- **Hard-coding window IDs** - Never write `--window 1`
-- **Missing changed files** - Add ALL changed files to selection
-
-**Codex backend only:**
-- **Using `--last` flag** - Conflicts with parallel usage; use `--receipt` instead
-- **Direct codex calls** - Must use `flowctl codex` wrappers
+**For anti-patterns and general protocol rules, see `skills/_shared/rp-review-protocol.md`.**

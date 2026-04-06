@@ -99,96 +99,40 @@ Format: `{"mode":"codex","epic":"<id>","verdict":"<verdict>","session_id":"<thre
 
 Use when `BACKEND="rp"`.
 
-## Phase 1: Read the Plan (RP)
+**This workflow follows the shared RP review protocol** defined in `skills/_shared/rp-review-protocol.md`. The steps below set plan-review-specific variables, then delegate to the shared protocol.
 
-**Run this BEFORE setup-review so the builder gets a real summary.**
+### Phase 1: Read the Plan (RP)
 
-**If Flow issue:**
 ```bash
 $FLOWCTL show <id> --json
 $FLOWCTL cat <id>
 ```
 
-Save output for inclusion in review prompt. Compose a 1-2 sentence `REVIEW_SUMMARY` for the setup-review command below.
+Save output for inclusion in review prompt.
 
 **Save checkpoint** (protects against context compaction during review):
 ```bash
 $FLOWCTL checkpoint save --epic <id> --json
 ```
-This creates `.flow/.checkpoint-<id>.json` with full state. If compaction occurs during review-fix cycles, restore with `$FLOWCTL checkpoint restore --epic <id>`.
 
----
-
-### Atomic Setup Block
-
-**Only run ONCE. Uses the summary composed in Phase 1.**
+### Set Shared Protocol Variables
 
 ```bash
-# Atomic: pick-window + builder (uses REVIEW_SUMMARY from Phase 1)
-eval "$($FLOWCTL rp setup-review --repo-root "$REPO_ROOT" --summary "$REVIEW_SUMMARY" --create)"
-
-# Verify we have W and T
-if [[ -z "${W:-}" || -z "${T:-}" ]]; then
-  echo "<promise>RETRY</promise>"
-  exit 0
-fi
-
-echo "Setup complete: W=$W T=$T"
+REVIEW_TYPE="plan"
+REVIEW_ENTITY_ID="<EPIC_ID>"
+REVIEW_SUMMARY="Plan review for <EPIC_ID>: <1-2 sentence description>"
+RECEIPT_TYPE="plan_review"
+PARSE_SOURCE="plan-review"
+STATUS_CMD_SHIP='$FLOWCTL epic review <EPIC_ID> ship --json'
+STATUS_CMD_FAIL='$FLOWCTL epic review <EPIC_ID> needs_work --json'
+FIX_ACTION="plan"  # Update epic spec via flowctl epic plan, sync task specs
 ```
 
-If this block fails, output `<promise>RETRY</promise>` and stop. Do not improvise.
-**Do NOT re-run setup-review** — the builder runs inside it. Re-running = double context build.
+**REVIEW_CONTEXT** — the epic spec output and task list from Phase 1.
 
----
+**PROMPT_CRITERIA** — plan-review-specific review template:
 
-## Phase 2: Augment Selection (RP)
-
-Builder selects context automatically. Review and add must-haves:
-
-```bash
-# See what builder selected
-$FLOWCTL rp select-get --window "$W" --tab "$T"
-
-# Always add the epic spec
-$FLOWCTL rp select-add --window "$W" --tab "$T" .flow/specs/<epic-id>.md
-
-# Always add ALL task specs for this epic
-for task_spec in .flow/tasks/${EPIC_ID}.*.md; do
-  [[ -f "$task_spec" ]] && $FLOWCTL rp select-add --window "$W" --tab "$T" "$task_spec"
-done
-
-# Add PRD/architecture docs if found
-$FLOWCTL rp select-add --window "$W" --tab "$T" docs/prd.md
 ```
-
-**Why this matters:** Chat only sees selected files. Reviewer needs both epic spec AND task specs to check for consistency.
-
----
-
-## Phase 3: Execute Review (RP)
-
-### Build combined prompt
-
-Get builder's handoff:
-```bash
-HANDOFF="$($FLOWCTL rp prompt-get --window "$W" --tab "$T")"
-```
-
-Write combined prompt:
-```bash
-cat > /tmp/review-prompt.md << 'EOF'
-[PASTE HANDOFF HERE]
-
----
-
-## IMPORTANT: File Contents
-RepoPrompt includes the actual source code of selected files in a `<file_contents>` XML section at the end of this message. You MUST:
-1. Locate the `<file_contents>` section
-2. Read and analyze the actual source code within it
-3. Base your review on the code, not summaries or descriptions
-
-If you cannot find `<file_contents>`, ask for the files to be re-attached before proceeding.
-
 ## Plan Under Review
 [PASTE flowctl show OUTPUT]
 
@@ -232,7 +176,6 @@ For each issue:
 
 **Structured findings (preferred):** Return findings as a JSON array inside a `<findings>` block. Each finding must include the fields below. Suppress findings with confidence < 0.6 unless severity is P0.
 
-```
 <findings>
 [
   {
@@ -247,151 +190,31 @@ For each issue:
   }
 ]
 </findings>
-```
 
 **Backward compatibility:** If structured JSON is not possible, free-text findings are still accepted by parse-findings.
 
 **REQUIRED**: You MUST end your response with exactly one verdict tag. This is mandatory:
-`<verdict>SHIP</verdict>` or `<verdict>NEEDS_WORK</verdict>` or `<verdict>MAJOR_RETHINK</verdict>`
+<verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict> or <verdict>MAJOR_RETHINK</verdict>
 
 Do NOT skip this tag. The automation depends on it.
-EOF
 ```
 
-### Send to RepoPrompt
+### Execute Review
 
-```bash
-$FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/review-prompt.md --new-chat --chat-name "Plan Review: <EPIC_ID>"
-```
+**Follow `skills/_shared/rp-review-protocol.md`** — RP Backend: context_builder Review (Steps 1-3) and Fix Loop.
 
-**WAIT** for response. Takes 1-5+ minutes.
+Use `context_builder(instructions=REVIEW_CONTEXT + PROMPT_CRITERIA, response_type="review")` for initial review. On NEEDS_WORK, use `oracle_send(chat_id, message)` for re-reviews.
 
----
+### Plan-Specific Fix Actions
 
-## Phase 4: Receipt + Status (RP)
+When fixing NEEDS_WORK issues:
+1. Update epic spec: `$FLOWCTL epic plan <EPIC_ID> --file - --json`
+2. Sync affected task specs: `$FLOWCTL task spec <TASK_ID> --file - --json`
+3. **Recovery**: If context compaction occurred, restore: `$FLOWCTL checkpoint restore --epic <EPIC_ID> --json`
 
-### Write receipt (if REVIEW_RECEIPT_PATH set)
-
-```bash
-if [[ -n "${REVIEW_RECEIPT_PATH:-}" ]]; then
-  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  mkdir -p "$(dirname "$REVIEW_RECEIPT_PATH")"
-  cat > "$REVIEW_RECEIPT_PATH" <<EOF
-{"type":"plan_review","id":"<EPIC_ID>","mode":"rp","timestamp":"$ts"}
-EOF
-  echo "REVIEW_RECEIPT_WRITTEN: $REVIEW_RECEIPT_PATH"
-fi
-```
-
-### Update status
-
-Extract verdict from response, then:
-```bash
-# If SHIP
-$FLOWCTL epic review <EPIC_ID> ship --json
-
-# If NEEDS_WORK or MAJOR_RETHINK
-$FLOWCTL epic review <EPIC_ID> needs_work --json
-```
-
-If no verdict tag, output `<promise>RETRY</promise>` and stop.
-
----
-
-## Fix Loop (RP)
-
-**CRITICAL: Do NOT ask user for confirmation. Automatically fix ALL valid issues and re-review — our goal is production-grade world-class software and architecture. Never use AskUserQuestion in this loop.**
-
-**CRITICAL: You MUST fix the plan BEFORE re-reviewing. Never re-review without making changes.**
-
-If verdict is NEEDS_WORK:
-
-1. **Parse issues** - Extract ALL issues by severity (Critical → Major → Minor). Register findings as gaps:
-   ```bash
-   # Save review response to temp file, then register findings as gaps
-   echo "$REVIEW_RESPONSE" > /tmp/review-response.txt
-   FINDINGS_RESULT="$($FLOWCTL parse-findings --file /tmp/review-response.txt --epic "$EPIC_ID" --register --source plan-review --json)"
-   REGISTERED="$(echo "$FINDINGS_RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("registered",0))' 2>/dev/null || echo 0)"
-   echo "Registered $REGISTERED findings as gaps"
-   ```
-2. **Fix the epic spec** - Address each issue.
-3. **Update epic spec in flowctl** (MANDATORY before re-review):
-   ```bash
-   # Option A: stdin heredoc (preferred, no temp file)
-   $FLOWCTL epic plan <EPIC_ID> --file - --json <<'EOF'
-   <updated epic spec content>
-   EOF
-
-   # Option B: temp file (if content has single quotes)
-   $FLOWCTL epic plan <EPIC_ID> --file /tmp/updated-plan.md --json
-   ```
-   **If you skip this step and re-review with same content, reviewer will return NEEDS_WORK again.**
-
-   **Recovery**: If context compaction occurred, restore from checkpoint first:
-   ```bash
-   $FLOWCTL checkpoint restore --epic <EPIC_ID> --json
-   ```
-
-4. **Sync affected task specs** - If epic changes affect task specs, update them:
-   ```bash
-   $FLOWCTL task spec <TASK_ID> --file - --json <<'EOF'
-   <updated task spec content>
-   EOF
-   ```
-   Task specs need updating when epic changes affect:
-   - State/enum values referenced in tasks
-   - Acceptance criteria that tasks implement
-   - Approach/design decisions tasks depend on
-   - Lock/retry/error handling semantics
-   - API signatures or type definitions
-
-5. **Request re-review** (only AFTER steps 3-4):
-
-   **IMPORTANT**: Do NOT re-add files already in the selection. RepoPrompt auto-refreshes
-   file contents on every message. Only use `select-add` for NEW files created during fixes:
-   ```bash
-   # Only if fixes created new files not in original selection
-   if [[ -n "$NEW_FILES" ]]; then
-     $FLOWCTL rp select-add --window "$W" --tab "$T" $NEW_FILES
-   fi
-   ```
-
-   Then send re-review request (NO --new-chat, stay in same chat).
-
-   **CRITICAL: Do NOT summarize fixes.** RP auto-refreshes file contents - reviewer sees your changes automatically. Just request re-review. Any summary wastes tokens and duplicates what reviewer already sees.
-
-   ```bash
-   cat > /tmp/re-review.md << 'EOF'
-   Issues addressed. Please re-review.
-
-   **REQUIRED**: End with `<verdict>SHIP</verdict>` or `<verdict>NEEDS_WORK</verdict>` or `<verdict>MAJOR_RETHINK</verdict>`
-   EOF
-
-   $FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/re-review.md
-   ```
-6. **Repeat** until Ship
-
-**Anti-pattern**: Re-adding already-selected files before re-review. RP auto-refreshes; re-adding can cause issues.
-
-**Anti-pattern**: Re-reviewing without calling `epic set-plan` first. This wastes reviewer time and loops forever.
-
+**Anti-pattern**: Re-reviewing without calling `epic plan` first. This wastes reviewer time and loops forever.
 **Anti-pattern**: Updating epic spec without syncing affected task specs. Causes reviewer to flag consistency issues again.
 
 ---
 
-## Anti-patterns
-
-**All backends:**
-- **Reviewing yourself** - You coordinate; the backend reviews
-- **No receipt** - If REVIEW_RECEIPT_PATH is set, you MUST write receipt
-- **Ignoring verdict** - Must extract and act on verdict tag
-- **Mixing backends** - Stick to one backend for the entire review session
-
-**RP backend only:**
-- **Calling builder directly** - Must use `setup-review` which wraps it
-- **Skipping setup-review** - Window selection MUST happen via this command
-- **Hard-coding window IDs** - Never write `--window 1`
-
-**Codex backend only:**
-- **Using `--last` flag** - Conflicts with parallel usage; use `--receipt` instead
-- **Direct codex calls** - Must use `flowctl codex` wrappers
+**For anti-patterns and general protocol rules, see `skills/_shared/rp-review-protocol.md`.**

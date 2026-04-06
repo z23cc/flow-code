@@ -193,9 +193,21 @@ if [ "$TOOL_NAME" = "Edit" ] || [ "$TOOL_NAME" = "Write" ]; then
     fi
   done
   if [ "$MISSING_BLOCKS" -gt 0 ]; then
-    # Restore original backup (contains unfiltered code), then re-filter
-    cat "$CACHE/${ID}.bak" > "$FILE_PATH"
-    printf 'Restored %s from backup (%d missing placeholder(s))\n' "$FILE_PATH" "$MISSING_BLOCKS" >&2
+    # Re-insert missing blocks into the edited file (not a full backup restore,
+    # which would discard legitimate edits outside protected regions).
+    # Strategy: for each missing block, append it at the end with a warning comment.
+    for bf in "$CACHE/${ID}".block.*; do
+      [ -f "$bf" ] || continue
+      h="${bf##*.}"
+      if ! grep -q "BLOCK_${h}" "$FILE_PATH" 2>/dev/null; then
+        block_content=$(cat "$bf")
+        printf '\n%s\n' "$block_content" >> "$FILE_PATH"
+        printf 'Warning: BLOCK_%s was dropped — re-appended protected block at end of file\n' "$h" >&2
+      fi
+    done
+    # Clear cache so next Read re-establishes placeholders cleanly
+    rm -f "$CACHE/${ID}.bak" "$CACHE/${ID}.path" "$CACHE/${ID}".block.* \
+      "$CACHE/${ID}".reason.* "$CACHE/${ID}".prefix.* "$CACHE/${ID}".suffix.*
     exit 0
   fi
 

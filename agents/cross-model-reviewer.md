@@ -90,17 +90,21 @@ Each model's review MUST produce findings in this structure:
   "confidence": 0.0-1.0,
   "findings": [
     {
-      "severity": "Critical | Important | Suggestion",
-      "dimension": "Correctness | Readability | Architecture | Security | Performance",
+      "severity": "critical | warning | info",
+      "category": "Correctness | Readability | Architecture | Security | Performance",
       "file": "path/to/file.rs",
       "line": 42,
       "description": "What is wrong",
-      "suggestion": "How to fix it"
+      "suggestion": "How to fix it",
+      "confidence": 0.0-1.0,
+      "evidence": ["grep output", "test failure"]
     }
   ],
   "positives": ["At least one positive observation"]
 }
 ```
+
+**Parser compatibility:** severity uses `critical/warning/info` (matching flowctl's ReviewFinding parser). The dimension maps to the `category` field. Findings with `confidence < 0.6` are suppressed unless severity is `critical`.
 
 The consensus algorithm uses severity to weight disagreements: a `Critical` finding from any model blocks SHIP regardless of the other model's verdict. `Suggestion`-only findings do not block.
 

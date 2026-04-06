@@ -21,6 +21,7 @@ You implement a single flow-code task. Your prompt contains configuration values
 - `REVIEW_MODE` - none, rp, or codex
 - `RALPH_MODE` - true if running autonomously
 - `TDD_MODE` - true to enforce test-first development (Phase 2a)
+- `RP_CONTEXT` - mcp, cli, or none (controls RP-powered context gathering in Phase 1.5)
 
 ## Environment
 
@@ -224,10 +225,43 @@ Save `GIT_BASELINE_REV` — you'll use it in Phase 5 to generate workspace chang
 
 **If the task spec contains `## Investigation targets` with content, execute this phase. Otherwise skip to Phase 2a/2.**
 
+### Step 0: RP-powered deep context (if RP_CONTEXT != none)
+
+When `RP_CONTEXT` is set to `mcp` or `cli`, gather deep implementation context before manual investigation. This complements (does NOT replace) the investigation targets in Steps 1-3 below.
+
+```
+IF RP_CONTEXT == "mcp":
+  Call context_builder with:
+    instructions: "<task title>: <task description + acceptance criteria from spec>"
+    response_type: "plan"
+  Timeout: 120 seconds. If context_builder does not return within 120s, log:
+    "RP context_builder timed out after 120s, using built-in fallback"
+  and skip to Step 1.
+  Use the returned plan to guide Phase 2 implementation.
+
+ELIF RP_CONTEXT == "cli":
+  Run with 120s timeout:
+    timeout 120 rp-cli -e 'builder "<task title>: <description + acceptance criteria>" --response-type plan'
+  If timeout or failure, log:
+    "rp-cli builder timed out or failed, using built-in fallback"
+  and skip to Step 1.
+  Use the returned plan to guide Phase 2 implementation.
+
+ELSE (RP_CONTEXT == "none"):
+  Skip to Step 1 (existing behavior, unchanged).
+END
+```
+
+**Important**: Even when RP provides context, ALWAYS continue to Steps 1-3 below. RP provides architectural insight; investigation targets provide specific file patterns and constraints that RP may miss.
+
+### Step 1: Read investigation targets
+
 1. **Read every Required file** listed before writing any code. Note:
    - Patterns to follow (function signatures, naming conventions, structure)
    - Constraints discovered (validation rules, type contracts, env requirements)
    - Anything surprising that might affect your approach
+
+### Step 2: Similar functionality search
 
 2. **Similar functionality search** — before writing new code:
    ```bash
@@ -247,6 +281,8 @@ Save `GIT_BASELINE_REV` — you'll use it in Phase 5 to generate workspace chang
    - Found: `src/routes/api.ts:45` — following this pattern
    - No existing implementation found — creating new
    ```
+
+### Step 3: Optional files & completion
 
 3. Read **Optional** files as needed based on Step 1 findings.
 

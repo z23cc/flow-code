@@ -137,6 +137,25 @@ $FLOWCTL start <task-id-1> --json
 $FLOWCTL start <task-id-2> --json
 ```
 
+**RP context detection (once per wave, before spawning workers):**
+
+Detect RP availability and set `RP_CONTEXT` for workers. This controls whether workers use `context_builder` for deep implementation context in Phase 1.5.
+
+```bash
+# 1. Check if RP context is enabled (default: false — opt-in only)
+RP_ENABLED=$($FLOWCTL config get rp_context.enabled --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('value', False))" 2>/dev/null || echo "False")
+
+# 2. Override: --rp-context flag forces enabled, --no-rp-context forces disabled
+# (flags are parsed from $ARGUMENTS in SKILL.md)
+```
+
+Determine the RP_CONTEXT tier (check in order, first match wins):
+1. If `--no-rp-context` flag was passed OR `RP_ENABLED` is false → `RP_CONTEXT=none`
+2. If `--rp-context` flag was passed OR `RP_ENABLED` is true:
+   - **Tier 1 (MCP)**: Check if `mcp__RepoPrompt__context_builder` is in the available tools list for this session → `RP_CONTEXT=mcp`
+   - **Tier 2 (CLI)**: `which rp-cli >/dev/null 2>&1` succeeds → `RP_CONTEXT=cli`
+   - **Tier 3 (fallback)**: Neither available → `RP_CONTEXT=none`
+
 **Prompt generation for worker:**
 
 Use `flowctl worker-prompt --bootstrap` to generate a minimal bootstrap prompt for each worker. This outputs a ~200 token prompt that instructs the worker to call `worker-phase next` in a loop, fetching full phase instructions on demand.
@@ -167,6 +186,7 @@ Agent({
     REVIEW_MODE: none|rp|codex
     RALPH_MODE: true|false
     TDD_MODE: true|false
+    RP_CONTEXT: $RP_CONTEXT
     TEAM_MODE: true
   "
 })

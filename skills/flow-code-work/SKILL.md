@@ -81,7 +81,7 @@ Branch: <current|worktree> | Review: none (Layer 1 guard + Layer 3 adversarial)
 ### Explicit flag overrides
 
 These flags override the corresponding AI decision without entering the analysis flow:
-- `--branch=current|new|worktree`, `--review=rp|codex|export|none`, `--interactive`, `--tdd`
+- `--branch=current|new|worktree`, `--review=rp|codex|export|none`, `--interactive`, `--tdd`, `--rp-context`, `--no-rp-context`
 
 Proceed to Workflow immediately.
 

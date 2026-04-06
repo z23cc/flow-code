@@ -16,13 +16,6 @@ use flowctl_core::types::{
 
 use super::get_flow_dir;
 
-/// Open DB connection (hard error on failure, DB is sole source of truth).
-fn require_db() -> crate::commands::db_shim::Connection {
-    crate::commands::db_shim::require_db()
-        .unwrap_or_else(|e| {
-            crate::output::error_exit(&format!("Cannot open database: {e}"));
-        })
-}
 
 // ── Status command ──────────────────────────────────────────────────
 
@@ -156,13 +149,10 @@ pub fn cmd_status(json: bool, interrupted: bool) {
     }
 }
 
-/// Try to get status counts from SQLite database.
+/// Try to get status counts from JSON files.
 fn status_from_db() -> Option<(serde_json::Value, serde_json::Value)> {
-    let cwd = env::current_dir().ok()?;
-    let conn = crate::commands::db_shim::open(&cwd).ok()?;
-
-    let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    let epics = epic_repo.list(None).ok()?;
+    let flow_dir = crate::commands::helpers::get_flow_dir();
+    let epics = flowctl_core::json_store::epic_list(&flow_dir).ok()?;
 
     let mut epic_open = 0u64;
     let mut epic_done = 0u64;
@@ -173,8 +163,7 @@ fn status_from_db() -> Option<(serde_json::Value, serde_json::Value)> {
         }
     }
 
-    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    let tasks = task_repo.list_all(None, None).ok()?;
+    let tasks = flowctl_core::json_store::task_list_all(&flow_dir).ok()?;
 
     let mut todo = 0u64;
     let mut in_progress = 0u64;
@@ -219,29 +208,21 @@ fn is_daemon_heartbeat_alive(flow_dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Find open epics with undone tasks (interrupted work) from DB.
-fn find_interrupted_epics(_flow_dir: &Path) -> Vec<serde_json::Value> {
+/// Find open epics with undone tasks (interrupted work) from JSON files.
+fn find_interrupted_epics(flow_dir: &Path) -> Vec<serde_json::Value> {
     let mut interrupted = Vec::new();
 
-    let conn = match crate::commands::db_shim::require_db() {
-        Ok(c) => c,
-        Err(_) => return interrupted,
-    };
-
-    let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    let epics = match epic_repo.list(None) {
+    let epics = match flowctl_core::json_store::epic_list(flow_dir) {
         Ok(e) => e,
         Err(_) => return interrupted,
     };
-
-    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
 
     for epic in epics {
         if epic.status != flowctl_core::types::EpicStatus::Open {
             continue;
         }
 
-        let tasks = match task_repo.list_by_epic(&epic.id) {
+        let tasks = match flowctl_core::json_store::task_list_by_epic(flow_dir, &epic.id) {
             Ok(t) => t,
             Err(_) => continue,
         };
@@ -337,13 +318,11 @@ pub(super) fn validate_epic(flow_dir: &Path, epic_id: &str) -> (Vec<String>, Vec
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
-    // Read tasks from DB (sole source of truth)
+    // Read tasks from JSON files
     let mut tasks: std::collections::HashMap<String, flowctl_core::types::Task> =
         std::collections::HashMap::new();
 
-    let conn = require_db();
-    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    if let Ok(task_list) = task_repo.list_by_epic(epic_id) {
+    if let Ok(task_list) = flowctl_core::json_store::task_list_by_epic(flow_dir, epic_id) {
         for task in task_list {
             tasks.insert(task.id.clone(), task);
         }
@@ -351,12 +330,12 @@ pub(super) fn validate_epic(flow_dir: &Path, epic_id: &str) -> (Vec<String>, Vec
 
     // Validate each task
     for (task_id, task) in &tasks {
-        // Validate task body has required headings (read from DB)
+        // Validate task body has required headings (read from JSON)
         {
-            match task_repo.get_with_body(task_id) {
-                Ok((_t, body)) => {
+            match flowctl_core::json_store::task_spec_read(flow_dir, task_id) {
+                Ok(body) => {
                     if body.is_empty() {
-                        warnings.push(format!("Task {}: no body in DB", task_id));
+                        warnings.push(format!("Task {}: no spec body", task_id));
                     } else {
                         for heading in flowctl_core::types::TASK_SPEC_HEADINGS {
                             if !body.contains(heading) {
@@ -366,7 +345,7 @@ pub(super) fn validate_epic(flow_dir: &Path, epic_id: &str) -> (Vec<String>, Vec
                     }
                 }
                 Err(_) => {
-                    errors.push(format!("Task {}: could not read body from DB", task_id));
+                    errors.push(format!("Task {}: could not read spec", task_id));
                 }
             }
         }
@@ -430,9 +409,7 @@ pub fn cmd_validate(json_mode: bool, epic: Option<String>, all: bool) {
         // Validate all epics
         let root_errors = validate_flow_root(&flow_dir);
 
-        let conn = require_db();
-        let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        let mut epic_ids: Vec<String> = epic_repo.list(None)
+        let mut epic_ids: Vec<String> = flowctl_core::json_store::epic_list(&flow_dir)
             .unwrap_or_default()
             .into_iter()
             .map(|e| e.id)
@@ -553,9 +530,7 @@ pub fn cmd_doctor(json_mode: bool) {
     let mut validate_errors = root_errors.clone();
 
     {
-        let conn = require_db();
-        let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        if let Ok(epics) = epic_repo.list(None) {
+        if let Ok(epics) = flowctl_core::json_store::epic_list(&flow_dir) {
             for epic in &epics {
                 let (errors, _, _) = validate_epic(&flow_dir, &epic.id);
                 validate_errors.extend(errors);

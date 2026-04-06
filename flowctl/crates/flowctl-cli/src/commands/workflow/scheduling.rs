@@ -87,7 +87,7 @@ pub fn cmd_ready(json_mode: bool, epic: String) {
                 "depends_on": t.depends_on,
             })).collect::<Vec<_>>(),
             "in_progress": in_progress.iter().map(|t| {
-                let assignee = get_runtime(&t.id)
+                let assignee = get_runtime(&flow_dir, &t.id)
                     .and_then(|rt| rt.assignee)
                     .unwrap_or_default();
                 json!({
@@ -116,7 +116,7 @@ pub fn cmd_ready(json_mode: bool, epic: String) {
         if !in_progress.is_empty() {
             writeln!(buf, "\nIn progress:").ok();
             for t in &in_progress {
-                let assignee = get_runtime(&t.id)
+                let assignee = get_runtime(&flow_dir, &t.id)
                     .and_then(|rt| rt.assignee)
                     .unwrap_or_else(|| "unknown".to_string());
                 let marker = if assignee == current_actor {
@@ -230,7 +230,7 @@ pub fn cmd_next(
             .values()
             .filter(|t| t.status == Status::InProgress)
             .filter(|t| {
-                get_runtime(&t.id)
+                get_runtime(&flow_dir, &t.id)
                     .and_then(|rt| rt.assignee)
                     .map(|a| a == current_actor)
                     .unwrap_or(false)

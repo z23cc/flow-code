@@ -18,7 +18,7 @@ use crate::output::error_exit;
 
 use flowctl_core::id::parse_id;
 use flowctl_core::types::{
-    Epic, RuntimeState, Task,
+    Epic, Task,
 };
 
 use super::helpers::{get_flow_dir, resolve_actor};
@@ -34,7 +34,8 @@ pub(crate) fn ensure_flow_exists() -> PathBuf {
     flow_dir
 }
 
-/// Open DB connection (hard error on failure, DB is sole source of truth).
+/// Bridge: DB connection for functions not yet migrated (phase progress, runtime).
+/// TODO(fn-24): Remove once all workflow commands use json_store.
 pub(crate) fn require_db() -> crate::commands::db_shim::Connection {
     crate::commands::db_shim::require_db()
         .unwrap_or_else(|e| error_exit(&format!("Cannot open database: {e}")))
@@ -63,11 +64,9 @@ pub(crate) fn block_on<F: std::future::Future>(fut: F) -> F::Output {
     rt.block_on(fut)
 }
 
-/// Load all tasks for an epic from DB (sole source of truth).
-pub(crate) fn load_tasks_for_epic(_flow_dir: &Path, epic_id: &str) -> HashMap<String, Task> {
-    let conn = require_db();
-    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    let tasks = task_repo.list_by_epic(epic_id).unwrap_or_default();
+/// Load all tasks for an epic from JSON files.
+pub(crate) fn load_tasks_for_epic(flow_dir: &Path, epic_id: &str) -> HashMap<String, Task> {
+    let tasks = flowctl_core::json_store::task_list_by_epic(flow_dir, epic_id).unwrap_or_default();
     let mut map = HashMap::new();
     for task in tasks {
         map.insert(task.id.clone(), task);
@@ -75,19 +74,17 @@ pub(crate) fn load_tasks_for_epic(_flow_dir: &Path, epic_id: &str) -> HashMap<St
     map
 }
 
-/// Load an epic from DB (sole source of truth).
-pub(crate) fn load_epic(_flow_dir: &Path, epic_id: &str) -> Option<Epic> {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    repo.get(epic_id).ok()
+/// Load an epic from JSON files.
+pub(crate) fn load_epic(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
+    flowctl_core::json_store::epic_read(flow_dir, epic_id).ok()
 }
 
-/// Get runtime state for a task.
-pub(crate) fn get_runtime(task_id: &str) -> Option<RuntimeState> {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
-    repo.get(task_id).ok().flatten()
+/// Get runtime state for a task from JSON files.
+pub(crate) fn get_runtime(flow_dir: &Path, task_id: &str) -> Option<TaskState> {
+    flowctl_core::json_store::state_read(flow_dir, task_id).ok()
 }
+
+use flowctl_core::json_store::TaskState;
 
 /// Sort key for tasks: (priority, task_num, title).
 pub(crate) fn task_sort_key(task: &Task) -> (u32, u32, String) {
@@ -99,11 +96,9 @@ pub(crate) fn task_sort_key(task: &Task) -> (u32, u32, String) {
     )
 }
 
-/// Get all epic IDs from DB, sorted by epic number.
-pub(crate) fn scan_epic_ids(_flow_dir: &Path) -> Vec<String> {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    let mut ids: Vec<String> = repo.list(None)
+/// Get all epic IDs from JSON files, sorted by epic number.
+pub(crate) fn scan_epic_ids(flow_dir: &Path) -> Vec<String> {
+    let mut ids: Vec<String> = flowctl_core::json_store::epic_list(flow_dir)
         .unwrap_or_default()
         .into_iter()
         .map(|e| e.id)

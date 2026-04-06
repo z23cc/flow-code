@@ -64,7 +64,7 @@ pub async fn start_task_handler(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let task_id = body.task_id.clone();
     let conn = state.db.clone();
-    let flow_dir = flow_dir();
+    let flow_dir = state.flow_dir.clone();
     let req = StartTaskRequest {
         task_id,
         force: false,
@@ -98,7 +98,7 @@ pub async fn start_task_rest_handler(
     let force = body.force.unwrap_or(false);
     let actor = body.actor.unwrap_or_else(|| "daemon".to_string());
     let conn = state.db.clone();
-    let flow_dir = flow_dir();
+    let flow_dir = state.flow_dir.clone();
     let req = StartTaskRequest { task_id, force, actor };
 
     match flowctl_service::lifecycle::start_task(Some(&conn), &flow_dir, req).await {
@@ -127,7 +127,7 @@ pub async fn done_task_rest_handler(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let body = body.unwrap_or_default();
     let conn = state.db.clone();
-    let flow_dir = flow_dir();
+    let flow_dir = state.flow_dir.clone();
     let req = DoneTaskRequest {
         task_id,
         summary: body.summary,
@@ -165,7 +165,7 @@ pub async fn block_task_rest_handler(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let reason = body.reason;
     let conn = state.db.clone();
-    let flow_dir = flow_dir();
+    let flow_dir = state.flow_dir.clone();
     let req = BlockTaskRequest { task_id, reason };
 
     match flowctl_service::lifecycle::block_task(Some(&conn), &flow_dir, req).await {
@@ -195,7 +195,7 @@ pub async fn restart_task_rest_handler(
     let body = body.unwrap_or_default();
     let force = body.force.unwrap_or(true);
     let conn = state.db.clone();
-    let flow_dir = flow_dir();
+    let flow_dir = state.flow_dir.clone();
     let req = RestartTaskRequest {
         task_id,
         dry_run: false,
@@ -263,7 +263,7 @@ pub async fn done_task_handler(
     let task_id = body.task_id.clone();
     let summary = body.summary.clone();
     let conn = state.db.clone();
-    let flow_dir = flow_dir();
+    let flow_dir = state.flow_dir.clone();
     let req = DoneTaskRequest {
         task_id,
         summary,
@@ -333,7 +333,7 @@ pub async fn block_task_handler(
     let task_id = body.task_id.clone();
     let reason = body.reason.clone();
     let conn = state.db.clone();
-    let flow_dir = flow_dir();
+    let flow_dir = state.flow_dir.clone();
     let req = BlockTaskRequest { task_id, reason };
 
     match flowctl_service::lifecycle::block_task(Some(&conn), &flow_dir, req).await {
@@ -362,7 +362,7 @@ pub async fn restart_task_handler(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let task_id = body.task_id.clone();
     let conn = state.db.clone();
-    let flow_dir = flow_dir();
+    let flow_dir = state.flow_dir.clone();
     let req = RestartTaskRequest {
         task_id,
         dry_run: false,

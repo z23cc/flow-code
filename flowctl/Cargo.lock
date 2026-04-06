@@ -737,7 +737,7 @@ dependencies = [
 
 [[package]]
 name = "flowctl-cli"
-version = "0.1.29"
+version = "0.1.30"
 dependencies = [
  "anyhow",
  "chrono",
@@ -753,7 +753,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "trycmd",

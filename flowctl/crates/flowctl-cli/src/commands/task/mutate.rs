@@ -1,16 +1,13 @@
 //! Task mutation commands: reset, skip, split, set-deps.
 
-use std::fs;
-
 use chrono::Utc;
 use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
-use flowctl_core::frontmatter;
 use flowctl_core::id::{epic_id_from_task, is_task_id};
 use flowctl_core::state_machine::Status;
-use flowctl_core::types::{Task, FLOW_DIR, TASKS_DIR};
+use flowctl_core::types::{Task, FLOW_DIR};
 
 use super::{
     clear_evidence_in_body, create_task_spec, ensure_flow_exists, find_dependents, load_epic_md,
@@ -83,34 +80,28 @@ pub(super) fn cmd_task_reset(json_mode: bool, task_id: &str, cascade: bool) {
     if cascade {
         let dependents = find_dependents(&flow_dir, task_id);
         for dep_id in &dependents {
-            if let Ok(dep_doc_result) = (|| -> Result<frontmatter::Document<Task>, ()> {
-                let p = flow_dir.join(TASKS_DIR).join(format!("{}.md", dep_id));
-                let content = fs::read_to_string(&p).map_err(|_| ())?;
-                frontmatter::parse::<Task>(&content).map_err(|_| ())
-            })() {
-                let mut dep_doc = dep_doc_result;
-                let dep_status = dep_doc.frontmatter.status;
-                if dep_status == Status::InProgress || dep_status == Status::Todo {
-                    continue;
-                }
-
-                dep_doc.frontmatter.status = Status::Todo;
-                dep_doc.frontmatter.updated_at = Utc::now();
-                dep_doc.body = clear_evidence_in_body(&dep_doc.body);
-                write_task_doc(&flow_dir, dep_id, &dep_doc);
-
-                if let Ok(conn) = require_db() {
-                    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-                    let _ = repo.update_status(dep_id, Status::Todo);
-                    let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
-                    let blank = flowctl_core::types::RuntimeState {
-                        task_id: dep_id.to_string(),
-                        ..Default::default()
-                    };
-                    let _ = runtime_repo.upsert(&blank);
-                }
-                reset_ids.push(dep_id.clone());
+            let mut dep_doc = load_task_doc(&flow_dir, dep_id);
+            let dep_status = dep_doc.frontmatter.status;
+            if dep_status == Status::InProgress || dep_status == Status::Todo {
+                continue;
             }
+
+            dep_doc.frontmatter.status = Status::Todo;
+            dep_doc.frontmatter.updated_at = Utc::now();
+            dep_doc.body = clear_evidence_in_body(&dep_doc.body);
+            write_task_doc(&flow_dir, dep_id, &dep_doc);
+
+            if let Ok(conn) = require_db() {
+                let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+                let _ = repo.update_status(dep_id, Status::Todo);
+                let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
+                let blank = flowctl_core::types::RuntimeState {
+                    task_id: dep_id.to_string(),
+                    ..Default::default()
+                };
+                let _ = runtime_repo.upsert(&blank);
+            }
+            reset_ids.push(dep_id.clone());
         }
     }
 
@@ -139,12 +130,6 @@ pub(super) fn cmd_task_skip(json_mode: bool, task_id: &str, reason: Option<&str>
     doc.frontmatter.status = Status::Skipped;
     doc.frontmatter.updated_at = Utc::now();
     write_task_doc(&flow_dir, task_id, &doc);
-
-    // Update DB
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        let _ = repo.update_status(task_id, Status::Skipped);
-    }
 
     let reason_str = reason.unwrap_or("");
     if json_mode {
@@ -226,22 +211,17 @@ pub(super) fn cmd_task_split(json_mode: bool, task_id: &str, titles: &str, chain
             r#impl: None,
             review: None,
             sync: None,
-            file_path: Some(format!("{}/{}/{}.md", FLOW_DIR, TASKS_DIR, sub_id)),
+            file_path: Some(format!("{}/tasks/{}.md", FLOW_DIR, sub_id)),
             created_at: now,
             updated_at: now,
         };
 
         let body = create_task_spec(&sub_id, sub_title, None);
-        let sub_doc = frontmatter::Document {
-            frontmatter: sub_task.clone(),
+        let sub_doc = flowctl_core::frontmatter::Document {
+            frontmatter: sub_task,
             body,
         };
         write_task_doc(&flow_dir, &sub_id, &sub_doc);
-
-        if let Ok(conn) = require_db() {
-            let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-            let _ = repo.upsert(&sub_task);
-        }
 
         created.push(sub_id);
     }
@@ -252,54 +232,32 @@ pub(super) fn cmd_task_split(json_mode: bool, task_id: &str, titles: &str, chain
     orig_doc.frontmatter.updated_at = now;
     write_task_doc(&flow_dir, task_id, &orig_doc);
 
+    // Update tasks that depended on original to depend on last sub-task (via DB)
+    let last_sub = created.last().unwrap().clone();
     if let Ok(conn) = require_db() {
         let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        let _ = repo.update_status(task_id, Status::Skipped);
-    }
-
-    // Update tasks that depended on original to depend on last sub-task
-    let last_sub = created.last().unwrap().clone();
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    if let Ok(entries) = fs::read_dir(&tasks_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if !name_str.starts_with(&epic_id) || !name_str.ends_with(".md") {
-                continue;
-            }
-            let other_id = name_str.trim_end_matches(".md").to_string();
-            if other_id == task_id || created.contains(&other_id) {
-                continue;
-            }
-            if !is_task_id(&other_id) {
-                continue;
-            }
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                if let Ok(mut other_doc) = frontmatter::parse::<Task>(&content) {
-                    if other_doc.frontmatter.depends_on.contains(&task_id.to_string()) {
-                        other_doc.frontmatter.depends_on = other_doc
-                            .frontmatter
-                            .depends_on
-                            .iter()
-                            .map(|d| {
-                                if d == task_id {
-                                    last_sub.clone()
-                                } else {
-                                    d.clone()
-                                }
-                            })
-                            .collect();
-                        other_doc.frontmatter.updated_at = now;
-
-                        // Re-read full doc to preserve body
-                        if let Ok(full_doc) = frontmatter::parse::<Task>(&content) {
-                            let updated_doc = frontmatter::Document {
-                                frontmatter: other_doc.frontmatter,
-                                body: full_doc.body,
-                            };
-                            write_task_doc(&flow_dir, &updated_doc.frontmatter.id, &updated_doc);
-                        }
-                    }
+        if let Ok(all_tasks) = repo.list_by_epic(&epic_id) {
+            for other_task in all_tasks {
+                let other_id = &other_task.id;
+                if other_id == task_id || created.contains(other_id) {
+                    continue;
+                }
+                if other_task.depends_on.contains(&task_id.to_string()) {
+                    let mut other_doc = load_task_doc(&flow_dir, other_id);
+                    other_doc.frontmatter.depends_on = other_doc
+                        .frontmatter
+                        .depends_on
+                        .iter()
+                        .map(|d| {
+                            if d == task_id {
+                                last_sub.clone()
+                            } else {
+                                d.clone()
+                            }
+                        })
+                        .collect();
+                    other_doc.frontmatter.updated_at = now;
+                    write_task_doc(&flow_dir, other_id, &other_doc);
                 }
             }
         }
@@ -378,11 +336,6 @@ pub(super) fn cmd_task_set_deps(json_mode: bool, task_id: &str, deps: &str) {
     if !added.is_empty() {
         doc.frontmatter.updated_at = Utc::now();
         write_task_doc(&flow_dir, task_id, &doc);
-
-        if let Ok(conn) = require_db() {
-            let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-            let _ = repo.upsert(&doc.frontmatter);
-        }
     }
 
     if json_mode {

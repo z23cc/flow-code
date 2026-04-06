@@ -5,7 +5,6 @@ mod create;
 mod mutate;
 mod query;
 
-use std::fs;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 
@@ -15,9 +14,9 @@ use regex::Regex;
 use crate::output::error_exit;
 
 use flowctl_core::frontmatter;
-use flowctl_core::id::{epic_id_from_task, is_task_id};
+use flowctl_core::id::epic_id_from_task;
 use flowctl_core::types::{
-    Domain, Epic, Task, EPICS_DIR, TASKS_DIR,
+    Domain, Epic, Task,
 };
 
 #[derive(Subcommand, Debug)]
@@ -143,34 +142,17 @@ fn read_file_or_stdin(path: &str) -> String {
             .unwrap_or_else(|e| error_exit(&format!("Failed to read stdin: {e}")));
         buf
     } else {
-        fs::read_to_string(path)
+        std::fs::read_to_string(path)
             .unwrap_or_else(|e| error_exit(&format!("Failed to read file '{}': {e}", path)))
     }
 }
 
-/// Scan .flow/tasks/ to find max task number for an epic. Returns 0 if none exist.
-fn scan_max_task_id(flow_dir: &Path, epic_id: &str) -> u32 {
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    if !tasks_dir.exists() {
-        return 0;
-    }
-
-    let pattern = format!(r"^{}\.(\d+)\.md$", regex::escape(epic_id));
-    let re = Regex::new(&pattern).expect("task ID regex is valid");
-
-    let mut max_n: u32 = 0;
-    if let Ok(entries) = fs::read_dir(&tasks_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if let Some(caps) = re.captures(&name_str) {
-                if let Ok(n) = caps[1].parse::<u32>() {
-                    max_n = max_n.max(n);
-                }
-            }
-        }
-    }
-    max_n
+/// Get max task number for an epic from DB. Returns 0 if none exist.
+fn scan_max_task_id(_flow_dir: &Path, epic_id: &str) -> u32 {
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required for scan_max_task_id: {e}")));
+    let n = crate::commands::db_shim::max_task_num(&conn, epic_id).unwrap_or(0);
+    n as u32
 }
 
 /// Parse a domain string into a Domain enum.
@@ -195,82 +177,43 @@ fn create_task_spec(id: &str, title: &str, acceptance: Option<&str>) -> String {
     )
 }
 
-/// Load a task: DB first, markdown fallback.
+/// Load a task from DB (no MD fallback).
 fn load_task_md(_flow_dir: &Path, task_id: &str) -> Task {
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Ok(task) = repo.get(task_id) {
-            return task;
-        }
-    }
-    // Fallback to markdown.
-    let flow_dir = _flow_dir;
-    let spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
-    if !spec_path.exists() {
-        error_exit(&format!("Task {} not found", task_id));
-    }
-    let content = fs::read_to_string(&spec_path)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to read task {}: {e}", task_id)));
-    let doc: frontmatter::Document<Task> = frontmatter::parse(&content)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to parse task {}: {e}", task_id)));
-    doc.frontmatter
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    repo.get(task_id)
+        .unwrap_or_else(|_| error_exit(&format!("Task {} not found", task_id)))
 }
 
-/// Load an epic: DB first, markdown fallback.
+/// Load an epic from DB (no MD fallback).
 fn load_epic_md(_flow_dir: &Path, epic_id: &str) -> Option<Epic> {
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        if let Ok(epic) = repo.get(epic_id) {
-            return Some(epic);
-        }
-    }
-    let flow_dir = _flow_dir;
-    let spec_path = flow_dir.join(EPICS_DIR).join(format!("{}.md", epic_id));
-    if !spec_path.exists() {
-        return None;
-    }
-    let content = fs::read_to_string(&spec_path).ok()?;
-    let doc: frontmatter::Document<Epic> = frontmatter::parse(&content).ok()?;
-    Some(doc.frontmatter)
+    let conn = require_db().ok()?;
+    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    repo.get(epic_id).ok()
 }
 
-/// Load task's full document (frontmatter + body): DB first, markdown fallback.
-fn load_task_doc(flow_dir: &Path, task_id: &str) -> frontmatter::Document<Task> {
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Ok((task, body)) = repo.get_with_body(task_id) {
-            return frontmatter::Document {
-                frontmatter: task,
-                body,
-            };
-        }
+/// Load task's full document (frontmatter + body) from DB (no MD fallback).
+fn load_task_doc(_flow_dir: &Path, task_id: &str) -> frontmatter::Document<Task> {
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    let (task, body) = repo.get_with_body(task_id)
+        .unwrap_or_else(|_| error_exit(&format!("Task {} not found", task_id)));
+    frontmatter::Document {
+        frontmatter: task,
+        body,
     }
-    // Fallback to markdown.
-    let spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
-    if !spec_path.exists() {
-        error_exit(&format!("Task {} not found", task_id));
-    }
-    let content = fs::read_to_string(&spec_path)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to read task {}: {e}", task_id)));
-    frontmatter::parse(&content)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to parse task {}: {e}", task_id)))
 }
 
-/// Write a task document: DB first, then export markdown.
-fn write_task_doc(flow_dir: &Path, task_id: &str, doc: &frontmatter::Document<Task>) {
-    // Write to DB.
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
-            eprintln!("warning: DB write failed for {task_id}: {e}");
-        }
+/// Write a task document to DB only (no MD export).
+fn write_task_doc(_flow_dir: &Path, task_id: &str, doc: &frontmatter::Document<Task>) {
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required for write: {e}")));
+    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
+        error_exit(&format!("DB write failed for {task_id}: {e}"));
     }
-    // Export to markdown.
-    let spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
-    let content = frontmatter::write(doc)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to serialize task {}: {e}", task_id)));
-    fs::write(&spec_path, content)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to write task {}: {e}", task_id)));
 }
 
 /// Patch a specific section in a Markdown body. Replaces content under `section`
@@ -319,38 +262,24 @@ fn patch_body_section(body: &str, section: &str, new_content: &str) -> String {
     result.join("\n")
 }
 
-/// Find tasks that depend on a given task (recursive BFS within same epic).
-fn find_dependents(flow_dir: &Path, task_id: &str) -> Vec<String> {
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    if !tasks_dir.exists() {
-        return vec![];
-    }
-
+/// Find tasks that depend on a given task (recursive BFS within same epic) via DB.
+fn find_dependents(_flow_dir: &Path, task_id: &str) -> Vec<String> {
     let epic_id = match epic_id_from_task(task_id) {
         Ok(id) => id,
         Err(_) => return vec![],
     };
 
-    // Load all tasks in the epic
-    let mut all_tasks: Vec<(String, Vec<String>)> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&tasks_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if !name_str.starts_with(&epic_id) || !name_str.ends_with(".md") {
-                continue;
-            }
-            let tid = name_str.trim_end_matches(".md").to_string();
-            if !is_task_id(&tid) {
-                continue;
-            }
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                if let Ok(doc) = frontmatter::parse::<Task>(&content) {
-                    all_tasks.push((doc.frontmatter.id.clone(), doc.frontmatter.depends_on.clone()));
-                }
-            }
-        }
-    }
+    let conn = match require_db() {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+
+    // Load all tasks in the epic from DB
+    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    let all_tasks: Vec<(String, Vec<String>)> = match repo.list_by_epic(&epic_id) {
+        Ok(tasks) => tasks.into_iter().map(|t| (t.id.clone(), t.depends_on.clone())).collect(),
+        Err(_) => return vec![],
+    };
 
     // BFS
     let mut dependents: Vec<String> = Vec::new();

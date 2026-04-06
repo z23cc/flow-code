@@ -9,7 +9,7 @@ use flowctl_core::id::is_task_id;
 
 use super::{
     ensure_flow_exists, load_epic_md, load_task_doc, load_task_md, patch_body_section,
-    read_file_or_stdin, require_db, write_task_doc,
+    read_file_or_stdin, write_task_doc,
 };
 
 pub(super) fn cmd_task_set_spec(
@@ -41,11 +41,6 @@ pub(super) fn cmd_task_set_spec(
         doc.frontmatter.updated_at = Utc::now();
         write_task_doc(&flow_dir, task_id, &doc);
 
-        if let Ok(conn) = require_db() {
-            let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-            let _ = repo.upsert(&doc.frontmatter);
-        }
-
         if json_mode {
             json_output(json!({
                 "id": task_id,
@@ -74,11 +69,6 @@ pub(super) fn cmd_task_set_spec(
 
     doc.frontmatter.updated_at = Utc::now();
     write_task_doc(&flow_dir, task_id, &doc);
-
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        let _ = repo.upsert(&doc.frontmatter);
-    }
 
     if json_mode {
         json_output(json!({
@@ -132,11 +122,6 @@ pub(super) fn cmd_task_set_backend(
 
     doc.frontmatter.updated_at = Utc::now();
     write_task_doc(&flow_dir, task_id, &doc);
-
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        let _ = repo.upsert(&doc.frontmatter);
-    }
 
     let msg = format!("Task {} backend specs updated: {}", task_id, updated.join(", "));
     if json_mode {

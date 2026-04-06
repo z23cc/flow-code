@@ -7,7 +7,7 @@ use crate::output::{error_exit, json_output};
 
 use flowctl_core::id::{epic_id_from_task, is_epic_id, is_task_id};
 use flowctl_core::state_machine::Status;
-use flowctl_core::types::{Domain, Task, FLOW_DIR, SPECS_DIR, TASKS_DIR};
+use flowctl_core::types::{Domain, Task, FLOW_DIR, SPECS_DIR};
 
 use super::{
     create_task_spec, ensure_flow_exists, parse_domain, read_file_or_stdin, scan_max_task_id,
@@ -52,13 +52,15 @@ pub(super) fn cmd_task_create(
     let task_num = scan_max_task_id(&flow_dir, epic_id) + 1;
     let task_id = format!("{}.{}", epic_id, task_num);
 
-    // Check no collision
-    let spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
-    if spec_path.exists() {
-        error_exit(&format!(
-            "Refusing to overwrite existing task {}. Check for orphaned files.",
-            task_id
-        ));
+    // Check no collision in DB
+    if let Ok(conn) = require_db() {
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+        if repo.get(&task_id).is_ok() {
+            error_exit(&format!(
+                "Refusing to overwrite existing task {}. Check for orphaned entries.",
+                task_id
+            ));
+        }
     }
 
     // Parse dependencies
@@ -119,7 +121,7 @@ pub(super) fn cmd_task_create(
         r#impl: None,
         review: None,
         sync: None,
-        file_path: Some(format!("{}/{}/{}.md", FLOW_DIR, TASKS_DIR, task_id)),
+        file_path: Some(format!("{}/tasks/{}.md", FLOW_DIR, task_id)),
         created_at: now,
         updated_at: now,
     };
@@ -127,20 +129,14 @@ pub(super) fn cmd_task_create(
     // Create spec markdown body
     let body = create_task_spec(&task_id, title, acceptance.as_deref());
 
-    // Write Markdown file with frontmatter
+    // Write to DB via write_task_doc (DB-only, no MD export)
     let doc = flowctl_core::frontmatter::Document {
-        frontmatter: task.clone(),
+        frontmatter: task,
         body,
     };
     write_task_doc(&flow_dir, &task_id, &doc);
 
-    // Upsert into SQLite if DB available
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        let _ = repo.upsert(&task);
-    }
-
-    let spec_path_str = format!("{}/{}/{}.md", FLOW_DIR, TASKS_DIR, task_id);
+    let spec_path_str = format!("{}/tasks/{}.md", FLOW_DIR, task_id);
     if json_mode {
         json_output(json!({
             "id": task_id,

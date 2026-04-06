@@ -134,15 +134,39 @@ fn detect_stack() -> serde_json::Value {
     // --- Backend detection ---
     let mut backend = json!({});
 
-    // Rust detection
+    // Rust detection — check repo root and one level of subdirectories
     let cargo_toml = repo.join("Cargo.toml");
-    if cargo_toml.exists() {
+    let rust_dir = if cargo_toml.exists() {
+        Some((repo.clone(), cargo_toml.clone()))
+    } else {
+        // Check immediate subdirectories for Cargo.toml (e.g., flowctl/Cargo.toml)
+        fs::read_dir(&repo).ok().and_then(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|e| e.file_type().is_ok_and(|ft| ft.is_dir()))
+                .find_map(|e| {
+                    let candidate = e.path().join("Cargo.toml");
+                    if candidate.exists() {
+                        Some((e.path(), candidate))
+                    } else {
+                        None
+                    }
+                })
+        })
+    };
+    if let Some((rust_root, cargo_path)) = rust_dir {
         backend["language"] = json!("rust");
-        backend["test"] = json!("cargo test");
-        backend["lint"] = json!("cargo clippy -- -D warnings");
-        backend["typecheck"] = json!("cargo check");
+        // Use relative path prefix for subdirectory workspaces
+        let prefix = if rust_root == repo {
+            String::new()
+        } else {
+            format!("cd {} && ", rust_root.file_name().unwrap_or_default().to_string_lossy())
+        };
+        backend["test"] = json!(format!("{prefix}cargo test --all"));
+        backend["lint"] = json!(format!("{prefix}cargo clippy --all-targets -- -D warnings"));
+        backend["typecheck"] = json!(format!("{prefix}cargo check"));
 
-        if let Ok(content) = fs::read_to_string(&cargo_toml) {
+        if let Ok(content) = fs::read_to_string(&cargo_path) {
             if content.contains("actix") {
                 backend["framework"] = json!("actix");
             } else if content.contains("axum") {

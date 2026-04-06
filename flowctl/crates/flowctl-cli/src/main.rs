@@ -122,6 +122,9 @@ enum Commands {
         /// Include review Phase 4 (rp or codex).
         #[arg(long, value_parser = ["rp", "codex"])]
         review: Option<String>,
+        /// Output minimal bootstrap prompt (~200 tokens).
+        #[arg(long)]
+        bootstrap: bool,
     },
 
     /// Render ASCII DAG of task dependencies.
@@ -459,7 +462,7 @@ fn main() {
             source,
         } => admin::cmd_parse_findings(json, file, epic, register, source),
         Commands::Guard { layer } => admin::cmd_guard(json, layer),
-        Commands::WorkerPrompt { task, tdd, review } => {
+        Commands::WorkerPrompt { task, tdd, review, bootstrap: _ } => {
             admin::cmd_worker_prompt(json, task, tdd, review)
         }
 

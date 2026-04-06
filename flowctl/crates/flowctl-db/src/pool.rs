@@ -89,6 +89,16 @@ async fn apply_schema(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(SCHEMA_SQL)
         .await
         .map_err(|e| DbError::Schema(format!("schema apply failed: {e}")))?;
+
+    // Try to create the vector index (requires libSQL server extensions).
+    // Gracefully degrade if not available (embedded/core mode).
+    let _ = conn
+        .execute(
+            "CREATE INDEX IF NOT EXISTS memory_emb_idx ON memory(libsql_vector_idx(embedding))",
+            (),
+        )
+        .await;
+
     Ok(())
 }
 

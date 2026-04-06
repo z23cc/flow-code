@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS memory (
     created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     last_verified TEXT,
     refs          INTEGER NOT NULL DEFAULT 0,
-    embedding     F32_BLOB(384)
+    embedding     BLOB
 );
 
 -- ── Indexes ─────────────────────────────────────────────────────────
@@ -211,7 +211,9 @@ CREATE INDEX IF NOT EXISTS idx_memory_track ON memory(track);
 CREATE INDEX IF NOT EXISTS idx_memory_severity ON memory(severity);
 
 -- Native libSQL vector index for semantic memory search
-CREATE INDEX IF NOT EXISTS memory_emb_idx ON memory(libsql_vector_idx(embedding));
+-- NOTE: libsql_vector_idx requires libSQL server extensions (not available in core/embedded mode).
+-- Applied separately in pool.rs with graceful degradation.
+-- CREATE INDEX IF NOT EXISTS memory_emb_idx ON memory(libsql_vector_idx(embedding));
 
 -- ── Auto-aggregation trigger ────────────────────────────────────────
 

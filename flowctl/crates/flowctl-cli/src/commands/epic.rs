@@ -1,21 +1,22 @@
 //! Epic management commands.
+//!
+//! All CRUD operations go through the DB (sole source of truth).
+//! Markdown is only used for spec body content (`specs/*.md`) and reviews.
 
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use clap::Subcommand;
-use regex::Regex;
 use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
 use flowctl_core::frontmatter;
-use flowctl_core::id::{generate_epic_suffix, is_epic_id, is_task_id, parse_id, slugify};
+use flowctl_core::id::{generate_epic_suffix, is_epic_id, parse_id, slugify};
 use flowctl_core::types::{
-    Epic, EpicStatus, ReviewStatus, Task, ARCHIVE_DIR, EPICS_DIR, FLOW_DIR, META_FILE,
-    REVIEWS_DIR, SPECS_DIR, TASKS_DIR,
+    Epic, EpicStatus, ReviewStatus, ARCHIVE_DIR, FLOW_DIR, META_FILE,
+    REVIEWS_DIR, SPECS_DIR,
 };
 
 #[derive(Subcommand, Debug)]
@@ -167,42 +168,25 @@ fn validate_epic_id(id: &str) {
     }
 }
 
-/// Load epic document: DB first, markdown fallback.
-fn load_epic(epic_path: &Path, id: &str) -> frontmatter::Document<Epic> {
-    // Try DB first.
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        if let Ok((epic, body)) = repo.get_with_body(id) {
-            return frontmatter::Document { frontmatter: epic, body };
-        }
+/// Load epic document from DB (sole source of truth).
+fn load_epic(id: &str) -> frontmatter::Document<Epic> {
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    match repo.get_with_body(id) {
+        Ok((epic, body)) => frontmatter::Document { frontmatter: epic, body },
+        Err(_) => error_exit(&format!("Epic {id} not found")),
     }
-    // Fallback to markdown.
-    if !epic_path.exists() {
-        error_exit(&format!("Epic {id} not found"));
-    }
-    let content = fs::read_to_string(epic_path)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to read {}: {e}", epic_path.display())));
-    frontmatter::parse::<Epic>(&content)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to parse epic {id}: {e}")))
 }
 
-/// Write an epic document: DB first, then export markdown.
-fn save_epic(epic_path: &Path, doc: &frontmatter::Document<Epic>) {
-    // Write to DB.
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
-            eprintln!("warning: DB write failed for {}: {e}", doc.frontmatter.id);
-        }
+/// Write an epic document to DB (sole source of truth, no MD export).
+fn save_epic(doc: &frontmatter::Document<Epic>) {
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
+        error_exit(&format!("DB write failed for {}: {e}", doc.frontmatter.id));
     }
-    // Export to markdown.
-    let content = frontmatter::write(doc)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to serialize epic: {e}")));
-    if let Some(parent) = epic_path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    fs::write(epic_path, &content)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to write {}: {e}", epic_path.display())));
 }
 
 /// Open DB connection (hard error if unavailable).
@@ -210,55 +194,14 @@ fn require_db() -> Result<crate::commands::db_shim::Connection, crate::commands:
     crate::commands::db_shim::require_db()
 }
 
-/// Upsert epic into SQLite (hard error if DB unavailable).
-fn db_upsert_epic(epic: &Epic) {
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        let _ = repo.upsert(epic);
+/// Get max epic number from DB. Returns 0 if none exist.
+fn find_max_epic_number() -> u32 {
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    match crate::commands::db_shim::max_epic_num(&conn) {
+        Ok(n) => n as u32,
+        Err(_) => 0,
     }
-}
-
-/// Scan .flow/epics/ and .flow/specs/ to find max epic number.
-/// Returns 0 if none exist.
-fn scan_max_epic_id(flow_dir: &Path) -> u32 {
-    let pattern = Regex::new(r"^fn-(\d+)(?:-[a-z0-9][a-z0-9-]*[a-z0-9]|-[a-z0-9]{1,3})?\.(md|json)$")
-        .expect("valid regex");
-
-    let mut max_n: u32 = 0;
-
-    // Scan epics/*.md
-    let epics_dir = flow_dir.join(EPICS_DIR);
-    if epics_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&epics_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if let Some(caps) = pattern.captures(&name_str) {
-                    if let Ok(n) = caps[1].parse::<u32>() {
-                        max_n = max_n.max(n);
-                    }
-                }
-            }
-        }
-    }
-
-    // Scan specs/*.md as safety net
-    let specs_dir = flow_dir.join(SPECS_DIR);
-    if specs_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&specs_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if let Some(caps) = pattern.captures(&name_str) {
-                    if let Ok(n) = caps[1].parse::<u32>() {
-                        max_n = max_n.max(n);
-                    }
-                }
-            }
-        }
-    }
-
-    max_n
 }
 
 /// Create default epic spec Markdown body.
@@ -300,24 +243,7 @@ fn read_file_or_stdin(file: &str) -> String {
 /// Gap-blocking priorities (matches Python's GAP_BLOCKING_PRIORITIES).
 const GAP_BLOCKING_PRIORITIES: &[&str] = &["required", "important"];
 
-/// Load epic as raw JSON Value from frontmatter (for gap checks and extra fields).
-/// Falls back to trying JSON format for legacy compatibility.
-fn load_epic_raw(epic_path: &Path, id: &str) -> serde_json::Value {
-    if !epic_path.exists() {
-        error_exit(&format!("Epic {id} not found"));
-    }
-    let content = fs::read_to_string(epic_path)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to read {}: {e}", epic_path.display())));
-
-    // Try frontmatter parse first
-    if content.trim_start().starts_with("---") {
-        if let Ok(doc) = frontmatter::parse::<serde_json::Value>(&content) { return doc.frontmatter }
-    }
-
-    // Fall back to raw JSON
-    serde_json::from_str(&content)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to parse epic {id}: {e}")))
-}
+// load_epic_raw() removed — gap checks now use DB GapRepo
 
 // ── Command implementations ─────────────────────────────────────────
 
@@ -330,17 +256,16 @@ fn cmd_create(title: &str, branch: &Option<String>, json_mode: bool) {
         error_exit("meta.json not found. Run 'flowctl init' first.");
     }
 
-    // Scan-based ID allocation
-    let max_epic = scan_max_epic_id(&flow_dir);
+    // DB-based ID allocation
+    let max_epic = find_max_epic_number();
     let epic_num = max_epic + 1;
     let slug = slugify(title, 40);
     let suffix = slug.unwrap_or_else(|| generate_epic_suffix(3));
     let epic_id = format!("fn-{epic_num}-{suffix}");
 
-    // Collision check
-    let epic_md_path = flow_dir.join(EPICS_DIR).join(format!("{epic_id}.md"));
+    // Collision check: only check spec file (no more epic MD)
     let spec_path = flow_dir.join(SPECS_DIR).join(format!("{epic_id}.md"));
-    if epic_md_path.exists() || spec_path.exists() {
+    if spec_path.exists() {
         error_exit(&format!(
             "Refusing to overwrite existing epic {epic_id}. \
              This shouldn't happen - check for orphaned files."
@@ -365,28 +290,25 @@ fn cmd_create(title: &str, branch: &Option<String>, json_mode: bool) {
         auto_execute_pending: None,
         auto_execute_set_at: None,
         archived: false,
-        file_path: Some(format!("epics/{epic_id}.md")),
+        file_path: Some(format!("specs/{epic_id}.md")),
         created_at: now,
         updated_at: now,
     };
 
-    // Write epic Markdown
+    // Write to DB (sole source of truth)
     let body = create_epic_spec_body(&epic_id, title);
     let doc = frontmatter::Document {
-        frontmatter: epic.clone(),
+        frontmatter: epic,
         body: body.clone(),
     };
-    save_epic(&epic_md_path, &doc);
+    save_epic(&doc);
 
-    // Write spec file (separate body-only file in specs/)
+    // Write spec file (body-only Markdown in specs/)
     if let Some(parent) = spec_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
     fs::write(&spec_path, &body)
         .unwrap_or_else(|e| error_exit(&format!("Failed to write spec: {e}")));
-
-    // SQLite dual-write
-    db_upsert_epic(&epic);
 
     if json_mode {
         json_output(json!({
@@ -404,14 +326,13 @@ fn cmd_set_plan(id: &str, file: &str, json_mode: bool) {
     let flow_dir = ensure_flow_exists();
     validate_epic_id(id);
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-    let mut doc = load_epic(&epic_path, id);
+    let mut doc = load_epic(id);
 
     // Read content from file or stdin
     let content = read_file_or_stdin(file);
 
     // Validate: reject duplicate headings
-    let heading_re = Regex::new(r"(?m)^(##\s+.+?)\s*$").expect("valid regex");
+    let heading_re = regex::Regex::new(r"(?m)^(##\s+.+?)\s*$").expect("valid regex");
     let mut seen = std::collections::HashMap::new();
     for cap in heading_re.captures_iter(&content) {
         let h = cap[1].to_string();
@@ -426,15 +347,15 @@ fn cmd_set_plan(id: &str, file: &str, json_mode: bool) {
         error_exit(&format!("Spec validation failed: {}", duplicates.join("; ")));
     }
 
-    // Write spec
+    // Write spec file (body-only Markdown)
     let spec_path = flow_dir.join(SPECS_DIR).join(format!("{id}.md"));
     fs::write(&spec_path, &content)
         .unwrap_or_else(|e| error_exit(&format!("Failed to write spec: {e}")));
 
-    // Update epic timestamp
+    // Update epic body + timestamp in DB
+    doc.body = content;
     doc.frontmatter.updated_at = Utc::now();
-    save_epic(&epic_path, &doc);
-    db_upsert_epic(&doc.frontmatter);
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
@@ -448,11 +369,10 @@ fn cmd_set_plan(id: &str, file: &str, json_mode: bool) {
 }
 
 fn cmd_set_plan_review_status(id: &str, status: &str, json_mode: bool) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(id);
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-    let mut doc = load_epic(&epic_path, id);
+    let mut doc = load_epic(id);
 
     let review_status = match status {
         "ship" => ReviewStatus::Passed,
@@ -462,8 +382,7 @@ fn cmd_set_plan_review_status(id: &str, status: &str, json_mode: bool) {
 
     doc.frontmatter.plan_review = review_status;
     doc.frontmatter.updated_at = Utc::now();
-    save_epic(&epic_path, &doc);
-    db_upsert_epic(&doc.frontmatter);
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
@@ -478,11 +397,10 @@ fn cmd_set_plan_review_status(id: &str, status: &str, json_mode: bool) {
 }
 
 fn cmd_set_completion_review_status(id: &str, status: &str, json_mode: bool) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(id);
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-    let mut doc = load_epic(&epic_path, id);
+    let mut doc = load_epic(id);
 
     let review_status = match status {
         "ship" => ReviewStatus::Passed,
@@ -492,8 +410,7 @@ fn cmd_set_completion_review_status(id: &str, status: &str, json_mode: bool) {
 
     doc.frontmatter.completion_review = review_status;
     doc.frontmatter.updated_at = Utc::now();
-    save_epic(&epic_path, &doc);
-    db_upsert_epic(&doc.frontmatter);
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
@@ -508,16 +425,14 @@ fn cmd_set_completion_review_status(id: &str, status: &str, json_mode: bool) {
 }
 
 fn cmd_set_branch(id: &str, branch: &str, json_mode: bool) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(id);
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-    let mut doc = load_epic(&epic_path, id);
+    let mut doc = load_epic(id);
 
     doc.frontmatter.branch_name = Some(branch.to_string());
     doc.frontmatter.updated_at = Utc::now();
-    save_epic(&epic_path, &doc);
-    db_upsert_epic(&doc.frontmatter);
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
@@ -535,8 +450,7 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
     validate_epic_id(id);
 
     let old_id = id;
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{old_id}.md"));
-    let doc = load_epic(&epic_path, old_id);
+    let doc = load_epic(old_id);
 
     // Extract epic number
     let parsed = parse_id(old_id)
@@ -548,188 +462,120 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
     let new_suffix = new_slug.unwrap_or_else(|| generate_epic_suffix(3));
     let new_id = format!("fn-{epic_num}-{new_suffix}");
 
-    let epics_dir = flow_dir.join(EPICS_DIR);
     let specs_dir = flow_dir.join(SPECS_DIR);
-    let tasks_dir = flow_dir.join(TASKS_DIR);
 
-    // Check collision (if ID changed)
+    // Check collision (if ID changed) via DB
     if new_id != old_id {
-        let new_epic_path = epics_dir.join(format!("{new_id}.md"));
-        if new_epic_path.exists() {
+        let conn = require_db()
+            .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+        if repo.get(&new_id).is_ok() {
             error_exit(&format!(
                 "Epic {new_id} already exists. Choose a different title."
             ));
         }
     }
 
-    // Collect files to rename
-    let mut renames: Vec<(PathBuf, PathBuf)> = Vec::new();
-    let mut task_renames: Vec<(String, String)> = Vec::new();
-
-    // Epic file
-    renames.push((epic_path.clone(), epics_dir.join(format!("{new_id}.md"))));
-
-    // Spec file
+    // Rename spec file (only MD file we keep)
+    let mut files_renamed = 0;
     let old_spec = specs_dir.join(format!("{old_id}.md"));
     if old_spec.exists() {
-        renames.push((old_spec, specs_dir.join(format!("{new_id}.md"))));
+        let new_spec = specs_dir.join(format!("{new_id}.md"));
+        if let Err(e) = fs::rename(&old_spec, &new_spec) {
+            error_exit(&format!("Failed to rename spec file: {e}"));
+        }
+        files_renamed += 1;
     }
 
-    // Task files
-    if tasks_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&tasks_dir) {
-            let mut task_entries: Vec<_> = entries
-                .flatten()
-                .filter(|e| {
-                    e.file_name()
-                        .to_string_lossy()
-                        .starts_with(&format!("{old_id}."))
-                })
-                .collect();
-            task_entries.sort_by_key(|e| e.file_name());
+    // Rename checkpoint file
+    let old_checkpoint = flow_dir.join(format!(".checkpoint-{old_id}.json"));
+    if old_checkpoint.exists() {
+        let _ = fs::rename(
+            &old_checkpoint,
+            flow_dir.join(format!(".checkpoint-{new_id}.json")),
+        );
+        files_renamed += 1;
+    }
 
-            for entry in task_entries {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                let path = entry.path();
+    // Update epic in DB
+    let mut new_doc = doc;
+    new_doc.frontmatter.id = new_id.clone();
+    new_doc.frontmatter.title = new_title.to_string();
+    new_doc.frontmatter.file_path = Some(format!("specs/{new_id}.md"));
+    new_doc.frontmatter.updated_at = Utc::now();
+    save_epic(&new_doc);
 
-                if name_str.ends_with(".md") {
-                    let stem = name_str.trim_end_matches(".md");
-                    if is_task_id(stem) {
-                        if let Ok(p) = parse_id(stem) {
-                            if let Some(task_num) = p.task {
-                                let new_task_id = format!("{new_id}.{task_num}");
-                                let new_path = tasks_dir.join(format!("{new_task_id}.md"));
-                                renames.push((path, new_path));
-                                // Track for content updates (avoid duplicates)
-                                let old_task_id = stem.to_string();
-                                if !task_renames.iter().any(|(o, _)| *o == old_task_id) {
-                                    task_renames
-                                        .push((old_task_id, new_task_id));
-                                }
-                            }
-                        }
-                    }
-                }
+    // Update task records in DB
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    let tasks = task_repo.list_by_epic(old_id).unwrap_or_default();
+    let mut task_renames: Vec<(String, String)> = Vec::new();
+    for task in &tasks {
+        if let Ok(p) = parse_id(&task.id) {
+            if let Some(task_num) = p.task {
+                let new_task_id = format!("{new_id}.{task_num}");
+                task_renames.push((task.id.clone(), new_task_id));
             }
         }
     }
 
-    // Checkpoint file
-    let old_checkpoint = flow_dir.join(format!(".checkpoint-{old_id}.json"));
-    if old_checkpoint.exists() {
-        renames.push((
-            old_checkpoint,
-            flow_dir.join(format!(".checkpoint-{new_id}.json")),
-        ));
-    }
-
-    // Perform renames
-    let mut rename_errors: Vec<String> = Vec::new();
-    for (old_path, new_path) in &renames {
-        if let Err(e) = fs::rename(old_path, new_path) {
-            rename_errors.push(format!(
-                "{} -> {}: {e}",
-                old_path.file_name().unwrap_or_default().to_string_lossy(),
-                new_path.file_name().unwrap_or_default().to_string_lossy()
-            ));
-        }
-    }
-
-    if !rename_errors.is_empty() {
-        error_exit(&format!(
-            "Failed to rename some files: {}",
-            rename_errors.join("; ")
-        ));
-    }
-
-    // Update epic content
-    let mut new_doc = doc;
-    new_doc.frontmatter.id = new_id.clone();
-    new_doc.frontmatter.title = new_title.to_string();
-    new_doc.frontmatter.file_path = Some(format!("epics/{new_id}.md"));
-    new_doc.frontmatter.updated_at = Utc::now();
-    let new_epic_path = epics_dir.join(format!("{new_id}.md"));
-    save_epic(&new_epic_path, &new_doc);
-    db_upsert_epic(&new_doc.frontmatter);
-
-    // Update task content
     let task_id_map: std::collections::HashMap<&str, &str> = task_renames
         .iter()
         .map(|(o, n)| (o.as_str(), n.as_str()))
         .collect();
-    for (_old_task_id, new_task_id) in &task_renames {
-        let task_path = tasks_dir.join(format!("{new_task_id}.md"));
-        if task_path.exists() {
-            if let Ok(content) = fs::read_to_string(&task_path) {
-                if let Ok(mut task_doc) = frontmatter::parse::<Task>(&content) {
-                    task_doc.frontmatter.id = new_task_id.clone();
-                    task_doc.frontmatter.epic = new_id.clone();
-                    task_doc.frontmatter.file_path =
-                        Some(format!("tasks/{new_task_id}.md"));
-                    // Update depends_on references within same epic
-                    task_doc.frontmatter.depends_on = task_doc
-                        .frontmatter
-                        .depends_on
-                        .iter()
-                        .map(|dep| {
-                            task_id_map
-                                .get(dep.as_str())
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| dep.clone())
-                        })
-                        .collect();
-                    task_doc.frontmatter.updated_at = Utc::now();
-                    if let Ok(serialized) = frontmatter::write(&task_doc) {
-                        let _ = fs::write(&task_path, serialized);
-                    }
-                    // SQLite update
-                    if let Ok(conn) = require_db() {
-                        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-                        let _ = repo.upsert(&task_doc.frontmatter);
-                    }
-                }
-            }
-        }
+    for task in &tasks {
+        let new_task_id = task_id_map
+            .get(task.id.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| task.id.clone());
+        let mut updated_task = task.clone();
+        updated_task.id = new_task_id.clone();
+        updated_task.epic = new_id.clone();
+        updated_task.file_path = Some(format!("tasks/{new_task_id}.md"));
+        updated_task.depends_on = updated_task
+            .depends_on
+            .iter()
+            .map(|dep| {
+                task_id_map
+                    .get(dep.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| dep.clone())
+            })
+            .collect();
+        updated_task.updated_at = Utc::now();
+        let _ = task_repo.upsert(&updated_task);
     }
 
-    // Update depends_on_epics in other epics that reference old_id
+    // Update depends_on_epics in other epics that reference old_id (via DB)
     let mut updated_deps_in: Vec<String> = Vec::new();
-    if epics_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&epics_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str == format!("{new_id}.md") {
-                    continue;
-                }
-                if !name_str.ends_with(".md") {
-                    continue;
-                }
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(mut other_doc) = frontmatter::parse::<Epic>(&content) {
-                        if other_doc.frontmatter.depends_on_epics.contains(&old_id.to_string()) {
-                            other_doc.frontmatter.depends_on_epics = other_doc
-                                .frontmatter
-                                .depends_on_epics
-                                .iter()
-                                .map(|d| {
-                                    if d == old_id {
-                                        new_id.clone()
-                                    } else {
-                                        d.clone()
-                                    }
-                                })
-                                .collect();
-                            other_doc.frontmatter.updated_at = Utc::now();
-                            if let Ok(serialized) = frontmatter::write(&other_doc) {
-                                let _ = fs::write(&path, serialized);
-                            }
-                            updated_deps_in.push(other_doc.frontmatter.id.clone());
+    let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    if let Ok(all_epics) = epic_repo.list(None) {
+        let dep_repo = crate::commands::db_shim::DepRepo::new(&conn);
+        for other_epic in &all_epics {
+            if other_epic.id == new_id || other_epic.id == old_id {
+                continue;
+            }
+            if other_epic.depends_on_epics.contains(&old_id.to_string()) {
+                // Update: remove old dep, add new one
+                let _ = dep_repo.remove_epic_dep(&other_epic.id, old_id);
+                let _ = dep_repo.add_epic_dep(&other_epic.id, &new_id);
+                // Also update the Epic struct's depends_on_epics
+                let mut updated_other = other_epic.clone();
+                updated_other.depends_on_epics = updated_other
+                    .depends_on_epics
+                    .iter()
+                    .map(|d| {
+                        if d == old_id {
+                            new_id.clone()
+                        } else {
+                            d.clone()
                         }
-                    }
-                }
+                    })
+                    .collect();
+                updated_other.updated_at = Utc::now();
+                let _ = epic_repo.upsert(&updated_other);
+                updated_deps_in.push(other_epic.id.clone());
             }
         }
     }
@@ -738,7 +584,7 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
         "old_id": old_id,
         "new_id": new_id,
         "title": new_title,
-        "files_renamed": renames.len(),
+        "files_renamed": files_renamed,
         "tasks_updated": task_renames.len(),
         "message": format!("Epic renamed: {old_id} -> {new_id}"),
     });
@@ -751,7 +597,7 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
     } else {
         println!("Epic renamed: {old_id} -> {new_id}");
         println!("  Title: {new_title}");
-        println!("  Files renamed: {}", renames.len());
+        println!("  Files renamed: {files_renamed}");
         println!("  Tasks updated: {}", task_renames.len());
         if !updated_deps_in.is_empty() {
             println!("  Updated deps in: {}", updated_deps_in.join(", "));
@@ -760,42 +606,25 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
 }
 
 fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(id);
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-    let mut doc = load_epic(&epic_path, id);
+    let mut doc = load_epic(id);
 
-    // Check all tasks are done/skipped
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    if !tasks_dir.is_dir() {
-        error_exit(&format!(
-            "{TASKS_DIR}/ missing. Run 'flowctl init' or fix repo state."
-        ));
-    }
+    // Check all tasks are done/skipped via DB
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    let tasks = task_repo.list_by_epic(id).unwrap_or_default();
 
-    let mut incomplete: Vec<String> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&tasks_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if !name_str.starts_with(&format!("{id}.")) || !name_str.ends_with(".md") {
-                continue;
-            }
-            let stem = name_str.trim_end_matches(".md");
-            if !is_task_id(stem) {
-                continue;
-            }
-            if let Ok(content) = fs::read_to_string(entry.path()) {
-                if let Ok(task) = frontmatter::parse_frontmatter::<Task>(&content) {
-                    let status_str = task.status.to_string();
-                    if status_str != "done" && status_str != "skipped" {
-                        incomplete.push(format!("{} ({status_str})", task.id));
-                    }
-                }
-            }
-        }
-    }
+    let incomplete: Vec<String> = tasks
+        .iter()
+        .filter(|t| {
+            let s = t.status.to_string();
+            s != "done" && s != "skipped"
+        })
+        .map(|t| format!("{} ({})", t.id, t.status))
+        .collect();
 
     if !incomplete.is_empty() {
         error_exit(&format!(
@@ -804,23 +633,16 @@ fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
         ));
     }
 
-    // Gap registry gate -- check raw frontmatter for gaps field
-    let raw = load_epic_raw(&epic_path, id);
-    let gaps = raw.get("gaps").and_then(|g| g.as_array());
+    // Gap registry gate — check DB gaps table
+    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
     let mut open_blocking_count = 0;
     let mut gap_list_parts: Vec<String> = Vec::new();
 
-    if let Some(gaps) = gaps {
-        for gap in gaps {
-            let status = gap.get("status").and_then(|s| s.as_str()).unwrap_or("");
-            let priority = gap.get("priority").and_then(|s| s.as_str()).unwrap_or("");
-            if status == "open" && GAP_BLOCKING_PRIORITIES.contains(&priority) {
+    if let Ok(gaps) = gap_repo.list(id, Some("open")) {
+        for gap in &gaps {
+            if GAP_BLOCKING_PRIORITIES.contains(&gap.priority.as_str()) {
                 open_blocking_count += 1;
-                let capability = gap
-                    .get("capability")
-                    .and_then(|s| s.as_str())
-                    .unwrap_or("unknown");
-                gap_list_parts.push(format!("[{priority}] {capability}"));
+                gap_list_parts.push(format!("[{}] {}", gap.priority, gap.capability));
             }
         }
     }
@@ -840,8 +662,7 @@ fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
 
     doc.frontmatter.status = EpicStatus::Done;
     doc.frontmatter.updated_at = Utc::now();
-    save_epic(&epic_path, &doc);
-    db_upsert_epic(&doc.frontmatter);
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
@@ -863,20 +684,23 @@ fn cmd_reopen(id: &str, json_mode: bool) {
     let flow_dir = ensure_flow_exists();
     validate_epic_id(id);
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-
-    if !epic_path.exists() {
-        // Check archive
-        let archive_path = flow_dir.join(ARCHIVE_DIR).join(id);
-        if archive_path.exists() {
-            error_exit(&format!(
-                "Epic {id} is archived. Unarchive it first before reopening."
-            ));
+    // Check if archived (check .archive/ dir for specs/reviews)
+    let archive_path = flow_dir.join(ARCHIVE_DIR).join(id);
+    if archive_path.exists() {
+        // Check if epic is marked archived in DB
+        let conn = require_db()
+            .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+        if let Ok(epic) = repo.get(id) {
+            if epic.archived {
+                error_exit(&format!(
+                    "Epic {id} is archived. Unarchive it first before reopening."
+                ));
+            }
         }
-        error_exit(&format!("Epic {id} not found"));
     }
 
-    let mut doc = load_epic(&epic_path, id);
+    let mut doc = load_epic(id);
     let previous_status = doc.frontmatter.status.to_string();
 
     if doc.frontmatter.status == EpicStatus::Open {
@@ -889,8 +713,7 @@ fn cmd_reopen(id: &str, json_mode: bool) {
     doc.frontmatter.completion_review = ReviewStatus::Unknown;
     doc.frontmatter.plan_review = ReviewStatus::Unknown;
     doc.frontmatter.updated_at = Utc::now();
-    save_epic(&epic_path, &doc);
-    db_upsert_epic(&doc.frontmatter);
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
@@ -908,8 +731,7 @@ fn cmd_archive(id: &str, force: bool, json_mode: bool) {
     let flow_dir = ensure_flow_exists();
     validate_epic_id(id);
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-    let doc = load_epic(&epic_path, id);
+    let mut doc = load_epic(id);
 
     if doc.frontmatter.status != EpicStatus::Done && !force {
         error_exit(&format!(
@@ -919,43 +741,24 @@ fn cmd_archive(id: &str, force: bool, json_mode: bool) {
         ));
     }
 
-    // Build archive directory
+    // Set archived=true in DB
+    doc.frontmatter.archived = true;
+    doc.frontmatter.updated_at = Utc::now();
+    save_epic(&doc);
+
+    // Build archive directory for specs and reviews
     let archive_dir = flow_dir.join(ARCHIVE_DIR).join(id);
     fs::create_dir_all(&archive_dir)
         .unwrap_or_else(|e| error_exit(&format!("Failed to create archive dir: {e}")));
 
     let mut moved: Vec<String> = Vec::new();
 
-    // Move epic file
-    let dest = archive_dir.join(epic_path.file_name().unwrap());
-    fs::rename(&epic_path, &dest)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to move epic file: {e}")));
-    moved.push(format!("epics/{}", epic_path.file_name().unwrap().to_string_lossy()));
-
-    // Move spec
+    // Move spec file
     let spec_path = flow_dir.join(SPECS_DIR).join(format!("{id}.md"));
     if spec_path.exists() {
         let dest = archive_dir.join(spec_path.file_name().unwrap());
         let _ = fs::rename(&spec_path, &dest);
         moved.push(format!("specs/{}", spec_path.file_name().unwrap().to_string_lossy()));
-    }
-
-    // Move task files
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    if tasks_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&tasks_dir) {
-            let mut task_entries: Vec<_> = entries.flatten().collect();
-            task_entries.sort_by_key(|e| e.file_name());
-            for entry in task_entries {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with(&format!("{id}.")) {
-                    let dest = archive_dir.join(&*name);
-                    let _ = fs::rename(entry.path(), &dest);
-                    moved.push(format!("tasks/{name_str}"));
-                }
-            }
-        }
     }
 
     // Move review receipts
@@ -996,35 +799,18 @@ fn cmd_archive(id: &str, force: bool, json_mode: bool) {
 
 fn cmd_clean(json_mode: bool) {
     let flow_dir = ensure_flow_exists();
-    let epics_dir = flow_dir.join(EPICS_DIR);
+
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
 
     let mut archived: Vec<String> = Vec::new();
 
-    if epics_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&epics_dir) {
-            let mut epic_entries: Vec<_> = entries.flatten().collect();
-            epic_entries.sort_by_key(|e| e.file_name());
-
-            for entry in epic_entries {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if !name_str.ends_with(".md") {
-                    continue;
-                }
-                let stem = name_str.trim_end_matches(".md");
-                if !is_epic_id(stem) {
-                    continue;
-                }
-                if let Ok(content) = fs::read_to_string(entry.path()) {
-                    if let Ok(epic) = frontmatter::parse_frontmatter::<Epic>(&content) {
-                        if epic.status == EpicStatus::Done {
-                            let epic_id = epic.id.clone();
-                            // Archive silently
-                            cmd_archive_silent(&epic_id, &flow_dir);
-                            archived.push(epic_id);
-                        }
-                    }
-                }
+    if let Ok(epics) = epic_repo.list(Some("done")) {
+        for epic in &epics {
+            if !epic.archived {
+                cmd_archive_silent(&epic.id, &flow_dir);
+                archived.push(epic.id.clone());
             }
         }
     }
@@ -1046,35 +832,25 @@ fn cmd_clean(json_mode: bool) {
 }
 
 /// Silent archive helper for clean command (no output).
+/// Sets archived=true in DB, moves only specs and reviews to .archive/.
 fn cmd_archive_silent(id: &str, flow_dir: &Path) {
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-    if !epic_path.exists() {
-        return;
+    // Set archived=true in DB
+    if let Ok(conn) = require_db() {
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+        if let Ok(mut epic) = repo.get(id) {
+            epic.archived = true;
+            epic.updated_at = Utc::now();
+            let _ = repo.upsert(&epic);
+        }
     }
 
     let archive_dir = flow_dir.join(ARCHIVE_DIR).join(id);
     let _ = fs::create_dir_all(&archive_dir);
 
-    // Move epic
-    let _ = fs::rename(&epic_path, archive_dir.join(format!("{id}.md")));
-
     // Move spec
     let spec_path = flow_dir.join(SPECS_DIR).join(format!("{id}.md"));
     if spec_path.exists() {
         let _ = fs::rename(&spec_path, archive_dir.join(format!("{id}.md")));
-    }
-
-    // Move tasks
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    if tasks_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&tasks_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                if name.to_string_lossy().starts_with(&format!("{id}.")) {
-                    let _ = fs::rename(entry.path(), archive_dir.join(&name));
-                }
-            }
-        }
     }
 
     // Move reviews
@@ -1093,7 +869,7 @@ fn cmd_archive_silent(id: &str, flow_dir: &Path) {
 }
 
 fn cmd_add_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(epic_id);
     validate_epic_id(dep_id);
 
@@ -1101,14 +877,15 @@ fn cmd_add_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
         error_exit("Epic cannot depend on itself");
     }
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{epic_id}.md"));
-    let dep_path = flow_dir.join(EPICS_DIR).join(format!("{dep_id}.md"));
-
-    if !dep_path.exists() {
+    // Verify dep epic exists in DB
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    if repo.get(dep_id).is_err() {
         error_exit(&format!("Epic {dep_id} not found"));
     }
 
-    let mut doc = load_epic(&epic_path, epic_id);
+    let mut doc = load_epic(epic_id);
 
     if doc.frontmatter.depends_on_epics.contains(&dep_id.to_string()) {
         if json_mode {
@@ -1123,10 +900,15 @@ fn cmd_add_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
         return;
     }
 
+    // Update DB via DepRepo
+    let dep_repo = crate::commands::db_shim::DepRepo::new(&conn);
+    if let Err(e) = dep_repo.add_epic_dep(epic_id, dep_id) {
+        error_exit(&format!("Failed to add epic dep: {e}"));
+    }
+
     doc.frontmatter.depends_on_epics.push(dep_id.to_string());
     doc.frontmatter.updated_at = Utc::now();
-    save_epic(&epic_path, &doc);
-    db_upsert_epic(&doc.frontmatter);
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
@@ -1140,11 +922,10 @@ fn cmd_add_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
 }
 
 fn cmd_rm_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(epic_id);
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{epic_id}.md"));
-    let mut doc = load_epic(&epic_path, epic_id);
+    let mut doc = load_epic(epic_id);
 
     if !doc.frontmatter.depends_on_epics.contains(&dep_id.to_string()) {
         if json_mode {
@@ -1159,12 +940,19 @@ fn cmd_rm_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
         return;
     }
 
+    // Update DB via DepRepo
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
+    let dep_repo = crate::commands::db_shim::DepRepo::new(&conn);
+    if let Err(e) = dep_repo.remove_epic_dep(epic_id, dep_id) {
+        error_exit(&format!("Failed to remove epic dep: {e}"));
+    }
+
     doc.frontmatter
         .depends_on_epics
         .retain(|d| d != dep_id);
     doc.frontmatter.updated_at = Utc::now();
-    save_epic(&epic_path, &doc);
-    db_upsert_epic(&doc.frontmatter);
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
@@ -1184,15 +972,14 @@ fn cmd_set_backend(
     sync: &Option<String>,
     json_mode: bool,
 ) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(id);
 
     if impl_spec.is_none() && review.is_none() && sync.is_none() {
         error_exit("At least one of --impl, --review, or --sync must be provided");
     }
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-    let mut doc = load_epic(&epic_path, id);
+    let mut doc = load_epic(id);
 
     let mut updated: Vec<String> = Vec::new();
 
@@ -1222,8 +1009,7 @@ fn cmd_set_backend(
     }
 
     doc.frontmatter.updated_at = Utc::now();
-    save_epic(&epic_path, &doc);
-    db_upsert_epic(&doc.frontmatter);
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
@@ -1242,48 +1028,33 @@ fn cmd_set_backend(
 }
 
 fn cmd_set_auto_execute(id: &str, pending: bool, done: bool, json_mode: bool) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(id);
 
     if !pending && !done {
         error_exit("Either --pending or --done must be specified");
     }
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-
-    // For auto_execute fields, we work with raw frontmatter since Epic struct
-    // doesn't have these fields. Read, patch, write back.
-    if !epic_path.exists() {
-        error_exit(&format!("Epic {id} not found"));
-    }
-    let content = fs::read_to_string(&epic_path)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to read epic: {e}")));
-
-    let mut doc = frontmatter::parse::<serde_json::Value>(&content)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to parse epic {id}: {e}")));
+    let mut doc = load_epic(id);
 
     let action;
     if pending {
-        doc.frontmatter["auto_execute_pending"] = json!(true);
-        doc.frontmatter["auto_execute_set_at"] = json!(Utc::now().to_rfc3339());
+        doc.frontmatter.auto_execute_pending = Some(true);
+        doc.frontmatter.auto_execute_set_at = Some(Utc::now().to_rfc3339());
         action = "pending";
     } else {
-        doc.frontmatter["auto_execute_pending"] = json!(false);
+        doc.frontmatter.auto_execute_pending = Some(false);
         action = "done";
     }
 
-    doc.frontmatter["updated_at"] = json!(Utc::now().to_rfc3339());
-
-    let serialized = frontmatter::write(&doc)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to serialize epic: {e}")));
-    fs::write(&epic_path, &serialized)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to write epic: {e}")));
+    doc.frontmatter.updated_at = Utc::now();
+    save_epic(&doc);
 
     if json_mode {
         json_output(json!({
             "id": id,
-            "auto_execute_pending": doc.frontmatter.get("auto_execute_pending"),
-            "auto_execute_set_at": doc.frontmatter.get("auto_execute_set_at"),
+            "auto_execute_pending": doc.frontmatter.auto_execute_pending,
+            "auto_execute_set_at": doc.frontmatter.auto_execute_set_at,
             "message": format!("Epic {id} auto_execute set to {action}"),
         }));
     } else {
@@ -1373,26 +1144,13 @@ fn cmd_audit(id: &str, force: bool, json_mode: bool) {
         }
     }
 
-    // Load epic spec (frontmatter + body).
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{id}.md"));
-    let epic_doc = load_epic(&epic_path, id);
-    let epic_body = if epic_path.exists() {
-        fs::read_to_string(&epic_path)
-            .ok()
-            .and_then(|raw| {
-                frontmatter::parse::<serde_json::Value>(&raw)
-                    .ok()
-                    .map(|d| d.body)
-            })
-            .unwrap_or_default()
-    } else {
-        epic_doc.body.clone()
-    };
+    // Load epic spec (frontmatter + body) from DB.
+    let epic_doc = load_epic(id);
+    let epic_body = epic_doc.body.clone();
 
-    // Load tasks.
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let conn = crate::commands::db_shim::open(&cwd).ok();
-    let tasks: Vec<Task> = load_epic_tasks(conn.as_ref(), &flow_dir, id);
+    // Load tasks from DB.
+    let conn = require_db().ok();
+    let tasks: Vec<flowctl_core::types::Task> = load_epic_tasks(conn.as_ref(), &flow_dir, id);
 
     // Shape task summaries for the payload.
     let task_entries: Vec<serde_json::Value> = tasks
@@ -1501,14 +1259,15 @@ pub fn dispatch(cmd: &EpicCmd, json: bool) {
 // ── Replay command ────────────────────���────────────────────────────
 
 pub fn cmd_replay(json_mode: bool, epic_id: &str, dry_run: bool, force: bool) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(epic_id);
 
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let conn = crate::commands::db_shim::open(&cwd).ok();
+    let conn = require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
 
-    // Load tasks for this epic
-    let tasks = load_epic_tasks(conn.as_ref(), &flow_dir, epic_id);
+    // Load tasks from DB
+    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    let tasks = task_repo.list_by_epic(epic_id).unwrap_or_default();
     if tasks.is_empty() {
         error_exit(&format!("No tasks found for epic {}", epic_id));
     }
@@ -1552,32 +1311,11 @@ pub fn cmd_replay(json_mode: bool, epic_id: &str, dry_run: bool, force: bool) {
         return;
     }
 
-    // Actually reset all tasks to todo
+    // Reset all tasks to todo in DB only
     let mut reset_count = 0;
     for task in &to_reset {
-        // Reset in DB if available
-        if let Some(ref c) = conn {
-            let task_repo = crate::commands::db_shim::TaskRepo::new(c);
-            if let Err(e) = task_repo.update_status(&task.id, flowctl_core::state_machine::Status::Todo) {
-                eprintln!("Warning: failed to reset {} in DB: {}", task.id, e);
-            }
-        }
-
-        // Reset in Markdown frontmatter
-        let task_path = flow_dir
-            .join(flowctl_core::types::TASKS_DIR)
-            .join(format!("{}.md", task.id));
-        if task_path.exists() {
-            if let Ok(content) = fs::read_to_string(&task_path) {
-                let updated = content
-                    .replace(
-                        &format!("status: {}", task.status),
-                        "status: todo",
-                    );
-                if updated != content {
-                    let _ = fs::write(&task_path, updated);
-                }
-            }
+        if let Err(e) = task_repo.update_status(&task.id, flowctl_core::state_machine::Status::Todo) {
+            eprintln!("Warning: failed to reset {} in DB: {}", task.id, e);
         }
         reset_count += 1;
     }
@@ -1597,60 +1335,29 @@ pub fn cmd_replay(json_mode: bool, epic_id: &str, dry_run: bool, force: bool) {
     }
 }
 
-/// Load tasks for an epic from DB or Markdown.
+/// Load tasks for an epic from DB (sole source of truth).
 fn load_epic_tasks(
     conn: Option<&crate::commands::db_shim::Connection>,
-    flow_dir: &Path,
+    _flow_dir: &Path,
     epic_id: &str,
 ) -> Vec<flowctl_core::types::Task> {
-    // Try DB first
     if let Some(c) = conn {
         let task_repo = crate::commands::db_shim::TaskRepo::new(c);
         if let Ok(tasks) = task_repo.list_by_epic(epic_id) {
-            if !tasks.is_empty() {
-                return tasks;
-            }
+            return tasks;
         }
     }
-
-    // Fallback: scan Markdown files
-    let tasks_dir = flow_dir.join(flowctl_core::types::TASKS_DIR);
-    let mut tasks = Vec::new();
-    if tasks_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&tasks_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                    continue;
-                }
-                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                if !stem.starts_with(&format!("{}.", epic_id)) {
-                    continue;
-                }
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(task) =
-                        flowctl_core::frontmatter::parse_frontmatter::<flowctl_core::types::Task>(&content)
-                    {
-                        tasks.push(task);
-                    }
-                }
-            }
-        }
-    }
-    tasks
+    Vec::new()
 }
 
 // ── Diff command ────────────��───────────────────────────���──────────
 
 pub fn cmd_diff(json_mode: bool, epic_id: &str) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
     validate_epic_id(epic_id);
 
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let conn = crate::commands::db_shim::open(&cwd).ok();
-
-    // Load epic to get branch name
-    let branch = load_epic_branch(conn.as_ref(), &flow_dir, epic_id);
+    // Load epic to get branch name from DB
+    let branch = load_epic_branch(epic_id);
 
     let branch = match branch {
         Some(b) => b,
@@ -1750,30 +1457,10 @@ pub fn cmd_diff(json_mode: bool, epic_id: &str) {
     }
 }
 
-/// Load branch name for an epic from DB or Markdown.
-fn load_epic_branch(
-    conn: Option<&crate::commands::db_shim::Connection>,
-    flow_dir: &Path,
-    epic_id: &str,
-) -> Option<String> {
-    // Try DB
-    if let Some(c) = conn {
-        let epic_repo = crate::commands::db_shim::EpicRepo::new(c);
-        if let Ok(epic) = epic_repo.get(epic_id) {
-            return epic.branch_name.filter(|b| !b.is_empty());
-        }
-    }
-
-    // Fallback: Markdown
-    let epic_path = flow_dir
-        .join(flowctl_core::types::EPICS_DIR)
-        .join(format!("{}.md", epic_id));
-    if let Ok(content) = fs::read_to_string(&epic_path) {
-        if let Ok(epic) =
-            flowctl_core::frontmatter::parse_frontmatter::<flowctl_core::types::Epic>(&content)
-        {
-            return epic.branch_name.filter(|b| !b.is_empty());
-        }
-    }
-    None
+/// Load branch name for an epic from DB (sole source of truth).
+fn load_epic_branch(epic_id: &str) -> Option<String> {
+    let conn = require_db().ok()?;
+    let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    let epic = epic_repo.get(epic_id).ok()?;
+    epic.branch_name.filter(|b| !b.is_empty())
 }

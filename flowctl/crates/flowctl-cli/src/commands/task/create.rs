@@ -7,7 +7,7 @@ use crate::output::{error_exit, json_output};
 
 use flowctl_core::id::{epic_id_from_task, is_epic_id, is_task_id};
 use flowctl_core::state_machine::Status;
-use flowctl_core::types::{Domain, Task, EPICS_DIR, FLOW_DIR, TASKS_DIR};
+use flowctl_core::types::{Domain, Task, FLOW_DIR, SPECS_DIR, TASKS_DIR};
 
 use super::{
     create_task_spec, ensure_flow_exists, parse_domain, read_file_or_stdin, scan_max_task_id,
@@ -34,10 +34,18 @@ pub(super) fn cmd_task_create(
         ));
     }
 
-    // Verify epic exists
-    let epic_spec = flow_dir.join(EPICS_DIR).join(format!("{}.md", epic_id));
-    if !epic_spec.exists() {
-        error_exit(&format!("Epic {} not found", epic_id));
+    // Verify epic exists (DB is authoritative)
+    if let Ok(conn) = require_db() {
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+        if repo.get(epic_id).is_err() {
+            error_exit(&format!("Epic {} not found", epic_id));
+        }
+    } else {
+        // Fallback: check spec file if DB unavailable
+        let epic_spec = flow_dir.join(SPECS_DIR).join(format!("{}.md", epic_id));
+        if !epic_spec.exists() {
+            error_exit(&format!("Epic {} not found", epic_id));
+        }
     }
 
     // Scan-based ID allocation

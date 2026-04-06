@@ -221,6 +221,22 @@ impl DepRepo {
         block_on(flowctl_db::DepRepo::new(self.0.clone()).list_task_deps(task_id))
     }
 
+    pub fn add_epic_dep(&self, epic_id: &str, depends_on: &str) -> Result<(), DbError> {
+        block_on(
+            flowctl_db::DepRepo::new(self.0.clone()).add_epic_dep(epic_id, depends_on),
+        )
+    }
+
+    pub fn remove_epic_dep(&self, epic_id: &str, depends_on: &str) -> Result<(), DbError> {
+        block_on(
+            flowctl_db::DepRepo::new(self.0.clone()).remove_epic_dep(epic_id, depends_on),
+        )
+    }
+
+    pub fn list_epic_deps(&self, epic_id: &str) -> Result<Vec<String>, DbError> {
+        block_on(flowctl_db::DepRepo::new(self.0.clone()).list_epic_deps(epic_id))
+    }
+
     /// Replace all deps for a task (delete-all + insert each).
     pub fn replace_task_deps(&self, task_id: &str, deps: &[String]) -> Result<(), DbError> {
         let inner = self.0.clone();

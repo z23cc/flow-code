@@ -1,11 +1,8 @@
 //! Gap registry commands: gap add, list, resolve, check.
 //!
 //! Gaps track requirement deficiencies in an epic. They are stored in
-//! the epic's Markdown frontmatter (via a companion JSON sidecar at
-//! `.flow/epics/<epic-id>.gaps.json`). Blocking gaps (required/important)
-//! prevent epic closure.
-
-use std::fs;
+//! the DB `gaps` table (sole source of truth). Blocking gaps
+//! (required/important) prevent epic closure.
 
 use clap::Subcommand;
 use serde_json::json;
@@ -13,7 +10,6 @@ use serde_json::json;
 use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::id::is_epic_id;
-use flowctl_core::types::EPICS_DIR;
 
 use super::helpers::get_flow_dir;
 
@@ -95,51 +91,14 @@ pub fn dispatch(cmd: &GapCmd, json: bool) {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-/// Compute deterministic gap ID from epic + capability (content-hash).
-fn gap_id(epic_id: &str, capability: &str) -> String {
-    use sha2::{Digest, Sha256};
-
-    let key = format!("{}:{}", epic_id, capability.trim().to_lowercase());
-    let hash = Sha256::digest(key.as_bytes());
-    let hex: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
-    format!("gap-{}", &hex[..8])
+/// Open DB connection (hard error if unavailable).
+fn require_db() -> crate::commands::db_shim::Connection {
+    crate::commands::db_shim::require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")))
 }
 
-fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-}
-
-/// Path to the gaps sidecar JSON file for an epic.
-fn gaps_path(flow_dir: &std::path::Path, epic_id: &str) -> std::path::PathBuf {
-    flow_dir.join(EPICS_DIR).join(format!("{}.gaps.json", epic_id))
-}
-
-/// Load gaps array from sidecar file. Returns empty vec if file doesn't exist.
-fn load_gaps(flow_dir: &std::path::Path, epic_id: &str) -> Vec<serde_json::Value> {
-    let path = gaps_path(flow_dir, epic_id);
-    if !path.exists() {
-        return Vec::new();
-    }
-    match fs::read_to_string(&path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    }
-}
-
-/// Save gaps array to sidecar file.
-fn save_gaps(flow_dir: &std::path::Path, epic_id: &str, gaps: &[serde_json::Value]) {
-    let path = gaps_path(flow_dir, epic_id);
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let content = serde_json::to_string_pretty(gaps).unwrap();
-    if let Err(e) = fs::write(&path, &content) {
-        error_exit(&format!("Failed to write {}: {}", path.display(), e));
-    }
-}
-
-/// Verify .flow/ exists, epic ID is valid, and epic file exists.
-fn validate_epic(_json: bool, epic_id: &str) -> std::path::PathBuf {
+/// Verify .flow/ exists, epic ID is valid, and epic exists in DB.
+fn validate_epic(_json: bool, epic_id: &str) {
     let flow_dir = get_flow_dir();
     if !flow_dir.exists() {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
@@ -147,12 +106,12 @@ fn validate_epic(_json: bool, epic_id: &str) -> std::path::PathBuf {
     if !is_epic_id(epic_id) {
         error_exit(&format!("Invalid epic ID: {}", epic_id));
     }
-    // Verify the epic markdown file exists
-    let epic_md = flow_dir.join(EPICS_DIR).join(format!("{}.md", epic_id));
-    if !epic_md.exists() {
+    // Verify epic exists in DB
+    let conn = require_db();
+    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    if repo.get(epic_id).is_err() {
         error_exit(&format!("Epic not found: {}", epic_id));
     }
-    flow_dir
 }
 
 // ── Commands ───────────────────────────────────────────────────────
@@ -165,76 +124,94 @@ fn cmd_gap_add(
     source: &str,
     task: Option<&str>,
 ) {
-    let flow_dir = validate_epic(json_mode, epic_id);
-    let gid = gap_id(epic_id, capability);
+    validate_epic(json_mode, epic_id);
+    let conn = require_db();
+    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
 
-    let mut gaps = load_gaps(&flow_dir, epic_id);
-
-    // Check for existing gap (idempotent)
-    if let Some(existing) = gaps.iter().find(|g| g["id"].as_str() == Some(&gid)) {
-        if json_mode {
-            json_output(json!({
-                "id": gid,
-                "created": false,
-                "gap": existing,
-                "message": format!("Gap already exists: {}", gid),
-            }));
-        } else {
-            println!(
-                "Gap already exists: {} \u{2014} {}",
-                gid,
-                existing["capability"].as_str().unwrap_or("")
-            );
+    // Check for existing gap with same capability (idempotent)
+    if let Ok(existing) = gap_repo.list(epic_id, None) {
+        let cap_lower = capability.trim().to_lowercase();
+        if let Some(gap) = existing.iter().find(|g| g.capability.trim().to_lowercase() == cap_lower) {
+            if json_mode {
+                json_output(json!({
+                    "id": gap.id,
+                    "created": false,
+                    "gap": {
+                        "id": gap.id,
+                        "capability": gap.capability,
+                        "priority": gap.priority,
+                        "status": gap.status,
+                        "source": gap.source,
+                        "task": gap.task_id,
+                    },
+                    "message": format!("Gap already exists: {}", gap.id),
+                }));
+            } else {
+                println!(
+                    "Gap already exists: {} \u{2014} {}",
+                    gap.id, gap.capability
+                );
+            }
+            return;
         }
-        return;
     }
 
-    let gap = json!({
-        "id": gid,
-        "capability": capability.trim(),
-        "priority": priority,
-        "status": "open",
-        "source": source,
-        "task": task,
-        "added_at": now_iso(),
-        "resolved_at": null,
-        "evidence": null,
-    });
-
-    gaps.push(gap.clone());
-    save_gaps(&flow_dir, epic_id, &gaps);
-
-    if json_mode {
-        json_output(json!({
-            "id": gid,
-            "created": true,
-            "gap": gap,
-            "message": format!("Gap {} added to {}", gid, epic_id),
-        }));
-    } else {
-        println!("Gap {} added: [{}] {}", gid, priority, capability.trim());
+    match gap_repo.add(epic_id, capability.trim(), priority, Some(source), task) {
+        Ok(gap_id) => {
+            if json_mode {
+                json_output(json!({
+                    "id": gap_id,
+                    "created": true,
+                    "gap": {
+                        "id": gap_id,
+                        "capability": capability.trim(),
+                        "priority": priority,
+                        "status": "open",
+                        "source": source,
+                        "task": task,
+                    },
+                    "message": format!("Gap {} added to {}", gap_id, epic_id),
+                }));
+            } else {
+                println!("Gap {} added: [{}] {}", gap_id, priority, capability.trim());
+            }
+        }
+        Err(e) => {
+            error_exit(&format!("Failed to add gap: {e}"));
+        }
     }
 }
 
 fn cmd_gap_list(json_mode: bool, epic_id: &str, status_filter: Option<&str>) {
-    let flow_dir = validate_epic(json_mode, epic_id);
-    let gaps = load_gaps(&flow_dir, epic_id);
+    validate_epic(json_mode, epic_id);
+    let conn = require_db();
+    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
 
-    let filtered: Vec<&serde_json::Value> = if let Some(status) = status_filter {
-        gaps.iter()
-            .filter(|g| g["status"].as_str() == Some(status))
-            .collect()
-    } else {
-        gaps.iter().collect()
-    };
+    let gaps = gap_repo.list(epic_id, status_filter).unwrap_or_default();
 
     if json_mode {
+        let gap_values: Vec<serde_json::Value> = gaps
+            .iter()
+            .map(|g| {
+                json!({
+                    "id": g.id,
+                    "capability": g.capability,
+                    "priority": g.priority,
+                    "status": g.status,
+                    "source": g.source,
+                    "task": g.task_id,
+                    "added_at": g.created_at,
+                    "resolved_at": g.resolved_at,
+                    "evidence": g.evidence,
+                })
+            })
+            .collect();
         json_output(json!({
             "epic": epic_id,
-            "count": filtered.len(),
-            "gaps": filtered,
+            "count": gaps.len(),
+            "gaps": gap_values,
         }));
-    } else if filtered.is_empty() {
+    } else if gaps.is_empty() {
         let suffix = status_filter
             .map(|s| format!(" (status={})", s))
             .unwrap_or_default();
@@ -243,8 +220,8 @@ fn cmd_gap_list(json_mode: bool, epic_id: &str, status_filter: Option<&str>) {
     } else {
         use std::fmt::Write as _;
         let mut buf = String::new();
-        for g in &filtered {
-            let marker = if g["status"].as_str() == Some("resolved") {
+        for g in &gaps {
+            let marker = if g.status == "resolved" {
                 "\u{2713}"
             } else {
                 "\u{2717}"
@@ -253,9 +230,9 @@ fn cmd_gap_list(json_mode: bool, epic_id: &str, status_filter: Option<&str>) {
                 buf,
                 "  {} {} [{}] {}",
                 marker,
-                g["id"].as_str().unwrap_or(""),
-                g["priority"].as_str().unwrap_or(""),
-                g["capability"].as_str().unwrap_or(""),
+                g.id,
+                g.priority,
+                g.capability,
             )
             .ok();
         }
@@ -270,91 +247,69 @@ fn cmd_gap_resolve(
     gap_id_direct: Option<&str>,
     evidence: &str,
 ) {
-    let flow_dir = validate_epic(json_mode, epic_id);
-    let mut gaps = load_gaps(&flow_dir, epic_id);
+    validate_epic(json_mode, epic_id);
+    let conn = require_db();
+    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
 
-    // Find the gap by direct ID or by capability content-hash
-    let gid = if let Some(direct_id) = gap_id_direct {
-        direct_id.to_string()
-    } else if let Some(cap) = capability {
-        gap_id(epic_id, cap)
-    } else {
-        error_exit("Either --capability or --id is required");
-    };
+    if let Some(direct_id) = gap_id_direct {
+        // Resolve by numeric ID
+        let gap_id: i64 = direct_id
+            .parse()
+            .unwrap_or_else(|_| error_exit(&format!("Invalid gap ID: {}", direct_id)));
 
-    let gap = gaps
-        .iter_mut()
-        .find(|g| g["id"].as_str() == Some(&gid));
-
-    let gap = match gap {
-        Some(g) => g,
-        None => {
-            error_exit(&format!("Gap not found: {}", gid));
+        if let Err(e) = gap_repo.resolve(gap_id, evidence) {
+            error_exit(&format!("Failed to resolve gap {}: {e}", gap_id));
         }
-    };
 
-    if gap["status"].as_str() == Some("resolved") {
         if json_mode {
             json_output(json!({
-                "id": gid,
-                "changed": false,
-                "gap": *gap,
-                "message": format!("Gap {} already resolved", gid),
+                "id": gap_id,
+                "changed": true,
+                "message": format!("Gap {} resolved", gap_id),
             }));
         } else {
-            println!("Gap {} already resolved", gid);
+            println!("Gap {} resolved: {}", gap_id, evidence);
         }
-        return;
-    }
+    } else if let Some(cap) = capability {
+        // Resolve by capability name
+        if let Err(e) = gap_repo.resolve_by_capability(epic_id, cap, evidence) {
+            error_exit(&format!("Failed to resolve gap by capability '{}': {e}", cap));
+        }
 
-    gap["status"] = json!("resolved");
-    gap["resolved_at"] = json!(now_iso());
-    gap["evidence"] = json!(evidence);
-
-    save_gaps(&flow_dir, epic_id, &gaps);
-
-    if json_mode {
-        let resolved_gap = gaps.iter().find(|g| g["id"].as_str() == Some(&gid)).unwrap();
-        json_output(json!({
-            "id": gid,
-            "changed": true,
-            "gap": resolved_gap,
-            "message": format!("Gap {} resolved", gid),
-        }));
+        if json_mode {
+            json_output(json!({
+                "capability": cap,
+                "changed": true,
+                "message": format!("Gap for '{}' resolved", cap),
+            }));
+        } else {
+            println!("Gap for '{}' resolved: {}", cap, evidence);
+        }
     } else {
-        println!("Gap {} resolved: {}", gid, evidence);
+        error_exit("Either --capability or --id is required");
     }
 }
 
 fn cmd_gap_check(json_mode: bool, epic_id: &str) {
-    let flow_dir = validate_epic(json_mode, epic_id);
-    let gaps = load_gaps(&flow_dir, epic_id);
+    validate_epic(json_mode, epic_id);
+    let conn = require_db();
+    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
 
-    let open_blocking: Vec<&serde_json::Value> = gaps
+    let all_gaps = gap_repo.list(epic_id, None).unwrap_or_default();
+
+    let open_blocking: Vec<&crate::commands::db_shim::GapRow> = all_gaps
         .iter()
-        .filter(|g| {
-            g["status"].as_str() == Some("open")
-                && g["priority"]
-                    .as_str()
-                    .map(|p| GAP_BLOCKING_PRIORITIES.contains(&p))
-                    .unwrap_or(false)
-        })
+        .filter(|g| g.status == "open" && GAP_BLOCKING_PRIORITIES.contains(&g.priority.as_str()))
         .collect();
 
-    let open_non_blocking: Vec<&serde_json::Value> = gaps
+    let open_non_blocking: Vec<&crate::commands::db_shim::GapRow> = all_gaps
         .iter()
-        .filter(|g| {
-            g["status"].as_str() == Some("open")
-                && !g["priority"]
-                    .as_str()
-                    .map(|p| GAP_BLOCKING_PRIORITIES.contains(&p))
-                    .unwrap_or(false)
-        })
+        .filter(|g| g.status == "open" && !GAP_BLOCKING_PRIORITIES.contains(&g.priority.as_str()))
         .collect();
 
-    let resolved: Vec<&serde_json::Value> = gaps
+    let resolved: Vec<&crate::commands::db_shim::GapRow> = all_gaps
         .iter()
-        .filter(|g| g["status"].as_str() == Some("resolved"))
+        .filter(|g| g.status == "resolved")
         .collect();
 
     let gate = if open_blocking.is_empty() {
@@ -364,13 +319,25 @@ fn cmd_gap_check(json_mode: bool, epic_id: &str) {
     };
 
     if json_mode {
+        let to_json = |gaps: &[&crate::commands::db_shim::GapRow]| -> Vec<serde_json::Value> {
+            gaps.iter()
+                .map(|g| {
+                    json!({
+                        "id": g.id,
+                        "capability": g.capability,
+                        "priority": g.priority,
+                        "status": g.status,
+                    })
+                })
+                .collect()
+        };
         json_output(json!({
             "epic": epic_id,
             "gate": gate,
-            "total": gaps.len(),
-            "open_blocking": open_blocking,
-            "open_non_blocking": open_non_blocking,
-            "resolved": resolved,
+            "total": all_gaps.len(),
+            "open_blocking": to_json(&open_blocking),
+            "open_non_blocking": to_json(&open_non_blocking),
+            "resolved": to_json(&resolved),
         }));
     } else if gate == "pass" {
         println!(
@@ -388,8 +355,8 @@ fn cmd_gap_check(json_mode: bool, epic_id: &str) {
         for g in &open_blocking {
             println!(
                 "  \u{2717} [{}] {}",
-                g["priority"].as_str().unwrap_or(""),
-                g["capability"].as_str().unwrap_or(""),
+                g.priority,
+                g.capability,
             );
         }
     }
@@ -402,38 +369,6 @@ fn cmd_gap_check(json_mode: bool, epic_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_gap_id_deterministic() {
-        let id1 = gap_id("fn-1-test", "missing auth");
-        let id2 = gap_id("fn-1-test", "missing auth");
-        assert_eq!(id1, id2);
-        assert!(id1.starts_with("gap-"));
-        assert_eq!(id1.len(), 4 + 8); // "gap-" + 8 hex chars
-    }
-
-    #[test]
-    fn test_gap_id_case_insensitive() {
-        let id1 = gap_id("fn-1-test", "Missing Auth");
-        let id2 = gap_id("fn-1-test", "missing auth");
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn test_gap_id_different_epics() {
-        let id1 = gap_id("fn-1-test", "missing auth");
-        let id2 = gap_id("fn-2-other", "missing auth");
-        assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn test_sha256_via_gap_id() {
-        // Verify gap_id produces Python-parity results via sha2 crate.
-        // Python: hashlib.sha256(b"fn-1-test:missing auth").hexdigest()[:8]
-        let gid = gap_id("fn-1-test", "missing auth");
-        assert!(gid.starts_with("gap-"));
-        assert_eq!(gid.len(), 12); // "gap-" + 8 hex chars
-    }
 
     #[test]
     fn test_blocking_priorities() {

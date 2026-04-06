@@ -1,10 +1,6 @@
 //! Dependency commands: dep add, dep rm.
 //!
-//! Updates both the Markdown frontmatter (canonical) and SQLite (cache).
-
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+//! DB canonical — all dependency operations go through the DB (sole source of truth).
 
 use chrono::Utc;
 use clap::Subcommand;
@@ -12,9 +8,7 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
-use flowctl_core::frontmatter;
 use flowctl_core::id::{epic_id_from_task, is_task_id};
-use flowctl_core::types::{Task, TASKS_DIR};
 
 use super::helpers::get_flow_dir;
 
@@ -36,7 +30,7 @@ pub enum DepCmd {
     },
 }
 
-fn ensure_flow_exists() -> PathBuf {
+fn ensure_flow_exists() -> std::path::PathBuf {
     let flow_dir = get_flow_dir();
     if !flow_dir.exists() {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
@@ -44,61 +38,18 @@ fn ensure_flow_exists() -> PathBuf {
     flow_dir
 }
 
-/// Try to open a DB connection.
-fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
-    let cwd = env::current_dir().ok()?;
-    crate::commands::db_shim::open(&cwd).ok()
+/// Open DB connection (hard error if unavailable).
+fn require_db() -> crate::commands::db_shim::Connection {
+    crate::commands::db_shim::require_db()
+        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")))
 }
 
-/// Read a task document: DB first, markdown fallback.
-fn read_task_doc(flow_dir: &Path, task_id: &str) -> (PathBuf, frontmatter::Document<Task>) {
-    let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
-    // Try DB first.
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Ok((task, body)) = repo.get_with_body(task_id) {
-            return (task_path, frontmatter::Document { frontmatter: task, body });
-        }
-    }
-    // Fallback to markdown.
-    if !task_path.exists() {
-        error_exit(&format!("Task not found: {}", task_id));
-    }
-    let content = fs::read_to_string(&task_path)
-        .unwrap_or_else(|e| error_exit(&format!("Cannot read {}: {}", task_path.display(), e)));
-    let doc: frontmatter::Document<Task> = frontmatter::parse(&content)
-        .unwrap_or_else(|e| error_exit(&format!("Cannot parse {}: {}", task_path.display(), e)));
-    (task_path, doc)
-}
-
-/// Write a task document: DB first, then export markdown.
-fn write_task_doc(path: &Path, doc: &frontmatter::Document<Task>) {
-    // Write to DB.
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
-            eprintln!("warning: DB write failed for {}: {e}", doc.frontmatter.id);
-        }
-    }
-    // Export to markdown.
-    let content = frontmatter::write(doc)
-        .unwrap_or_else(|e| error_exit(&format!("Cannot serialize task: {}", e)));
-    fs::write(path, content)
-        .unwrap_or_else(|e| error_exit(&format!("Cannot write {}: {}", path.display(), e)));
-}
-
-/// Update the SQLite cache for a task's dependencies (best-effort).
-fn sync_deps_to_db(task_id: &str, deps: &[String]) {
-    let cwd = match env::current_dir() {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    let conn = match crate::commands::db_shim::open(&cwd) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    let dep_repo = crate::commands::db_shim::DepRepo::new(&conn);
-    let _ = dep_repo.replace_task_deps(task_id, deps);
+/// Read a task from DB (sole source of truth).
+fn read_task(task_id: &str) -> flowctl_core::types::Task {
+    let conn = require_db();
+    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    repo.get(task_id)
+        .unwrap_or_else(|_| error_exit(&format!("Task not found: {}", task_id)))
 }
 
 pub fn dispatch(cmd: &DepCmd, json: bool) {
@@ -109,7 +60,7 @@ pub fn dispatch(cmd: &DepCmd, json: bool) {
 }
 
 fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
 
     if !is_task_id(task_id) {
         error_exit(&format!(
@@ -136,19 +87,26 @@ fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
         ));
     }
 
-    let (task_path, mut doc) = read_task_doc(&flow_dir, task_id);
+    let mut task = read_task(task_id);
 
-    if !doc.frontmatter.depends_on.contains(&depends_on.to_string()) {
-        doc.frontmatter.depends_on.push(depends_on.to_string());
-        doc.frontmatter.updated_at = Utc::now();
-        write_task_doc(&task_path, &doc);
-        sync_deps_to_db(task_id, &doc.frontmatter.depends_on);
+    if !task.depends_on.contains(&depends_on.to_string()) {
+        task.depends_on.push(depends_on.to_string());
+        task.updated_at = Utc::now();
+
+        // Write to DB
+        let conn = require_db();
+        let dep_repo = crate::commands::db_shim::DepRepo::new(&conn);
+        if let Err(e) = dep_repo.add_task_dep(task_id, depends_on) {
+            error_exit(&format!("Failed to add dep: {e}"));
+        }
+        let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+        let _ = task_repo.upsert(&task);
     }
 
     if json {
         json_output(json!({
             "task": task_id,
-            "depends_on": doc.frontmatter.depends_on,
+            "depends_on": task.depends_on,
             "message": format!("Dependency {} added to {}", depends_on, task_id),
         }));
     } else {
@@ -157,7 +115,7 @@ fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
 }
 
 fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str) {
-    let flow_dir = ensure_flow_exists();
+    ensure_flow_exists();
 
     if !is_task_id(task_id) {
         error_exit(&format!("Invalid task ID: {}", task_id));
@@ -166,18 +124,25 @@ fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str) {
         error_exit(&format!("Invalid dependency ID: {}", depends_on));
     }
 
-    let (task_path, mut doc) = read_task_doc(&flow_dir, task_id);
+    let mut task = read_task(task_id);
 
-    if let Some(pos) = doc.frontmatter.depends_on.iter().position(|d| d == depends_on) {
-        doc.frontmatter.depends_on.remove(pos);
-        doc.frontmatter.updated_at = Utc::now();
-        write_task_doc(&task_path, &doc);
-        sync_deps_to_db(task_id, &doc.frontmatter.depends_on);
+    if let Some(pos) = task.depends_on.iter().position(|d| d == depends_on) {
+        task.depends_on.remove(pos);
+        task.updated_at = Utc::now();
+
+        // Write to DB
+        let conn = require_db();
+        let dep_repo = crate::commands::db_shim::DepRepo::new(&conn);
+        if let Err(e) = dep_repo.remove_task_dep(task_id, depends_on) {
+            error_exit(&format!("Failed to remove dep: {e}"));
+        }
+        let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+        let _ = task_repo.upsert(&task);
 
         if json {
             json_output(json!({
                 "task": task_id,
-                "depends_on": doc.frontmatter.depends_on,
+                "depends_on": task.depends_on,
                 "removed": true,
                 "message": format!("Dependency {} removed from {}", depends_on, task_id),
             }));
@@ -187,7 +152,7 @@ fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str) {
     } else if json {
         json_output(json!({
             "task": task_id,
-            "depends_on": doc.frontmatter.depends_on,
+            "depends_on": task.depends_on,
             "removed": false,
             "message": format!("{} not in dependencies", depends_on),
         }));

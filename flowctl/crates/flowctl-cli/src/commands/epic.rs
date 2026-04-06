@@ -167,40 +167,37 @@ fn validate_epic_id(id: &str) {
     }
 }
 
-/// Load epic document from DB (sole source of truth).
+/// Load epic document from JSON files.
 fn load_epic(id: &str) -> Document<Epic> {
-    let conn = require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
-    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    match repo.get_with_body(id) {
-        Ok((epic, body)) => Document { frontmatter: epic, body },
-        Err(_) => error_exit(&format!("Epic {id} not found")),
-    }
+    let flow_dir = get_flow_dir();
+    let epic = flowctl_core::json_store::epic_read(&flow_dir, id)
+        .unwrap_or_else(|_| error_exit(&format!("Epic {id} not found")));
+    let body = flowctl_core::json_store::epic_spec_read(&flow_dir, id)
+        .unwrap_or_default();
+    Document { frontmatter: epic, body }
 }
 
-/// Write an epic document to DB (sole source of truth, no MD export).
+/// Write an epic document to JSON files.
 fn save_epic(doc: &Document<Epic>) {
-    let conn = require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
-    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
-        error_exit(&format!("DB write failed for {}: {e}", doc.frontmatter.id));
+    let flow_dir = get_flow_dir();
+    if let Err(e) = flowctl_core::json_store::epic_write(&flow_dir, &doc.frontmatter) {
+        error_exit(&format!("Failed to write epic {}: {e}", doc.frontmatter.id));
+    }
+    if let Err(e) = flowctl_core::json_store::epic_spec_write(&flow_dir, &doc.frontmatter.id, &doc.body) {
+        error_exit(&format!("Failed to write epic spec {}: {e}", doc.frontmatter.id));
     }
 }
 
-/// Open DB connection (hard error if unavailable).
+/// Get max epic number from JSON files.
+fn find_max_epic_number() -> u32 {
+    let flow_dir = get_flow_dir();
+    flowctl_core::json_store::epic_max_num(&flow_dir).unwrap_or(0)
+}
+
+/// Bridge: DB connection for functions not yet migrated to json_store.
+/// TODO(fn-24): Remove once all epic commands use json_store.
 fn require_db() -> Result<crate::commands::db_shim::Connection, crate::commands::db_shim::DbError> {
     crate::commands::db_shim::require_db()
-}
-
-/// Get max epic number from DB. Returns 0 if none exist.
-fn find_max_epic_number() -> u32 {
-    let conn = require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
-    match crate::commands::db_shim::max_epic_num(&conn) {
-        Ok(n) => n as u32,
-        Err(_) => 0,
-    }
 }
 
 /// Create default epic spec Markdown body.
@@ -610,11 +607,9 @@ fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
 
     let mut doc = load_epic(id);
 
-    // Check all tasks are done/skipped via DB
-    let conn = require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
-    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    let tasks = task_repo.list_by_epic(id).unwrap_or_default();
+    // Check all tasks are done/skipped via JSON files
+    let flow_dir = get_flow_dir();
+    let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, id).unwrap_or_default();
 
     let incomplete: Vec<String> = tasks
         .iter()
@@ -632,14 +627,13 @@ fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
         ));
     }
 
-    // Gap registry gate — check DB gaps table
-    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
+    // Gap registry gate — check JSON gaps
     let mut open_blocking_count = 0;
     let mut gap_list_parts: Vec<String> = Vec::new();
 
-    if let Ok(gaps) = gap_repo.list(id, Some("open")) {
+    if let Ok(gaps) = flowctl_core::json_store::gaps_read(&flow_dir, id) {
         for gap in &gaps {
-            if GAP_BLOCKING_PRIORITIES.contains(&gap.priority.as_str()) {
+            if !gap.resolved && GAP_BLOCKING_PRIORITIES.contains(&gap.priority.as_str()) {
                 open_blocking_count += 1;
                 gap_list_parts.push(format!("[{}] {}", gap.priority, gap.capability));
             }

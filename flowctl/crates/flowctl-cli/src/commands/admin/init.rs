@@ -60,6 +60,42 @@ pub fn cmd_init(json: bool) {
         }
     }
 
+    // Create/open flow.db (runs migrations automatically)
+    let cwd = std::env::current_dir()
+        .unwrap_or_else(|e| error_exit(&format!("Cannot get current dir: {e}")));
+    match crate::commands::db_shim::open(&cwd) {
+        Ok(conn) => {
+            actions.push("flow.db ready".to_string());
+
+            // Auto-import from existing MD files if epics exist
+            let epics_dir = flow_dir.join(EPICS_DIR);
+            if epics_dir.is_dir() {
+                let has_md_files = fs::read_dir(&epics_dir)
+                    .map(|entries| entries.flatten().any(|e| {
+                        e.file_name().to_string_lossy().ends_with(".md")
+                    }))
+                    .unwrap_or(false);
+
+                if has_md_files {
+                    match crate::commands::db_shim::reindex(&conn, &flow_dir, None) {
+                        Ok(result) => {
+                            actions.push(format!(
+                                "auto-imported {} epics, {} tasks from MD",
+                                result.epics_indexed, result.tasks_indexed
+                            ));
+                        }
+                        Err(e) => {
+                            eprintln!("warning: auto-import failed: {e}");
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("warning: DB creation failed: {e}");
+        }
+    }
+
     // Build output
     let message = if actions.is_empty() {
         ".flow/ already up to date".to_string()

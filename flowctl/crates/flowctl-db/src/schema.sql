@@ -5,15 +5,18 @@
 -- ── Indexed from Markdown (rebuildable via reindex) ─────────────────
 
 CREATE TABLE IF NOT EXISTS epics (
-    id          TEXT PRIMARY KEY,
-    title       TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'open',
-    branch_name TEXT,
-    plan_review TEXT DEFAULT 'unknown',
-    file_path   TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
-    body        TEXT NOT NULL DEFAULT ''
+    id                    TEXT PRIMARY KEY,
+    title                 TEXT NOT NULL,
+    status                TEXT NOT NULL DEFAULT 'open',
+    branch_name           TEXT,
+    plan_review           TEXT DEFAULT 'unknown',
+    auto_execute_pending  INTEGER DEFAULT 0,
+    auto_execute_set_at   TEXT,
+    archived              INTEGER DEFAULT 0,
+    file_path             TEXT NOT NULL,
+    created_at            TEXT NOT NULL,
+    updated_at            TEXT NOT NULL,
+    body                  TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -45,6 +48,22 @@ CREATE TABLE IF NOT EXISTS file_ownership (
     file_path   TEXT NOT NULL,
     task_id     TEXT NOT NULL,
     PRIMARY KEY (file_path, task_id)
+);
+
+-- ── Gaps registry (replaces epics/{id}.gaps.json sidecar) ─────────────
+
+CREATE TABLE IF NOT EXISTS gaps (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    epic_id     TEXT NOT NULL,
+    capability  TEXT NOT NULL,
+    priority    TEXT NOT NULL DEFAULT 'important',
+    source      TEXT,
+    status      TEXT NOT NULL DEFAULT 'open',
+    resolved_at TEXT,
+    evidence    TEXT,
+    task_id     TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (epic_id) REFERENCES epics(id)
 );
 
 -- ── Runtime-only (not in Markdown, not rebuildable) ─────────────────
@@ -178,6 +197,8 @@ CREATE TABLE IF NOT EXISTS memory (
 
 -- ── Indexes ─────────────────────────────────────────────────────────
 
+CREATE INDEX IF NOT EXISTS idx_gaps_epic ON gaps(epic_id);
+CREATE INDEX IF NOT EXISTS idx_gaps_status ON gaps(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_epic ON tasks(epic_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_events_entity ON events(epic_id, task_id);

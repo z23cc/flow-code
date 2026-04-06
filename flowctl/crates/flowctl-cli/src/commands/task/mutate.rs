@@ -14,7 +14,7 @@ use flowctl_core::types::{Task, FLOW_DIR, TASKS_DIR};
 
 use super::{
     clear_evidence_in_body, create_task_spec, ensure_flow_exists, find_dependents, load_epic_md,
-    load_task_doc, scan_max_task_id, try_open_db, write_task_doc,
+    load_task_doc, scan_max_task_id, require_db, write_task_doc,
 };
 
 pub(super) fn cmd_task_reset(json_mode: bool, task_id: &str, cascade: bool) {
@@ -65,7 +65,7 @@ pub(super) fn cmd_task_reset(json_mode: bool, task_id: &str, cascade: bool) {
     write_task_doc(&flow_dir, task_id, &doc);
 
     // Update DB
-    if let Some(conn) = try_open_db() {
+    if let Ok(conn) = require_db() {
         let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         let _ = repo.update_status(task_id, Status::Todo);
         // Clear runtime state by upserting a blank state
@@ -99,7 +99,7 @@ pub(super) fn cmd_task_reset(json_mode: bool, task_id: &str, cascade: bool) {
                 dep_doc.body = clear_evidence_in_body(&dep_doc.body);
                 write_task_doc(&flow_dir, dep_id, &dep_doc);
 
-                if let Some(conn) = try_open_db() {
+                if let Ok(conn) = require_db() {
                     let repo = crate::commands::db_shim::TaskRepo::new(&conn);
                     let _ = repo.update_status(dep_id, Status::Todo);
                     let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
@@ -141,7 +141,7 @@ pub(super) fn cmd_task_skip(json_mode: bool, task_id: &str, reason: Option<&str>
     write_task_doc(&flow_dir, task_id, &doc);
 
     // Update DB
-    if let Some(conn) = try_open_db() {
+    if let Ok(conn) = require_db() {
         let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         let _ = repo.update_status(task_id, Status::Skipped);
     }
@@ -238,7 +238,7 @@ pub(super) fn cmd_task_split(json_mode: bool, task_id: &str, titles: &str, chain
         };
         write_task_doc(&flow_dir, &sub_id, &sub_doc);
 
-        if let Some(conn) = try_open_db() {
+        if let Ok(conn) = require_db() {
             let repo = crate::commands::db_shim::TaskRepo::new(&conn);
             let _ = repo.upsert(&sub_task);
         }
@@ -252,7 +252,7 @@ pub(super) fn cmd_task_split(json_mode: bool, task_id: &str, titles: &str, chain
     orig_doc.frontmatter.updated_at = now;
     write_task_doc(&flow_dir, task_id, &orig_doc);
 
-    if let Some(conn) = try_open_db() {
+    if let Ok(conn) = require_db() {
         let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         let _ = repo.update_status(task_id, Status::Skipped);
     }
@@ -379,7 +379,7 @@ pub(super) fn cmd_task_set_deps(json_mode: bool, task_id: &str, deps: &str) {
         doc.frontmatter.updated_at = Utc::now();
         write_task_doc(&flow_dir, task_id, &doc);
 
-        if let Some(conn) = try_open_db() {
+        if let Ok(conn) = require_db() {
             let repo = crate::commands::db_shim::TaskRepo::new(&conn);
             let _ = repo.upsert(&doc.frontmatter);
         }

@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-pub use flowctl_db::{DbError, ReindexResult};
+pub use flowctl_db::{DbError, GapRow, ReindexResult};
 pub use flowctl_db::metrics::{
     Bottleneck, DoraMetrics, EpicStats, Summary, TokenBreakdown, WeeklyTrend,
 };
@@ -61,8 +61,27 @@ pub fn open(working_dir: &Path) -> Result<Connection, DbError> {
     })
 }
 
+/// Open DB connection with hard error on failure (DB must be available).
+/// This is the preferred entry point — replaces `try_open_db()` which
+/// returned `Option<Connection>` and silently degraded to MD fallback.
+pub fn require_db() -> Result<Connection, DbError> {
+    let cwd = std::env::current_dir()
+        .map_err(|e| DbError::StateDir(format!("cannot get current dir: {e}")))?;
+    open(&cwd)
+}
+
 pub fn cleanup(conn: &Connection) -> Result<u64, DbError> {
     block_on(flowctl_db::cleanup(&conn.inner()))
+}
+
+/// Get the maximum epic number from DB.
+pub fn max_epic_num(conn: &Connection) -> Result<i64, DbError> {
+    block_on(flowctl_db::max_epic_num(&conn.inner()))
+}
+
+/// Get the maximum task number for an epic from DB.
+pub fn max_task_num(conn: &Connection, epic_id: &str) -> Result<i64, DbError> {
+    block_on(flowctl_db::max_task_num(&conn.inner(), epic_id))
 }
 
 pub fn reindex(
@@ -317,6 +336,65 @@ impl PhaseProgressRepo {
     pub fn mark_done(&self, task_id: &str, phase: &str) -> Result<(), DbError> {
         block_on(
             flowctl_db::PhaseProgressRepo::new(self.0.clone()).mark_done(task_id, phase),
+        )
+    }
+}
+
+// ── Gap repository ────────────────────────────────────────────────
+
+pub struct GapRepo(libsql::Connection);
+
+impl GapRepo {
+    pub fn new(conn: &Connection) -> Self {
+        Self(conn.inner())
+    }
+
+    pub fn add(
+        &self,
+        epic_id: &str,
+        capability: &str,
+        priority: &str,
+        source: Option<&str>,
+        task_id: Option<&str>,
+    ) -> Result<i64, DbError> {
+        block_on(
+            flowctl_db::GapRepo::new(self.0.clone())
+                .add(epic_id, capability, priority, source, task_id),
+        )
+    }
+
+    pub fn list(
+        &self,
+        epic_id: &str,
+        status: Option<&str>,
+    ) -> Result<Vec<GapRow>, DbError> {
+        block_on(
+            flowctl_db::GapRepo::new(self.0.clone())
+                .list(epic_id, status),
+        )
+    }
+
+    pub fn remove(&self, id: i64) -> Result<(), DbError> {
+        block_on(flowctl_db::GapRepo::new(self.0.clone()).remove(id))
+    }
+
+    pub fn remove_all(&self, epic_id: &str) -> Result<u64, DbError> {
+        block_on(flowctl_db::GapRepo::new(self.0.clone()).remove_all(epic_id))
+    }
+
+    pub fn resolve(&self, id: i64, evidence: &str) -> Result<(), DbError> {
+        block_on(flowctl_db::GapRepo::new(self.0.clone()).resolve(id, evidence))
+    }
+
+    pub fn resolve_by_capability(
+        &self,
+        epic_id: &str,
+        capability: &str,
+        evidence: &str,
+    ) -> Result<(), DbError> {
+        block_on(
+            flowctl_db::GapRepo::new(self.0.clone())
+                .resolve_by_capability(epic_id, capability, evidence),
         )
     }
 }

@@ -11,7 +11,7 @@ use flowctl_core::types::{Domain, Task, EPICS_DIR, FLOW_DIR, TASKS_DIR};
 
 use super::{
     create_task_spec, ensure_flow_exists, parse_domain, read_file_or_stdin, scan_max_task_id,
-    try_open_db, write_task_doc,
+    require_db, write_task_doc,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -127,7 +127,7 @@ pub(super) fn cmd_task_create(
     write_task_doc(&flow_dir, &task_id, &doc);
 
     // Upsert into SQLite if DB available
-    if let Some(conn) = try_open_db() {
+    if let Ok(conn) = require_db() {
         let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         let _ = repo.upsert(&task);
     }

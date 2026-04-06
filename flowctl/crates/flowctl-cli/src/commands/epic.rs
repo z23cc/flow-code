@@ -170,7 +170,7 @@ fn validate_epic_id(id: &str) {
 /// Load epic document: DB first, markdown fallback.
 fn load_epic(epic_path: &Path, id: &str) -> frontmatter::Document<Epic> {
     // Try DB first.
-    if let Some(conn) = try_open_db() {
+    if let Ok(conn) = require_db() {
         let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Ok((epic, body)) = repo.get_with_body(id) {
             return frontmatter::Document { frontmatter: epic, body };
@@ -189,7 +189,7 @@ fn load_epic(epic_path: &Path, id: &str) -> frontmatter::Document<Epic> {
 /// Write an epic document: DB first, then export markdown.
 fn save_epic(epic_path: &Path, doc: &frontmatter::Document<Epic>) {
     // Write to DB.
-    if let Some(conn) = try_open_db() {
+    if let Ok(conn) = require_db() {
         let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
             eprintln!("warning: DB write failed for {}: {e}", doc.frontmatter.id);
@@ -205,15 +205,14 @@ fn save_epic(epic_path: &Path, doc: &frontmatter::Document<Epic>) {
         .unwrap_or_else(|e| error_exit(&format!("Failed to write {}: {e}", epic_path.display())));
 }
 
-/// Try to open DB connection for SQLite dual-write.
-fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
-    let cwd = env::current_dir().ok()?;
-    crate::commands::db_shim::open(&cwd).ok()
+/// Open DB connection (hard error if unavailable).
+fn require_db() -> Result<crate::commands::db_shim::Connection, crate::commands::db_shim::DbError> {
+    crate::commands::db_shim::require_db()
 }
 
-/// Upsert epic into SQLite if DB is available.
+/// Upsert epic into SQLite (hard error if DB unavailable).
 fn db_upsert_epic(epic: &Epic) {
-    if let Some(conn) = try_open_db() {
+    if let Ok(conn) = require_db() {
         let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         let _ = repo.upsert(epic);
     }
@@ -363,6 +362,9 @@ fn cmd_create(title: &str, branch: &Option<String>, json_mode: bool) {
         default_impl: None,
         default_review: None,
         default_sync: None,
+        auto_execute_pending: None,
+        auto_execute_set_at: None,
+        archived: false,
         file_path: Some(format!("epics/{epic_id}.md")),
         created_at: now,
         updated_at: now,
@@ -682,7 +684,7 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
                         let _ = fs::write(&task_path, serialized);
                     }
                     // SQLite update
-                    if let Some(conn) = try_open_db() {
+                    if let Ok(conn) = require_db() {
                         let repo = crate::commands::db_shim::TaskRepo::new(&conn);
                         let _ = repo.upsert(&task_doc.frontmatter);
                     }

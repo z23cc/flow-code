@@ -156,6 +156,18 @@ pub struct Epic {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_sync: Option<String>,
 
+    /// Whether auto-execute is pending for this epic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_execute_pending: Option<bool>,
+
+    /// When auto_execute_pending was set (ISO 8601).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_execute_set_at: Option<String>,
+
+    /// Whether this epic has been archived.
+    #[serde(default)]
+    pub archived: bool,
+
     /// File path to the Markdown spec.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_path: Option<String>,
@@ -519,6 +531,9 @@ mod tests {
             default_impl: None,
             default_review: None,
             default_sync: None,
+            auto_execute_pending: None,
+            auto_execute_set_at: None,
+            archived: false,
             file_path: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),

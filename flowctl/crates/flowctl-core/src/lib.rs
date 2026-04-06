@@ -10,6 +10,7 @@ pub mod dag;
 pub mod error;
 pub mod frontmatter;
 pub mod id;
+pub mod json_store;
 pub mod outputs;
 pub mod review_protocol;
 pub mod state_machine;

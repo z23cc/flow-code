@@ -7,10 +7,10 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
-use flowctl_core::types::{EPICS_DIR, FLOW_DIR, TASKS_DIR};
+use flowctl_core::types::{EPICS_DIR, TASKS_DIR};
 
 pub fn cmd_export(json: bool, epic_filter: Option<String>, _format: String) {
-    let flow_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join(FLOW_DIR);
+    let flow_dir = super::get_flow_dir();
     if !flow_dir.exists() {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
     }
@@ -70,7 +70,7 @@ pub fn cmd_export(json: bool, epic_filter: Option<String>, _format: String) {
 }
 
 pub fn cmd_import(json: bool) {
-    let flow_dir = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join(FLOW_DIR);
+    let flow_dir = super::get_flow_dir();
     if !flow_dir.exists() {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
     }

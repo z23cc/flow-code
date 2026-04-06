@@ -1,4 +1,3 @@
 bin.name = "flowctl"
 args = ["--json", "epic", "create", "--title", "Test Epic"]
-status.code = 1
 stdout = "..."

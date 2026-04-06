@@ -10,7 +10,6 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
-use flowctl_core::types::FLOW_DIR;
 use flowctl_service::lifecycle::{DoneTaskRequest, StartTaskRequest};
 
 /// Run the MCP server loop on stdin/stdout.
@@ -185,7 +184,7 @@ fn handle_tools_call(id: &Value, request: &Value) -> Value {
 /// Resolve flow_dir and open DB connection for direct service calls.
 fn mcp_context() -> Result<(PathBuf, Option<libsql::Connection>), String> {
     let cwd = env::current_dir().map_err(|e| format!("cannot get cwd: {e}"))?;
-    let flow_dir = cwd.join(FLOW_DIR);
+    let flow_dir = super::helpers::resolve_flow_dir(&cwd);
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

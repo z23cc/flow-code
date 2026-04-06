@@ -33,10 +33,6 @@ pub enum HookCmd {
     TaskCompleted,
     /// Rewrite Bash commands via rtk token optimizer (PreToolUse hook).
     RtkRewrite,
-    /// Start flowctl daemon in background (SessionStart hook).
-    DaemonStart,
-    /// Stop flowctl daemon (Stop hook).
-    DaemonStop,
 }
 
 pub fn dispatch(cmd: &HookCmd) {
@@ -48,8 +44,6 @@ pub fn dispatch(cmd: &HookCmd) {
         HookCmd::SubagentContext => cmd_subagent_context(),
         HookCmd::TaskCompleted => cmd_task_completed(),
         HookCmd::RtkRewrite => cmd_rtk_rewrite(),
-        HookCmd::DaemonStart => cmd_daemon_start(),
-        HookCmd::DaemonStop => cmd_daemon_stop(),
     }
 }
 
@@ -105,21 +99,9 @@ fn cmd_auto_memory() {
     std::process::exit(0);
 }
 
-/// Find .flow/ directory from CWD upward.
+/// Find flow directory — delegates to shared resolver (git-common-dir aware).
 fn get_flow_dir() -> PathBuf {
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut p = cwd.as_path();
-    loop {
-        let candidate = p.join(".flow");
-        if candidate.is_dir() {
-            return candidate;
-        }
-        match p.parent() {
-            Some(parent) => p = parent,
-            None => break,
-        }
-    }
-    cwd.join(".flow")
+    super::helpers::get_flow_dir()
 }
 
 /// Check if auto-memory is explicitly disabled in config.
@@ -1807,94 +1789,6 @@ fn cmd_rtk_rewrite() {
             std::process::exit(0);
         }
     }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Daemon Start / Stop
-// ═══════════════════════════════════════════════════════════════════════
-
-fn daemon_pid_file() -> PathBuf {
-    let flow_dir = get_flow_dir();
-    let canonical = fs::canonicalize(&flow_dir)
-        .unwrap_or_else(|_| flow_dir.to_path_buf());
-    let hash = md5_hex(canonical.to_string_lossy().as_bytes());
-    PathBuf::from(format!(
-        "{}/flowctl-daemon-{hash}.pid",
-        env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into())
-    ))
-}
-
-fn cmd_daemon_start() {
-    let _input = read_stdin_json();
-
-    let flow_dir = get_flow_dir();
-    if !flow_dir.exists() {
-        std::process::exit(0);
-    }
-
-    let pid_file = daemon_pid_file();
-
-    // If PID file exists and process is alive, exit (already running)
-    if pid_file.exists() {
-        if let Ok(contents) = fs::read_to_string(&pid_file) {
-            if let Ok(pid) = contents.trim().parse::<u32>() {
-                let alive = Command::new("kill")
-                    .args(["-0", &pid.to_string()])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .map(|s| s.success())
-                    .unwrap_or(false);
-                if alive {
-                    std::process::exit(0);
-                }
-            }
-        }
-    }
-
-    let self_exe = match std::env::current_exe() {
-        Ok(p) if p.exists() => p,
-        _ => std::process::exit(0),
-    };
-
-    let child = Command::new(&self_exe)
-        .args(["serve", "--port", "17319"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-
-    match child {
-        Ok(c) => {
-            let _ = fs::write(&pid_file, c.id().to_string());
-            println!("flowctl dashboard: http://127.0.0.1:17319");
-        }
-        Err(_) => {
-            // Silently fail — daemon is optional
-        }
-    }
-
-    std::process::exit(0);
-}
-
-fn cmd_daemon_stop() {
-    let _input = read_stdin_json();
-
-    let pid_file = daemon_pid_file();
-
-    if pid_file.exists() {
-        if let Ok(contents) = fs::read_to_string(&pid_file) {
-            if let Ok(pid) = contents.trim().parse::<u32>() {
-                let _ = Command::new("kill")
-                    .arg(pid.to_string())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
-        }
-        let _ = fs::remove_file(&pid_file);
-    }
-
-    std::process::exit(0);
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────

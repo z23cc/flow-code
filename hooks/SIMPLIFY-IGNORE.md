@@ -81,6 +81,9 @@ Backups are in `.claude/.simplify-ignore-cache/` within your project directory.
 - **Suffix detection covers `*/` and `-->` only.** Non-standard template comment closers (ERB, Blade) may not work; use `#` or `//` instead.
 - **Fuzzy fallback on altered placeholders.** If the model changes a placeholder's reason text, the hook tries a hash-only match which may leave cosmetic debris.
 - **File renaming leaves placeholders.** Renamed files retain placeholders; originals are saved as `.recovered` on stop.
+- **Annotation must be in a comment.** Only lines with `//`, `/*`, `#`, or `<!--` before `simplify-ignore-start` are recognized. String literals or docs won't accidentally trigger.
+- **Disk state during session.** While active, protected files on disk contain placeholders between Read and Edit/Write events. External tools may see broken source during this window.
+- **Missing placeholder safety.** If a whole-file Write drops a `BLOCK_<hash>` placeholder, the hook restores from backup to prevent data loss.
 
 ## Requirements
 

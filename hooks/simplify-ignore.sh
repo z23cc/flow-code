@@ -51,9 +51,9 @@ filter_file() {
   local count=0 in_block=0 buf="" reason="" prefix="" suffix=""
 
   while IFS= read -r line || [ -n "$line" ]; do
-    # Detect start marker
+    # Detect start marker (must be preceded by a comment prefix: //, /*, #, or <!--)
     if [ $in_block -eq 0 ]; then
-      case "$line" in *simplify-ignore-start*)
+      case "$line" in *//*simplify-ignore-start*|*'/*'*simplify-ignore-start*|*'#'*simplify-ignore-start*|*'<!--'*simplify-ignore-start*)
         in_block=1
         buf="$line"
         prefix="${line%%simplify-ignore-start*}"
@@ -181,6 +181,24 @@ if [ "$TOOL_NAME" = "Edit" ] || [ "$TOOL_NAME" = "Write" ]; then
   [ -f "$CACHE/${ID}.bak" ] || exit 0
   ls "$CACHE/${ID}".block.* >/dev/null 2>&1 || exit 0
 
+  # Check for missing placeholders BEFORE expanding — if a placeholder was dropped
+  # by a whole-file Write, restore from the original backup to prevent data loss.
+  MISSING_BLOCKS=0
+  for bf in "$CACHE/${ID}".block.*; do
+    [ -f "$bf" ] || continue
+    h="${bf##*.}"
+    if ! grep -q "BLOCK_${h}" "$FILE_PATH" 2>/dev/null; then
+      MISSING_BLOCKS=$((MISSING_BLOCKS + 1))
+      printf 'Warning: BLOCK_%s placeholder missing — restoring from backup\n' "$h" >&2
+    fi
+  done
+  if [ "$MISSING_BLOCKS" -gt 0 ]; then
+    # Restore original backup (contains unfiltered code), then re-filter
+    cat "$CACHE/${ID}.bak" > "$FILE_PATH"
+    printf 'Restored %s from backup (%d missing placeholder(s))\n' "$FILE_PATH" "$MISSING_BLOCKS" >&2
+    exit 0
+  fi
+
   # Expand placeholders back to original blocks
   EXPANDED="$CACHE/${ID}.$$.expanded"
   rm -f "$EXPANDED"
@@ -219,10 +237,10 @@ if [ "$TOOL_NAME" = "Edit" ] || [ "$TOOL_NAME" = "Write" ]; then
   cat "$EXPANDED" > "$FILE_PATH"
   rm -f "$EXPANDED"
 
-  # Save expanded version as new backup (includes model's changes)
-  cp "$FILE_PATH" "$CACHE/${ID}.bak"
+  # DO NOT overwrite the original backup — keep it pristine for crash recovery.
+  # The backup always contains the pre-filter original, never the expanded version.
 
-  # Re-filter in-place so file stays with placeholders on disk
+  # Re-filter in-place so next Read sees placeholders
   FILTERED="$CACHE/${ID}.$$.tmp"
   rm -f "$FILTERED"
   if filter_file "$FILE_PATH" "$FILTERED" "$ID"; then

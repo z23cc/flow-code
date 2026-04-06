@@ -21,15 +21,27 @@ use flowctl_core::types::{
     Epic, Task,
 };
 
-use super::helpers::{get_flow_dir, resolve_actor};
+use super::helpers::{ensure_flow_symlink, get_flow_dir, resolve_actor};
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-/// Ensure .flow/ exists, error_exit if not.
+/// Ensure .flow/ exists, auto-creating the symlink if needed.
+///
+/// In worktree environments (e.g., Claude Code `isolation: "worktree"`),
+/// `.flow/` may not exist because the worktree was created outside the
+/// flow-code worktree kit. Auto-create the symlink so workers are
+/// self-healing.
 pub(crate) fn ensure_flow_exists() -> PathBuf {
     let flow_dir = get_flow_dir();
     if !flow_dir.exists() {
-        error_exit(".flow/ does not exist. Run 'flowctl init' first.");
+        // Try to create the .flow/ symlink (idempotent).
+        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        if let Err(e) = ensure_flow_symlink(&cwd) {
+            error_exit(&format!(".flow/ does not exist and auto-create failed: {e}. Run 'flowctl init' first."));
+        }
+        if !flow_dir.exists() {
+            error_exit(".flow/ does not exist. Run 'flowctl init' first.");
+        }
     }
     flow_dir
 }

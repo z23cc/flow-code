@@ -11,6 +11,7 @@
 #   2. .claude-plugin/flowctl-version              (v-prefixed)
 #   3. .claude-plugin/plugin.json                  (bare semver)
 #   4. .claude-plugin/marketplace.json             (bare semver × 3)
+#   5. .codex-plugin/plugin.json                   (bare semver)
 #
 # After running: commit + tag v<version> + push to trigger GitHub Release.
 
@@ -23,24 +24,27 @@ CARGO="flowctl/crates/flowctl-cli/Cargo.toml"
 PIN=".claude-plugin/flowctl-version"
 PLUGIN=".claude-plugin/plugin.json"
 MARKET=".claude-plugin/marketplace.json"
+CODEX_PLUGIN=".codex-plugin/plugin.json"
 
 # ── Read current versions ───────────────────────────────────────────
 current_cargo()   { awk -F'"' '/^version = /{print $2; exit}' "$CARGO"; }
 current_pin()     { tr -d ' \t\n\r' < "$PIN" | sed 's/^v//'; }
 current_plugin()  { python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$PLUGIN"; }
 current_market()  { python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["version"])' "$MARKET"; }
+current_codex()   { python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$CODEX_PLUGIN"; }
 
 print_current() {
     printf "%-50s %s\n" "$CARGO"   "$(current_cargo)"
     printf "%-50s %s\n" "$PIN"     "v$(current_pin)"
     printf "%-50s %s\n" "$PLUGIN"  "$(current_plugin)"
     printf "%-50s %s\n" "$MARKET"  "$(current_market)"
+    printf "%-50s %s\n" "$CODEX_PLUGIN" "$(current_codex)"
 }
 
 # ── Check mode ──────────────────────────────────────────────────────
 if [ "${1:-}" = "--check" ]; then
-    c="$(current_cargo)"; p="$(current_pin)"; pl="$(current_plugin)"; m="$(current_market)"
-    if [ "$c" = "$p" ] && [ "$p" = "$pl" ] && [ "$pl" = "$m" ]; then
+    c="$(current_cargo)"; p="$(current_pin)"; pl="$(current_plugin)"; m="$(current_market)"; cx="$(current_codex)"
+    if [ "$c" = "$p" ] && [ "$p" = "$pl" ] && [ "$pl" = "$m" ] && [ "$m" = "$cx" ]; then
         echo "✓ all files agree on v$c"
         exit 0
     fi
@@ -103,6 +107,18 @@ data["version"] = new
 data["metadata"]["version"] = new
 for plugin in data.get("plugins", []):
     plugin["version"] = new
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+PY
+
+# 5. .codex-plugin/plugin.json — update "version" field
+python3 - "$CODEX_PLUGIN" "$NEW" <<'PY'
+import json, sys
+path, new = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    data = json.load(f)
+data["version"] = new
 with open(path, 'w') as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
     f.write('\n')

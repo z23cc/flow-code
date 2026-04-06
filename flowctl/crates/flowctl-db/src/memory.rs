@@ -133,7 +133,7 @@ async fn embed_one(text: &str) -> Result<Vec<f32>, DbError> {
 
 /// Convert a `Vec<f32>` into a libSQL `vector32()` literal string.
 fn vec_to_literal(v: &[f32]) -> String {
-    let parts: Vec<String> = v.iter().map(|f| f.to_string()).collect();
+    let parts: Vec<String> = v.iter().map(std::string::ToString::to_string).collect();
     format!("[{}]", parts.join(","))
 }
 

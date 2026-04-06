@@ -527,25 +527,25 @@ struct GuardState {
 impl GuardState {
     fn from_json(v: &Value) -> Self {
         let mut state = Self::default();
-        if let Some(n) = v.get("chats_sent").and_then(|v| v.as_u64()) {
+        if let Some(n) = v.get("chats_sent").and_then(serde_json::Value::as_u64) {
             state.chats_sent = n;
         }
         state.last_verdict = v
             .get("last_verdict")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
         state.window = v
             .get("window")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
         state.tab = v
             .get("tab")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        if let Some(b) = v.get("chat_send_succeeded").and_then(|v| v.as_bool()) {
+            .map(std::string::ToString::to_string);
+        if let Some(b) = v.get("chat_send_succeeded").and_then(serde_json::Value::as_bool) {
             state.chat_send_succeeded = b;
         }
-        if let Some(b) = v.get("codex_review_succeeded").and_then(|v| v.as_bool()) {
+        if let Some(b) = v.get("codex_review_succeeded").and_then(serde_json::Value::as_bool) {
             state.codex_review_succeeded = b;
         }
         if let Some(arr) = v.get("flowctl_done_called").and_then(|v| v.as_array()) {
@@ -748,7 +748,7 @@ fn is_memory_enabled() -> bool {
     config
         .get("memory")
         .and_then(|m| m.get("enabled"))
-        .and_then(|v| v.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
 }
 
@@ -962,7 +962,7 @@ fn handle_post_tool_use(data: &Value) {
         Some(Value::Object(map)) => map
             .get("stdout")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .unwrap_or_else(|| serde_json::to_string(&Value::Object(map.clone())).unwrap_or_default()),
         Some(Value::String(s)) => s.clone(),
         Some(other) => serde_json::to_string(other).unwrap_or_default(),
@@ -1175,7 +1175,7 @@ fn handle_stop(data: &Value) {
         .unwrap_or("unknown");
     let stop_hook_active = data
         .get("stop_hook_active")
-        .and_then(|v| v.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
 
     // Prevent infinite loops
@@ -1285,7 +1285,7 @@ fn cmd_commit_gate() {
                 Some(Value::Object(map)) => map
                     .get("stdout")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .unwrap_or_else(|| {
                         serde_json::to_string(&Value::Object(map.clone())).unwrap_or_default()
                     }),
@@ -1518,7 +1518,7 @@ fn cmd_pre_compact() {
             if let Some(locks_val) = run_flowctl(&flowctl, &["lock-check", "--json"]) {
                 let count = locks_val
                     .get("count")
-                    .and_then(|v| v.as_u64())
+                    .and_then(serde_json::Value::as_u64)
                     .unwrap_or(0);
                 if count > 0 {
                     lines.push(format!("File locks ({count} active):"));

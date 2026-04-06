@@ -285,7 +285,7 @@ fn load_receipt(path: Option<&str>) -> (Option<String>, bool) {
     };
     match serde_json::from_str::<serde_json::Value>(&content) {
         Ok(data) => {
-            let sid = data.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let sid = data.get("session_id").and_then(|v| v.as_str()).map(std::string::ToString::to_string);
             let is_rereview = sid.is_some();
             (sid, is_rereview)
         }
@@ -763,7 +763,7 @@ fn parse_findings_from_output(output: &str) -> (Vec<ReviewFinding>, f64) {
     // Try to extract structured JSON from the output
     if let Some(data) = parse_adversarial_output(output) {
         // Extract confidence
-        if let Some(c) = data.get("confidence").and_then(|v| v.as_f64()) {
+        if let Some(c) = data.get("confidence").and_then(serde_json::Value::as_f64) {
             confidence = c;
         }
 
@@ -787,10 +787,10 @@ fn parse_findings_from_output(output: &str) -> (Vec<ReviewFinding>, f64) {
                     .unwrap_or("")
                     .to_string();
                 let file = item.get("file").and_then(|v| v.as_str()).map(String::from);
-                let line = item.get("line").and_then(|v| v.as_u64()).map(|n| n as u32);
+                let line = item.get("line").and_then(serde_json::Value::as_u64).map(|n| n as u32);
                 let item_confidence = item
                     .get("confidence")
-                    .and_then(|v| v.as_f64())
+                    .and_then(serde_json::Value::as_f64)
                     .unwrap_or(0.8);
                 let autofix_class = match item.get("autofix_class").and_then(|v| v.as_str()) {
                     Some("safe_auto") => AutofixClass::SafeAuto,
@@ -816,11 +816,11 @@ fn parse_findings_from_output(output: &str) -> (Vec<ReviewFinding>, f64) {
                     .unwrap_or_default();
                 let pre_existing = item
                     .get("pre_existing")
-                    .and_then(|v| v.as_bool())
+                    .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
                 let requires_verification = item
                     .get("requires_verification")
-                    .and_then(|v| v.as_bool())
+                    .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
                 let suggested_fix = item
                     .get("suggested_fix")
@@ -876,7 +876,7 @@ fn parse_claude_review_result(content: &str) -> ModelReview {
             };
             let confidence = data
                 .get("confidence")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(confidence);
             ModelReview {
                 model: data

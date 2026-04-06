@@ -337,7 +337,7 @@ fn bump_refs(stats_path: &Path, entry_ids: &[String]) {
             .or_insert_with(|| json!({"refs": 0, "last_ref": ""}));
         let refs = entry
             .get("refs")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
         entry["refs"] = json!(refs + 1);
         entry["last_ref"] = json!(now);
@@ -386,7 +386,7 @@ fn require_memory_enabled(json: bool) -> PathBuf {
                 config
                     .get("memory")
                     .and_then(|m| m.get("enabled"))
-                    .and_then(|v| v.as_bool())
+                    .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false)
             }
             Err(_) => false,
@@ -438,7 +438,7 @@ fn cmd_memory_init(json: bool) {
                 config
                     .get("memory")
                     .and_then(|m| m.get("enabled"))
-                    .and_then(|v| v.as_bool())
+                    .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false)
             }
             Err(_) => false,
@@ -575,7 +575,7 @@ fn cmd_memory_add(
     let existing = load_index(&index_path);
     for e in &existing {
         if e.get("hash").and_then(|v| v.as_str()) == Some(&chash) {
-            let dup_id = e.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+            let dup_id = e.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0);
             if json {
                 json_output(json!({
                     "id": dup_id,
@@ -802,7 +802,7 @@ fn cmd_memory_list(
         .as_object()
         .map(|m| {
             m.values()
-                .map(|v| v.get("refs").and_then(|r| r.as_i64()).unwrap_or(0))
+                .map(|v| v.get("refs").and_then(serde_json::Value::as_i64).unwrap_or(0))
                 .sum()
         })
         .unwrap_or(0);
@@ -816,7 +816,7 @@ fn cmd_memory_list(
         let index_data: Vec<serde_json::Value> = index
             .iter()
             .map(|idx| {
-                let eid = idx.get("id").and_then(|v| v.as_i64()).unwrap_or(0).to_string();
+                let eid = idx.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0).to_string();
                 let last_verified = idx
                     .get("last_verified")
                     .or_else(|| idx.get("created"))
@@ -826,7 +826,7 @@ fn cmd_memory_list(
                 let refs = stats
                     .get(&eid)
                     .and_then(|s| s.get("refs"))
-                    .and_then(|r| r.as_i64())
+                    .and_then(serde_json::Value::as_i64)
                     .unwrap_or(0);
                 let mut entry = json!({
                     "id": idx.get("id"),
@@ -867,12 +867,12 @@ fn cmd_memory_list(
         let mut stale_count = 0;
         writeln!(buf, "Memory: {} entries, {} total references\n", total, total_refs).ok();
         for idx in &index {
-            let eid = idx.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+            let eid = idx.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0);
             let eid_str = eid.to_string();
             let refs = stats
                 .get(&eid_str)
                 .and_then(|s| s.get("refs"))
-                .and_then(|r| r.as_i64())
+                .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0);
             let verified = idx
                 .get("last_verified")
@@ -1105,7 +1105,7 @@ fn cmd_memory_inject(json: bool, entry_type: Option<&str>, tags: Option<&str>, f
                     .map(|arr| {
                         arr.iter()
                             .filter_map(|t| t.as_str())
-                            .map(|s| s.to_lowercase())
+                            .map(str::to_lowercase)
                             .collect()
                     })
                     .unwrap_or_default();
@@ -1131,7 +1131,7 @@ fn cmd_memory_inject(json: bool, entry_type: Option<&str>, tags: Option<&str>, f
         .iter()
         .map(|e| {
             e.get("id")
-                .and_then(|v| v.as_i64())
+                .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0)
                 .to_string()
         })
@@ -1241,7 +1241,7 @@ fn cmd_memory_verify(json: bool, entry_id: i64) {
 
     let mut found = false;
     for idx in &mut index {
-        if idx.get("id").and_then(|v| v.as_i64()) == Some(entry_id) {
+        if idx.get("id").and_then(serde_json::Value::as_i64) == Some(entry_id) {
             idx["last_verified"] = json!(today);
             found = true;
             break;
@@ -1287,13 +1287,13 @@ fn cmd_memory_gc(json: bool, days: i64, dry_run: bool) {
     for idx in &index {
         let eid_str = idx
             .get("id")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or(0)
             .to_string();
         let refs = stats
             .get(&eid_str)
             .and_then(|s| s.get("refs"))
-            .and_then(|r| r.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
         let created = idx
             .get("created")
@@ -1356,7 +1356,7 @@ fn cmd_memory_gc(json: bool, days: i64, dry_run: bool) {
         }
         let eid_str = s
             .get("id")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or(0)
             .to_string();
         if let Some(obj) = stats.as_object_mut() {

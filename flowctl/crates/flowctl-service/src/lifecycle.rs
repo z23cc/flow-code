@@ -191,7 +191,7 @@ fn get_max_retries(flow_dir: &Path) -> u32 {
     let config_path = flow_dir.join("config.json");
     if let Ok(content) = fs::read_to_string(&config_path) {
         if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(max) = config.get("max_retries").and_then(|v| v.as_u64()) {
+            if let Some(max) = config.get("max_retries").and_then(serde_json::Value::as_u64) {
                 return max as u32;
             }
         }
@@ -408,7 +408,7 @@ pub async fn start_task(
 
     // Write to JSON state file
     flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state)
-        .map_err(|e| ServiceError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
 
     Ok(StartTaskResponse {
         task_id: req.task_id,
@@ -569,7 +569,7 @@ pub async fn done_task(
             completed_at: Some(now),
             evidence: Some(ev),
             blocked_reason: None,
-            duration_seconds: duration_seconds.map(|d| d as u64),
+            duration_seconds,
             baseline_rev: runtime.as_ref().and_then(|r| r.baseline_rev.clone()),
             final_rev: runtime.as_ref().and_then(|r| r.final_rev.clone()),
             retry_count: runtime.as_ref().map(|r| r.retry_count).unwrap_or(0),

@@ -141,7 +141,7 @@ pub fn cmd_detect(json: bool) {
             match fs::read_to_string(&meta_path) {
                 Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
                     Ok(meta) => {
-                        let version = meta.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        let version = meta.get("schema_version").and_then(serde_json::Value::as_u64).unwrap_or(0) as u32;
                         if !SUPPORTED_SCHEMA_VERSIONS.contains(&version) {
                             issues.push(format!(
                                 "schema_version unsupported (supported {:?}, got {})",

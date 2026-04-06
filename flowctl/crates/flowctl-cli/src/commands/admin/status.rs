@@ -264,7 +264,7 @@ pub(super) fn validate_flow_root(flow_dir: &Path) -> Vec<String> {
         match fs::read_to_string(&meta_path) {
             Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
                 Ok(meta) => {
-                    let version = meta.get("schema_version").and_then(|v| v.as_u64());
+                    let version = meta.get("schema_version").and_then(serde_json::Value::as_u64);
                     if version != Some(SCHEMA_VERSION as u64) {
                         errors.push(format!(
                             "schema_version unsupported in meta.json (expected {}, got {:?})",

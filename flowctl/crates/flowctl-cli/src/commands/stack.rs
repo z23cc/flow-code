@@ -259,12 +259,12 @@ fn detect_stack() -> serde_json::Value {
                     let dep_count = parsed
                         .get("dependencies")
                         .and_then(|d| d.as_object())
-                        .map(|d| d.len())
+                        .map(serde_json::Map::len)
                         .unwrap_or(0)
                         + parsed
                             .get("devDependencies")
                             .and_then(|d| d.as_object())
-                            .map(|d| d.len())
+                            .map(serde_json::Map::len)
                             .unwrap_or(0);
                     if dep_count as i64 > best_dep_count {
                         best_dep_count = dep_count as i64;

@@ -119,7 +119,7 @@ fn migrate_dir_contents(src: &Path, dst: &Path) -> Result<(), String> {
                     if entry.path().is_dir() {
                         copy_dir_recursive(&entry.path(), &dest)
                     } else {
-                        std::fs::copy(&entry.path(), &dest).map(|_| ())
+                        std::fs::copy(entry.path(), &dest).map(|_| ())
                     }
                 })
                 .map_err(|e| format!("migrate {}: {e}", entry.file_name().to_string_lossy()))?;

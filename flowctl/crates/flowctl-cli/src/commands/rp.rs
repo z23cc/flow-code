@@ -292,7 +292,7 @@ fn extract_root_paths(win: &serde_json::Value) -> Vec<String> {
     for key in &["rootFolderPaths", "rootFolders", "rootFolderPath"] {
         if let Some(v) = win.get(key) {
             if let Some(arr) = v.as_array() {
-                return arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect();
+                return arr.iter().filter_map(|x| x.as_str().map(std::string::ToString::to_string)).collect();
             }
             if let Some(s) = v.as_str() {
                 return vec![s.to_string()];
@@ -367,14 +367,14 @@ pub fn dispatch(cmd: &RpCmd, json: bool) {
         RpCmd::SelectGet { window, tab } => cmd_select_get(*window, tab),
         RpCmd::SelectAdd { window, tab, paths } => cmd_select_add(*window, tab, paths),
         RpCmd::ChatSend { window, tab, message_file, new_chat, chat_name, chat_id, mode, selected_paths } => {
-            cmd_chat_send(json, *window, tab, message_file, *new_chat, chat_name.as_deref(), chat_id.as_deref(), mode, selected_paths.as_ref().map(|v| v.as_slice()));
+            cmd_chat_send(json, *window, tab, message_file, *new_chat, chat_name.as_deref(), chat_id.as_deref(), mode, selected_paths.as_ref().map(std::vec::Vec::as_slice));
         }
         RpCmd::PromptExport { window, tab, out } => cmd_prompt_export(*window, tab, out),
         RpCmd::SetupReview { repo_root, summary, response_type, create } => {
             cmd_setup_review(json, repo_root, summary, response_type.as_deref(), *create);
         }
         RpCmd::PrepChat { id: _, message_file, mode, new_chat, chat_name, selected_paths, output } => {
-            cmd_prep_chat(message_file, mode, *new_chat, chat_name.as_deref(), selected_paths.as_ref().map(|v| v.as_slice()), output.as_deref());
+            cmd_prep_chat(message_file, mode, *new_chat, chat_name.as_deref(), selected_paths.as_ref().map(std::vec::Vec::as_slice), output.as_deref());
         }
     }
 }
@@ -530,8 +530,8 @@ fn cmd_builder(json_mode: bool, window: i64, summary: &str, response_type: Optio
                     "tab": tab,
                     "chat_id": chat_id,
                     "review": review_response,
-                    "file_count": data.get("file_count").and_then(|v| v.as_i64()).unwrap_or(0),
-                    "total_tokens": data.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0),
+                    "file_count": data.get("file_count").and_then(serde_json::Value::as_i64).unwrap_or(0),
+                    "total_tokens": data.get("total_tokens").and_then(serde_json::Value::as_i64).unwrap_or(0),
                 }));
             } else {
                 println!("T={tab} CHAT_ID={chat_id}");
@@ -685,7 +685,7 @@ fn cmd_setup_review(
             );
             let (stdout, _) = run_rp_cli(&["--raw-json", "-e", &create_cmd], None);
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&stdout) {
-                win_id = data.get("window_id").and_then(|v| v.as_i64());
+                win_id = data.get("window_id").and_then(serde_json::Value::as_i64);
             }
             if win_id.is_none() {
                 error_exit("Failed to create RP window");
@@ -742,8 +742,8 @@ fn cmd_setup_review(
                         "chat_id": chat_id,
                         "review": review_response,
                         "repo_root": real_root,
-                        "file_count": data.get("file_count").and_then(|v| v.as_i64()).unwrap_or(0),
-                        "total_tokens": data.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0),
+                        "file_count": data.get("file_count").and_then(serde_json::Value::as_i64).unwrap_or(0),
+                        "total_tokens": data.get("total_tokens").and_then(serde_json::Value::as_i64).unwrap_or(0),
                     }));
                 } else {
                     println!("W={win_id} T={tab} CHAT_ID={chat_id}");

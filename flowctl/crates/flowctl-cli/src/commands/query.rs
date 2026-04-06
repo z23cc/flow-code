@@ -3,7 +3,7 @@
 //! Reads from SQLite as the sole source of truth.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
@@ -123,28 +123,28 @@ fn require_db() -> crate::commands::db_shim::Connection {
 // ── JSON file data access ──────────────────────────────────────────
 
 /// Get a single epic by ID from JSON files.
-fn get_epic(flow_dir: &PathBuf, id: &str) -> Option<Epic> {
+fn get_epic(flow_dir: &Path, id: &str) -> Option<Epic> {
     flowctl_core::json_store::epic_read(flow_dir, id).ok()
 }
 
 /// Get a single task by ID from JSON files.
-fn get_task(flow_dir: &PathBuf, id: &str) -> Option<Task> {
+fn get_task(flow_dir: &Path, id: &str) -> Option<Task> {
     flowctl_core::json_store::task_read(flow_dir, id).ok()
 }
 
 /// Get all tasks for an epic from JSON files.
-fn get_epic_tasks(flow_dir: &PathBuf, epic_id: &str) -> Vec<Task> {
+fn get_epic_tasks(flow_dir: &Path, epic_id: &str) -> Vec<Task> {
     flowctl_core::json_store::task_list_by_epic(flow_dir, epic_id).unwrap_or_default()
 }
 
 /// Get all epics from JSON files.
-fn get_all_epics(flow_dir: &PathBuf) -> Vec<Epic> {
+fn get_all_epics(flow_dir: &Path) -> Vec<Epic> {
     flowctl_core::json_store::epic_list(flow_dir).unwrap_or_default()
 }
 
 /// Get all tasks, optionally filtered, from JSON files.
 fn get_all_tasks(
-    flow_dir: &PathBuf,
+    flow_dir: &Path,
     epic_filter: Option<&str>,
     status_filter: Option<&str>,
     domain_filter: Option<&str>,
@@ -379,7 +379,7 @@ pub fn cmd_list(json: bool) {
         let epics_out: Vec<serde_json::Value> = epics
             .iter()
             .map(|e| {
-                let task_list = tasks_by_epic.get(&e.id).map(|t| t.len()).unwrap_or(0);
+                let task_list = tasks_by_epic.get(&e.id).map(std::vec::Vec::len).unwrap_or(0);
                 let done_count = tasks_by_epic
                     .get(&e.id)
                     .map(|tasks| {
@@ -444,7 +444,7 @@ pub fn cmd_list(json: bool) {
                         .count()
                 })
                 .unwrap_or(0);
-            let task_count = task_list.map(|t| t.len()).unwrap_or(0);
+            let task_count = task_list.map(std::vec::Vec::len).unwrap_or(0);
             let progress = if task_count > 0 {
                 format!("{}/{}", done_count, task_count)
             } else {
@@ -597,7 +597,7 @@ pub fn cmd_files(json_mode: bool, epic: String) {
 pub fn cmd_lock(json: bool, task: String, files: String) {
     let _flow_dir = ensure_flow_exists();
 
-    let file_list: Vec<&str> = files.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let file_list: Vec<&str> = files.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     if file_list.is_empty() {
         error_exit("No files specified for locking.");
     }

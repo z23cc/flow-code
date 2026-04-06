@@ -97,7 +97,7 @@ fn is_outputs_enabled() -> bool {
                 serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
             cfg.get("outputs")
                 .and_then(|m| m.get("enabled"))
-                .and_then(|v| v.as_bool())
+                .and_then(serde_json::Value::as_bool)
                 .unwrap_or(true)
         }
         Err(_) => true,
@@ -168,7 +168,7 @@ fn cmd_worker_phase_next(json_mode: bool, task_id: &str, tdd: bool, review: Opti
     let seq = build_phase_sequence(tdd, review.is_some());
     let completed = load_completed_phases(task_id);
     let completed_set: HashSet<&str> =
-        completed.iter().map(|s| s.as_str()).collect();
+        completed.iter().map(std::string::String::as_str).collect();
 
     // Find first uncompleted phase
     let next_phase = seq.iter().find(|p| !completed_set.contains(**p)).copied();
@@ -246,7 +246,7 @@ fn cmd_worker_phase_done(
 
     let completed = load_completed_phases(task_id);
     let completed_set: HashSet<&str> =
-        completed.iter().map(|s| s.as_str()).collect();
+        completed.iter().map(std::string::String::as_str).collect();
 
     // Find expected next phase (first uncompleted)
     let expected = seq.iter().find(|p| !completed_set.contains(**p)).copied();
@@ -270,7 +270,7 @@ fn cmd_worker_phase_done(
     // Reload to get updated state
     let updated_completed = load_completed_phases(task_id);
     let updated_set: HashSet<&str> =
-        updated_completed.iter().map(|s| s.as_str()).collect();
+        updated_completed.iter().map(std::string::String::as_str).collect();
     let next_phase = seq.iter().find(|p| !updated_set.contains(**p)).copied();
     let all_done = next_phase.is_none();
 

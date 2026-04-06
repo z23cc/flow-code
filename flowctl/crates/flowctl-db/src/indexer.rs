@@ -396,7 +396,7 @@ async fn migrate_runtime_state(
                 state
                     .get("duration_secs")
                     .or_else(|| state.get("duration_seconds"))
-                    .and_then(|v| v.as_i64()),
+                    .and_then(serde_json::Value::as_i64),
                 state.get("blocked_reason").and_then(|v| v.as_str()).map(String::from),
                 state.get("baseline_rev").and_then(|v| v.as_str()).map(String::from),
                 state.get("final_rev").and_then(|v| v.as_str()).map(String::from),
@@ -440,7 +440,7 @@ fn try_parse_json_epic(content: &str) -> Result<Epic, String> {
     let branch_name = obj
         .get("branch_name")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
     let created_at = obj
         .get("created_at")
         .and_then(|v| v.as_str())

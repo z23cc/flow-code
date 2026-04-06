@@ -73,6 +73,13 @@ flowctl-core = { path = "crates/flowctl-core" }
 flowctl-db = { path = "crates/flowctl-db" }
 flowctl-service = { path = "crates/flowctl-service" }
 
+# ── Shared lint configuration ────────────────────────────────────────
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+redundant_closure_for_method_calls = "warn"
+# CLI handlers receive owned Strings from clap; suppress pass-by-value noise
+needless_pass_by_value = "allow"
+
 # ── Release profile (size-optimized) ─────────────────────────────────
 [profile.release]
 opt-level = "z"

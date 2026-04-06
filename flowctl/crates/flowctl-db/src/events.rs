@@ -143,9 +143,9 @@ impl EventLog {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 rec.epic_id.to_string(),
-                rec.task_id.map(|s| s.to_string()),
-                rec.phase.map(|s| s.to_string()),
-                rec.model.map(|s| s.to_string()),
+                rec.task_id.map(std::string::ToString::to_string),
+                rec.phase.map(std::string::ToString::to_string),
+                rec.model.map(std::string::ToString::to_string),
                 rec.input_tokens,
                 rec.output_tokens,
                 rec.cache_read,

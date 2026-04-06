@@ -413,7 +413,7 @@ pub fn cmd_queue(json_mode: bool) {
             2
         } else if !a["blocked_by"]
             .as_array()
-            .map_or(true, |v| v.is_empty())
+            .map_or(true, std::vec::Vec::is_empty)
         {
             1
         } else {
@@ -423,7 +423,7 @@ pub fn cmd_queue(json_mode: bool) {
             2
         } else if !b["blocked_by"]
             .as_array()
-            .map_or(true, |v| v.is_empty())
+            .map_or(true, std::vec::Vec::is_empty)
         {
             1
         } else {
@@ -459,7 +459,7 @@ pub fn cmd_queue(json_mode: bool) {
                 "\u{2713}"
             } else if !e["blocked_by"]
                 .as_array()
-                .map_or(true, |v| v.is_empty())
+                .map_or(true, std::vec::Vec::is_empty)
             {
                 "\u{2298}"
             } else if e["tasks"]["ready"].as_u64().unwrap_or(0) > 0 {
@@ -510,7 +510,7 @@ pub fn cmd_queue(json_mode: bool) {
 
             if let Some(deps) = e["depends_on_epics"].as_array() {
                 let blocked_by = e["blocked_by"].as_array();
-                if !deps.is_empty() && blocked_by.map_or(true, |v| v.is_empty()) {
+                if !deps.is_empty() && blocked_by.map_or(true, std::vec::Vec::is_empty) {
                     let names: Vec<&str> = deps.iter().filter_map(|v| v.as_str()).collect();
                     println!("    \u{2192} deps (resolved): {}", names.join(", "));
                 }

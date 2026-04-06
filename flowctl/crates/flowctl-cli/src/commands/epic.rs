@@ -456,13 +456,12 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
     let specs_dir = flow_dir.join(SPECS_DIR);
 
     // Check collision (if ID changed) via JSON
-    if new_id != old_id {
-        if flowctl_core::json_store::epic_read(&flow_dir, &new_id).is_ok() {
+    if new_id != old_id
+        && flowctl_core::json_store::epic_read(&flow_dir, &new_id).is_ok() {
             error_exit(&format!(
                 "Epic {new_id} already exists. Choose a different title."
             ));
         }
-    }
 
     // Rename spec file (only MD file we keep)
     let mut files_renamed = 0;
@@ -512,7 +511,7 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
     for task in &tasks {
         let new_task_id = task_id_map
             .get(task.id.as_str())
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .unwrap_or_else(|| task.id.clone());
         let mut updated_task = task.clone();
         updated_task.id = new_task_id.clone();
@@ -524,7 +523,7 @@ fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
             .map(|dep| {
                 task_id_map
                     .get(dep.as_str())
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .unwrap_or_else(|| dep.clone())
             })
             .collect();
@@ -740,7 +739,7 @@ fn cmd_archive(id: &str, force: bool, json_mode: bool) {
     if reviews_dir.is_dir() {
         if let Ok(entries) = fs::read_dir(&reviews_dir) {
             let mut review_entries: Vec<_> = entries.flatten().collect();
-            review_entries.sort_by_key(|e| e.file_name());
+            review_entries.sort_by_key(std::fs::DirEntry::file_name);
             for entry in review_entries {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();

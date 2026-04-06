@@ -920,8 +920,8 @@ impl GapRepo {
                     epic_id.to_string(),
                     capability.to_string(),
                     priority.to_string(),
-                    source.map(|s| s.to_string()),
-                    task_id.map(|s| s.to_string()),
+                    source.map(std::string::ToString::to_string),
+                    task_id.map(std::string::ToString::to_string),
                 ],
             )
             .await?;
@@ -1279,11 +1279,11 @@ impl EventRepo {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     epic_id.to_string(),
-                    task_id.map(|s| s.to_string()),
+                    task_id.map(std::string::ToString::to_string),
                     event_type.to_string(),
-                    actor.map(|s| s.to_string()),
-                    payload.map(|s| s.to_string()),
-                    session_id.map(|s| s.to_string()),
+                    actor.map(std::string::ToString::to_string),
+                    payload.map(std::string::ToString::to_string),
+                    session_id.map(std::string::ToString::to_string),
                 ],
             )
             .await?;

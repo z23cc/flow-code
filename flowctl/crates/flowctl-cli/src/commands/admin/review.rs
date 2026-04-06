@@ -286,10 +286,10 @@ pub fn cmd_parse_findings(
                         .unwrap_or("")
                         .to_string();
                     let file_path = item.get("file").and_then(|v| v.as_str()).map(String::from);
-                    let line = item.get("line").and_then(|v| v.as_u64()).map(|n| n as u32);
+                    let line = item.get("line").and_then(serde_json::Value::as_u64).map(|n| n as u32);
                     let confidence = item
                         .get("confidence")
-                        .and_then(|v| v.as_f64())
+                        .and_then(serde_json::Value::as_f64)
                         .unwrap_or(0.8);
                     let autofix_class =
                         match item.get("autofix_class").and_then(|v| v.as_str()) {
@@ -316,11 +316,11 @@ pub fn cmd_parse_findings(
                         .unwrap_or_default();
                     let pre_existing = item
                         .get("pre_existing")
-                        .and_then(|v| v.as_bool())
+                        .and_then(serde_json::Value::as_bool)
                         .unwrap_or(false);
                     let requires_verification = item
                         .get("requires_verification")
-                        .and_then(|v| v.as_bool())
+                        .and_then(serde_json::Value::as_bool)
                         .unwrap_or(false);
                     let suggested_fix = item
                         .get("suggested_fix")

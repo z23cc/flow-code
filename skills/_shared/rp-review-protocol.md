@@ -31,7 +31,7 @@ PARSE_SOURCE      — source tag for parse-findings ("plan-review" | "impl-revie
 
 ```bash
 set -e
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+FLOWCTL="$HOME/.flow/bin/flowctl"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 # Priority: --review flag > env > config (flag parsed in SKILL.md)

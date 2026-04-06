@@ -1,3 +1,10 @@
+---
+name: cross-model-reviewer
+description: Runs both Codex adversarial AND Claude review, then computes consensus
+model: opus
+disallowedTools: Edit, Write, Task
+---
+
 # Cross-Model Reviewer Agent
 
 Orchestrates adversarial code review across multiple AI models (Codex + Claude) and computes consensus.

@@ -40,7 +40,7 @@ Use **T-shirt sizes** based on observable metrics — not token estimates (model
 
 ```bash
 # Get flowctl path
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+FLOWCTL="$HOME/.flow/bin/flowctl"
 
 # Ensure .flow exists
 $FLOWCTL init --json

@@ -73,13 +73,12 @@ pub async fn status_handler(State(state): State<AppState>) -> impl IntoResponse 
     )
 }
 
-/// GET /api/v1/epics -- list epics from the database.
+/// GET /api/v1/epics -- list epics from JSON files.
 pub async fn epics_handler(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db.clone();
-    let repo = flowctl_db::EpicRepo::new(conn);
-    let epics = repo.list(None).await?;
+    let epics = flowctl_core::json_store::epic_list(&state.flow_dir)
+        .map_err(|e| AppError::Internal(format!("json_store error: {e}")))?;
     let value = serde_json::to_value(&epics)
         .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;
     Ok(Json(value))
@@ -90,12 +89,12 @@ pub async fn tasks_handler(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<TasksQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let conn = state.db.clone();
-    let repo = flowctl_db::TaskRepo::new(conn);
     let tasks = if let Some(ref epic_id) = params.epic_id {
-        repo.list_by_epic(epic_id).await?
+        flowctl_core::json_store::task_list_by_epic(&state.flow_dir, epic_id)
+            .map_err(|e| AppError::Internal(format!("json_store error: {e}")))?
     } else {
-        repo.list_all(None, None).await?
+        flowctl_core::json_store::task_list_all(&state.flow_dir)
+            .map_err(|e| AppError::Internal(format!("json_store error: {e}")))?
     };
     let value = serde_json::to_value(&tasks)
         .map_err(|e| AppError::Internal(format!("serialization error: {e}")))?;

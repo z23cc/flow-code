@@ -62,6 +62,7 @@ pub struct DaemonState {
     pub runtime: DaemonRuntime,
     pub event_bus: flowctl_scheduler::EventBus,
     pub db: libsql::Connection,
+    pub flow_dir: std::path::PathBuf,
 }
 
 /// Map service-layer errors to HTTP-appropriate AppErrors.

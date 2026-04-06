@@ -109,42 +109,35 @@ fn validate_task_id(id: &str) -> ServiceResult<()> {
     Ok(())
 }
 
-/// Load a task from the DB (sole source of truth).
-async fn load_task(conn: Option<&Connection>, _flow_dir: &Path, task_id: &str) -> Option<Task> {
-    let conn = conn?;
-    let repo = flowctl_db::TaskRepo::new(conn.clone());
-    repo.get(task_id).await.ok()
+/// Load a task from JSON files.
+async fn load_task(_conn: Option<&Connection>, flow_dir: &Path, task_id: &str) -> Option<Task> {
+    flowctl_core::json_store::task_read(flow_dir, task_id).ok()
 }
 
-async fn load_epic(conn: Option<&Connection>, _flow_dir: &Path, epic_id: &str) -> Option<Epic> {
-    let conn = conn?;
-    let repo = flowctl_db::EpicRepo::new(conn.clone());
-    repo.get(epic_id).await.ok()
+async fn load_epic(_conn: Option<&Connection>, flow_dir: &Path, epic_id: &str) -> Option<Epic> {
+    flowctl_core::json_store::epic_read(flow_dir, epic_id).ok()
 }
 
-async fn get_runtime(conn: Option<&Connection>, task_id: &str) -> Option<RuntimeState> {
+async fn get_runtime(conn: Option<&Connection>, _flow_dir: &Path, task_id: &str) -> Option<RuntimeState> {
     let conn = conn?;
     let repo = flowctl_db::RuntimeRepo::new(conn.clone());
     repo.get(task_id).await.ok().flatten()
 }
 
-/// Load all tasks for an epic from the DB (sole source of truth).
+/// Load all tasks for an epic from JSON files.
 async fn load_tasks_for_epic(
-    conn: Option<&Connection>,
-    _flow_dir: &Path,
+    _conn: Option<&Connection>,
+    flow_dir: &Path,
     epic_id: &str,
 ) -> std::collections::HashMap<String, Task> {
     use std::collections::HashMap;
 
-    if let Some(conn) = conn {
-        let task_repo = flowctl_db::TaskRepo::new(conn.clone());
-        if let Ok(tasks) = task_repo.list_by_epic(epic_id).await {
-            let mut map = HashMap::new();
-            for task in tasks {
-                map.insert(task.id.clone(), task);
-            }
-            return map;
+    if let Ok(tasks) = flowctl_core::json_store::task_list_by_epic(flow_dir, epic_id) {
+        let mut map = HashMap::new();
+        for task in tasks {
+            map.insert(task.id.clone(), task);
         }
+        return map;
     }
 
     HashMap::new()
@@ -316,7 +309,7 @@ pub async fn start_task(
         }
     }
 
-    let existing_rt = get_runtime(conn, &req.task_id).await;
+    let existing_rt = get_runtime(conn, flow_dir, &req.task_id).await;
     let existing_assignee = existing_rt.as_ref().and_then(|rt| rt.assignee.clone());
 
     // Validate state machine transition (unless --force)
@@ -449,7 +442,7 @@ pub async fn done_task(
     }
 
     // Prevent cross-actor completion (unless --force)
-    let runtime = get_runtime(conn, &req.task_id).await;
+    let runtime = get_runtime(conn, flow_dir, &req.task_id).await;
     if !req.force {
         if let Some(ref rt) = runtime {
             if let Some(ref assignee) = rt.assignee {
@@ -685,7 +678,7 @@ pub async fn fail_task(
         )));
     }
 
-    let runtime = get_runtime(conn, &req.task_id).await;
+    let runtime = get_runtime(conn, flow_dir, &req.task_id).await;
     let reason_text = req.reason.unwrap_or_else(|| "Task failed".to_string());
 
     let (final_status, upstream_failed_ids) =

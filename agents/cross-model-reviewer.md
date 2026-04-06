@@ -63,11 +63,50 @@ The `flowctl_review` MCP tool exposes cross-model review:
 ## Review Types
 
 ### ReviewFinding
-Individual issue with severity (critical/warning/info), category, description, and optional file/line.
+Individual issue with severity, category, dimension, description, and optional file/line.
+
+**Severity classification** (aligned with quality-auditor dimensions):
+
+| Severity | Meaning | Ship impact |
+|----------|---------|-------------|
+| `Critical` | Correctness failure, security vulnerability, data loss risk | Blocks ship |
+| `Important` | Architecture violation, readability problem, missing test coverage | Must fix before/shortly after ship |
+| `Suggestion` | Performance improvement, naming nit, minor simplification | Optional |
+
+**Dimension tags** — each finding maps to one of five review dimensions:
+- **Correctness** — edge cases, race conditions, state inconsistencies, off-by-one
+- **Readability** — naming consistency, control flow clarity, module organization
+- **Architecture** — pattern adherence, module boundaries, abstraction levels, dependency direction
+- **Security** — injection, auth, data exposure, dependencies
+- **Performance** — N+1, unbounded loops, blocking operations
+
+### Structured Output Format
+
+Each model's review MUST produce findings in this structure:
+
+```json
+{
+  "verdict": "SHIP | NEEDS_WORK | ABSTAIN",
+  "confidence": 0.0-1.0,
+  "findings": [
+    {
+      "severity": "Critical | Important | Suggestion",
+      "dimension": "Correctness | Readability | Architecture | Security | Performance",
+      "file": "path/to/file.rs",
+      "line": 42,
+      "description": "What is wrong",
+      "suggestion": "How to fix it"
+    }
+  ],
+  "positives": ["At least one positive observation"]
+}
+```
+
+The consensus algorithm uses severity to weight disagreements: a `Critical` finding from any model blocks SHIP regardless of the other model's verdict. `Suggestion`-only findings do not block.
 
 ### ReviewVerdict
 - **SHIP**: Code is ready
-- **NEEDS_WORK**: Code needs fixes
+- **NEEDS_WORK**: Code needs fixes (at least one Critical or multiple Important findings)
 - **ABSTAIN**: Model cannot determine (excluded from consensus)
 
 ### ConsensusResult

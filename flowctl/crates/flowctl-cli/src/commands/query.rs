@@ -198,19 +198,21 @@ pub fn cmd_show(json: bool, id: String) {
             result["tasks"] = json!(task_summaries);
             json_output(result);
         } else {
-            println!("Epic: {}", epic.id);
-            println!("Title: {}", epic.title);
-            println!("Status: {}", epic.status);
-            println!("Spec: .flow/specs/{}.md", epic.id);
-            println!("\nTasks ({}):", tasks.len());
+            let mut buf = String::new();
+            buf.push_str(&format!("Epic: {}\n", epic.id));
+            buf.push_str(&format!("Title: {}\n", epic.title));
+            buf.push_str(&format!("Status: {}\n", epic.status));
+            buf.push_str(&format!("Spec: .flow/specs/{}.md\n", epic.id));
+            buf.push_str(&format!("\nTasks ({}):\n", tasks.len()));
             for t in &tasks {
                 let deps = if t.depends_on.is_empty() {
                     String::new()
                 } else {
                     format!(" (deps: {})", t.depends_on.join(", "))
                 };
-                println!("  [{}] {}: {}{}", t.status, t.id, t.title, deps);
+                buf.push_str(&format!("  [{}] {}: {}{}\n", t.status, t.id, t.title, deps));
             }
+            pretty_output("show", &buf);
         }
     } else if is_task_id(&id) {
         let task = match get_task(&flow_dir, &id) {
@@ -223,20 +225,22 @@ pub fn cmd_show(json: bool, id: String) {
         if json {
             json_output(task_to_json(&task));
         } else {
-            println!("Task: {}", task.id);
-            println!("Epic: {}", task.epic);
-            println!("Title: {}", task.title);
-            println!("Status: {}", task.status);
+            let mut buf = String::new();
+            buf.push_str(&format!("Task: {}\n", task.id));
+            buf.push_str(&format!("Epic: {}\n", task.epic));
+            buf.push_str(&format!("Title: {}\n", task.title));
+            buf.push_str(&format!("Status: {}\n", task.status));
             if task.domain != flowctl_core::types::Domain::General {
-                println!("Domain: {}", task.domain);
+                buf.push_str(&format!("Domain: {}\n", task.domain));
             }
             let deps_str = if task.depends_on.is_empty() {
                 "none".to_string()
             } else {
                 task.depends_on.join(", ")
             };
-            println!("Depends on: {}", deps_str);
-            println!("Spec: .flow/tasks/{}.md", task.id);
+            buf.push_str(&format!("Depends on: {}\n", deps_str));
+            buf.push_str(&format!("Spec: .flow/tasks/{}.md\n", task.id));
+            pretty_output("show", &buf);
         }
     } else {
         error_exit(&format!(
@@ -483,7 +487,7 @@ pub fn cmd_cat(id: String) {
         // Epic spec: still read from specs/ directory
         let spec_path = flow_dir.join(SPECS_DIR).join(format!("{}.md", id));
         match fs::read_to_string(&spec_path) {
-            Ok(content) => print!("{}", content),
+            Ok(content) => pretty_output("cat", &content),
             Err(_) => {
                 error_exit(&format!("Spec not found: {}", spec_path.display()));
             }
@@ -495,7 +499,7 @@ pub fn cmd_cat(id: String) {
                 if body.is_empty() {
                     error_exit(&format!("Task spec not found: {}", id));
                 }
-                print!("{}", body);
+                pretty_output("cat", &body);
             }
             Err(_) => {
                 error_exit(&format!("Task not found: {}", id));

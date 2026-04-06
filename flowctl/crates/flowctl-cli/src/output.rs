@@ -17,6 +17,14 @@ const COMPACT_STRIP: &[&str] = &[
     "spec_path",
     "file_path",
     "schema_version",
+    "branch_name",
+    "plan_review_status",
+    "plan_reviewed_at",
+    "completion_review_status",
+    "completion_reviewed_at",
+    "default_impl",
+    "default_review",
+    "default_sync",
 ];
 
 /// Shared output options (flattened into every subcommand via clap).

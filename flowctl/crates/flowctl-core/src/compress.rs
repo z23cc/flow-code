@@ -38,6 +38,9 @@ const FILES_TOML: &str = include_str!("filters/files.toml");
 const READY_TOML: &str = include_str!("filters/ready.toml");
 const HOOK_PRECOMPACT_TOML: &str = include_str!("filters/hook_precompact.toml");
 const HOOK_SUBAGENT_TOML: &str = include_str!("filters/hook_subagent.toml");
+const SHOW_TOML: &str = include_str!("filters/show.toml");
+const GUARD_TOML: &str = include_str!("filters/guard.toml");
+const CAT_TOML: &str = include_str!("filters/cat.toml");
 
 // ---------------------------------------------------------------------------
 // Deserialization types (TOML schema)
@@ -269,6 +272,9 @@ const BUILTIN_SOURCES: &[(&str, &str)] = &[
     ("ready", READY_TOML),
     ("hook_precompact", HOOK_PRECOMPACT_TOML),
     ("hook_subagent", HOOK_SUBAGENT_TOML),
+    ("show", SHOW_TOML),
+    ("guard", GUARD_TOML),
+    ("cat", CAT_TOML),
 ];
 
 fn load_registry() -> Vec<CompiledFilter> {
@@ -698,6 +704,9 @@ on_empty = "all clean"
             "ready",
             "hook_precompact",
             "hook_subagent",
+            "show",
+            "guard",
+            "cat",
         ] {
             assert!(
                 reg.iter().any(|f| f.name == *expected),

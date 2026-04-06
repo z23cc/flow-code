@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde_json::json;
 
-use crate::output::{error_exit, json_output};
+use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::types::CONFIG_FILE;
 
@@ -409,6 +409,7 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
     let mut results: Vec<serde_json::Value> = Vec::new();
     let mut all_passed = true;
     let mut pass_count: usize = 0;
+    let mut pretty_buf = String::new();
 
     for (layer_name, cmd_type, cmd) in &commands {
         let output = Command::new("sh")
@@ -447,14 +448,14 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
 
         if !json_mode {
             let icon = if passed { "\u{2713}" } else { "\u{2717}" };
-            println!(
-                "{} [{}] {}: {}",
+            pretty_buf.push_str(&format!(
+                "{} [{}] {}: {}\n",
                 icon, layer_name, cmd_type, filtered.summary
-            );
+            ));
             // Show errors inline for failed guards
             for err in &filtered.errors {
                 for err_line in err.lines().take(3) {
-                    println!("    {}", err_line);
+                    pretty_buf.push_str(&format!("    {}\n", err_line));
                 }
             }
         }
@@ -465,7 +466,8 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
     } else {
         let total = commands.len();
         let suffix = if all_passed { "" } else { " \u{2014} FAILED" };
-        println!("\n{}/{} guards passed{}", pass_count, total, suffix);
+        pretty_buf.push_str(&format!("\n{}/{} guards passed{}", pass_count, total, suffix));
+        pretty_output("guard", &pretty_buf);
     }
 
     if !all_passed {

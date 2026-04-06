@@ -1,0 +1,44 @@
+schema_version = 1
+
+[filters.guard]
+description = "Compact flowctl guard output — short-circuit on all-pass, truncate failures"
+match_command = "^flowctl\\s+guard"
+strip_ansi = true
+match_output = [
+  # All guards passed — collapse to one-liner (skip if any ✗ failure present)
+  { pattern = "guards passed$", message = "✓ guard passed", unless = "✗" },
+]
+truncate_lines_at = 100
+max_lines = 30
+
+[[tests.guard]]
+name = "all passed short-circuits"
+input = """
+✓ [backend] test: 255 passed, 2 ignored (11 suites, 4.28s)
+✓ [backend] lint: no issues
+✓ [backend] typecheck: no issues
+
+3/3 guards passed
+"""
+expected = "✓ guard passed"
+
+[[tests.guard]]
+name = "failure preserved"
+input = """
+✓ [backend] test: 255 passed, 2 ignored (11 suites, 4.28s)
+✗ [backend] lint: 3 issues
+    error: unused variable `x`
+    error: missing docs
+    error: dead code
+
+2/3 guards passed — FAILED
+"""
+expected = """
+✓ [backend] test: 255 passed, 2 ignored (11 suites, 4.28s)
+✗ [backend] lint: 3 issues
+    error: unused variable `x`
+    error: missing docs
+    error: dead code
+
+2/3 guards passed — FAILED
+"""

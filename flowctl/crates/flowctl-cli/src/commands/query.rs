@@ -53,14 +53,13 @@ fn epic_to_json(epic: &Epic) -> serde_json::Value {
 fn task_to_json(task: &Task) -> serde_json::Value {
     let spec_path = format!(".flow/tasks/{}.md", task.id);
 
-    // Try to get runtime state from DB
+    // Try to get runtime state from JSON files
     let mut assignee: serde_json::Value = json!(null);
     let mut claimed_at: serde_json::Value = json!(null);
     let claim_note: serde_json::Value = json!("");
 
-    let conn = require_db();
-    let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
-    if let Ok(Some(state)) = runtime_repo.get(&task.id) {
+    let flow_dir = crate::commands::helpers::get_flow_dir();
+    if let Ok(state) = flowctl_core::json_store::state_read(&flow_dir, &task.id) {
         if let Some(a) = &state.assignee {
             assignee = json!(a);
         }
@@ -114,54 +113,45 @@ fn task_list_json(task: &Task) -> serde_json::Value {
     })
 }
 
-// ── DB-only data access ────────────────────────────────────────────
+// ── DB bridge for file locks (stays in DB) ─────────────────────────
 
-/// Open DB or exit with error (DB is sole source of truth).
 fn require_db() -> crate::commands::db_shim::Connection {
     crate::commands::db_shim::require_db()
         .unwrap_or_else(|e| error_exit(&format!("Cannot open database: {}", e)))
 }
 
-/// Get a single epic by ID from DB.
-fn get_epic(_flow_dir: &PathBuf, id: &str) -> Option<Epic> {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    repo.get(id).ok()
+// ── JSON file data access ──────────────────────────────────────────
+
+/// Get a single epic by ID from JSON files.
+fn get_epic(flow_dir: &PathBuf, id: &str) -> Option<Epic> {
+    flowctl_core::json_store::epic_read(flow_dir, id).ok()
 }
 
-/// Get a single task by ID from DB.
-fn get_task(_flow_dir: &PathBuf, id: &str) -> Option<Task> {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    repo.get(id).ok()
+/// Get a single task by ID from JSON files.
+fn get_task(flow_dir: &PathBuf, id: &str) -> Option<Task> {
+    flowctl_core::json_store::task_read(flow_dir, id).ok()
 }
 
-/// Get all tasks for an epic from DB.
-fn get_epic_tasks(_flow_dir: &PathBuf, epic_id: &str) -> Vec<Task> {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    repo.list_by_epic(epic_id).unwrap_or_default()
+/// Get all tasks for an epic from JSON files.
+fn get_epic_tasks(flow_dir: &PathBuf, epic_id: &str) -> Vec<Task> {
+    flowctl_core::json_store::task_list_by_epic(flow_dir, epic_id).unwrap_or_default()
 }
 
-/// Get all epics from DB.
-fn get_all_epics(_flow_dir: &PathBuf) -> Vec<Epic> {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    repo.list(None).unwrap_or_default()
+/// Get all epics from JSON files.
+fn get_all_epics(flow_dir: &PathBuf) -> Vec<Epic> {
+    flowctl_core::json_store::epic_list(flow_dir).unwrap_or_default()
 }
 
-/// Get all tasks, optionally filtered, from DB.
+/// Get all tasks, optionally filtered, from JSON files.
 fn get_all_tasks(
-    _flow_dir: &PathBuf,
+    flow_dir: &PathBuf,
     epic_filter: Option<&str>,
     status_filter: Option<&str>,
     domain_filter: Option<&str>,
 ) -> Vec<Task> {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
     match epic_filter {
         Some(epic_id) => {
-            let mut tasks = repo.list_by_epic(epic_id).unwrap_or_default();
+            let mut tasks = flowctl_core::json_store::task_list_by_epic(flow_dir, epic_id).unwrap_or_default();
             if let Some(status) = status_filter {
                 tasks.retain(|t| t.status.to_string() == status);
             }
@@ -170,7 +160,16 @@ fn get_all_tasks(
             }
             tasks
         }
-        None => repo.list_all(status_filter, domain_filter).unwrap_or_default(),
+        None => {
+            let mut tasks = flowctl_core::json_store::task_list_all(flow_dir).unwrap_or_default();
+            if let Some(status) = status_filter {
+                tasks.retain(|t| t.status.to_string() == status);
+            }
+            if let Some(domain) = domain_filter {
+                tasks.retain(|t| t.domain.to_string() == domain);
+            }
+            tasks
+        }
     }
 }
 
@@ -490,13 +489,11 @@ pub fn cmd_cat(id: String) {
             }
         }
     } else if is_task_id(&id) {
-        // Task body: read from DB (sole source of truth)
-        let conn = require_db();
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        match repo.get_with_body(&id) {
-            Ok((_task, body)) => {
+        // Task body: read from JSON spec file
+        match flowctl_core::json_store::task_spec_read(&flow_dir, &id) {
+            Ok(body) => {
                 if body.is_empty() {
-                    error_exit(&format!("Task body not found in DB: {}", id));
+                    error_exit(&format!("Task spec not found: {}", id));
                 }
                 print!("{}", body);
             }
@@ -527,14 +524,12 @@ pub fn cmd_files(json_mode: bool, epic: String) {
     let mut ownership: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
 
-    let conn = require_db();
     for task in &tasks {
         let mut task_files: Vec<String> = task.files.clone();
 
-        // Fallback: parse **Files:** from task body in DB if no structured files
+        // Fallback: parse **Files:** from task spec if no structured files
         if task_files.is_empty() {
-            let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-            if let Ok((_t, body)) = repo.get_with_body(&task.id) {
+            if let Ok(body) = flowctl_core::json_store::task_spec_read(&flow_dir, &task.id) {
                 for line in body.lines() {
                     if let Some(rest) = line.strip_prefix("**Files:**") {
                         task_files = rest

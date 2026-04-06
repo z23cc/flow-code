@@ -1,6 +1,4 @@
-//! Dependency commands: dep add, dep rm.
-//!
-//! DB canonical — all dependency operations go through the DB (sole source of truth).
+//! Dependency management commands: add, remove.
 
 use chrono::Utc;
 use clap::Subcommand;
@@ -38,20 +36,6 @@ fn ensure_flow_exists() -> std::path::PathBuf {
     flow_dir
 }
 
-/// Open DB connection (hard error if unavailable).
-fn require_db() -> crate::commands::db_shim::Connection {
-    crate::commands::db_shim::require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")))
-}
-
-/// Read a task from DB (sole source of truth).
-fn read_task(task_id: &str) -> flowctl_core::types::Task {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    repo.get(task_id)
-        .unwrap_or_else(|_| error_exit(&format!("Task not found: {}", task_id)))
-}
-
 pub fn dispatch(cmd: &DepCmd, json: bool) {
     match cmd {
         DepCmd::Add { task, depends_on } => cmd_dep_add(json, task, depends_on),
@@ -60,7 +44,7 @@ pub fn dispatch(cmd: &DepCmd, json: bool) {
 }
 
 fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
-    ensure_flow_exists();
+    let flow_dir = ensure_flow_exists();
 
     if !is_task_id(task_id) {
         error_exit(&format!(
@@ -87,20 +71,15 @@ fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
         ));
     }
 
-    let mut task = read_task(task_id);
+    let mut task = flowctl_core::json_store::task_read(&flow_dir, task_id)
+        .unwrap_or_else(|_| error_exit(&format!("Task not found: {}", task_id)));
 
     if !task.depends_on.contains(&depends_on.to_string()) {
         task.depends_on.push(depends_on.to_string());
         task.updated_at = Utc::now();
-
-        // Write to DB
-        let conn = require_db();
-        let dep_repo = crate::commands::db_shim::DepRepo::new(&conn);
-        if let Err(e) = dep_repo.add_task_dep(task_id, depends_on) {
-            error_exit(&format!("Failed to add dep: {e}"));
+        if let Err(e) = flowctl_core::json_store::task_write_definition(&flow_dir, &task) {
+            error_exit(&format!("Failed to write task: {e}"));
         }
-        let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        let _ = task_repo.upsert(&task);
     }
 
     if json {
@@ -115,7 +94,7 @@ fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
 }
 
 fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str) {
-    ensure_flow_exists();
+    let flow_dir = ensure_flow_exists();
 
     if !is_task_id(task_id) {
         error_exit(&format!("Invalid task ID: {}", task_id));
@@ -124,20 +103,15 @@ fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str) {
         error_exit(&format!("Invalid dependency ID: {}", depends_on));
     }
 
-    let mut task = read_task(task_id);
+    let mut task = flowctl_core::json_store::task_read(&flow_dir, task_id)
+        .unwrap_or_else(|_| error_exit(&format!("Task not found: {}", task_id)));
 
     if let Some(pos) = task.depends_on.iter().position(|d| d == depends_on) {
         task.depends_on.remove(pos);
         task.updated_at = Utc::now();
-
-        // Write to DB
-        let conn = require_db();
-        let dep_repo = crate::commands::db_shim::DepRepo::new(&conn);
-        if let Err(e) = dep_repo.remove_task_dep(task_id, depends_on) {
-            error_exit(&format!("Failed to remove dep: {e}"));
+        if let Err(e) = flowctl_core::json_store::task_write_definition(&flow_dir, &task) {
+            error_exit(&format!("Failed to write task: {e}"));
         }
-        let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        let _ = task_repo.upsert(&task);
 
         if json {
             json_output(json!({
@@ -154,9 +128,9 @@ fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str) {
             "task": task_id,
             "depends_on": task.depends_on,
             "removed": false,
-            "message": format!("{} not in dependencies", depends_on),
+            "message": format!("{} was not in {}'s dependencies", depends_on, task_id),
         }));
     } else {
-        println!("{} is not a dependency of {}", depends_on, task_id);
+        println!("{} was not in {}'s dependencies", depends_on, task_id);
     }
 }

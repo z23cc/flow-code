@@ -1,0 +1,168 @@
+---
+name: flow-code-debug
+description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+---
+
+# Systematic Debugging
+
+## The Iron Law
+
+```
+NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST
+```
+
+If you haven't completed Phase 1, you cannot propose fixes.
+
+## When to Use
+
+- Test failures, bugs, unexpected behavior, performance problems, build failures
+- **Especially when:** under time pressure, "quick fix" seems obvious, already tried multiple fixes, previous fix didn't work
+
+## Phase 1: Root Cause Investigation
+
+**BEFORE attempting ANY fix:**
+
+1. **Read error messages completely** — stack traces, line numbers, error codes. Don't skip.
+
+2. **Reproduce consistently** — exact steps, every time. If not reproducible, **STOP** — gather more data (logs, environment, timing). Do NOT proceed to Phase 2 without reproduction. Guessing without reproduction = symptom fixing.
+
+3. **Check recent changes:**
+   ```bash
+   git log --oneline -10
+   git diff HEAD~3
+   ```
+
+4. **Run guards to establish baseline:**
+   ```bash
+   <FLOWCTL> guard
+   ```
+
+5. **Gather evidence in multi-component systems:**
+   - Log what ENTERS each component
+   - Log what EXITS each component
+   - Find WHERE it breaks BEFORE investigating WHY
+
+6. **Trace data flow** — where does the bad value originate? Trace backward through the call chain to the source. Fix at source, not at symptom.
+
+## Phase 1.5: RP Deep Investigation (optional)
+
+**After Phase 1, before Pattern Analysis.** Uses RepoPrompt to gather cross-file context around the bug. Three-tier fallback — skip entirely if RP is unavailable.
+
+```
+IF mcp__RepoPrompt__context_builder is available (check your tool list):
+  Call context_builder with:
+    instructions: "Investigate bug: <symptoms from Phase 1>. Hypotheses: <your hypotheses>.
+      Trace the data flow, find related code paths, and identify likely root cause."
+    response_type: "question"
+  Timeout: 120 seconds. If no response within 120s, log:
+    "RP context_builder timed out after 120s, skipping RP investigation"
+  and proceed to Phase 2.
+
+ELIF rp-cli is available (check: which rp-cli >/dev/null 2>&1):
+  Run with 120s timeout:
+    timeout 120 rp-cli -e 'builder "Investigate bug: <symptoms>. Hypotheses: <hypotheses>.
+      Trace data flow, find related code paths, identify likely root cause."
+      --response-type question'
+  If timeout or failure, log:
+    "rp-cli builder timed out or failed, skipping RP investigation"
+  and proceed to Phase 2.
+
+ELSE (no RP available):
+  Skip Phase 1.5 entirely — proceed to Phase 2 (existing behavior, zero change).
+END
+```
+
+**Use RP findings to guide Phase 2**: RP may surface related code, similar patterns, or architectural context that informs your pattern analysis. Feed these findings into Phase 2 as additional evidence alongside your own investigation.
+
+## Phase 2: Pattern Analysis
+
+1. **Find working examples** — similar working code in same codebase
+2. **Compare completely** — list EVERY difference between working and broken
+3. **Understand dependencies** — what config, environment, assumptions?
+
+## Phase 3: Hypothesis and Testing
+
+1. **Form single hypothesis** — "I think X is root cause because Y"
+2. **Test minimally** — smallest possible change, one variable at a time
+3. **Verify** — did it work? Yes → Phase 4. No → form NEW hypothesis. Don't stack fixes.
+
+## Phase 4: Implementation
+
+1. **Write failing test** (if TDD mode or test framework available):
+   ```bash
+   # Test must fail, proving the bug exists
+   <FLOWCTL> guard --layer <affected-layer>
+   ```
+
+2. **Implement single fix** — address root cause, ONE change, no "while I'm here" improvements.
+   **No bundling:** Do NOT fix multiple things at once. If you're tempted to "also fix this other thing", STOP — commit the single fix first, verify, then address the next issue separately.
+
+3. **Verify fix:**
+   ```bash
+   <FLOWCTL> guard
+   ```
+
+4. **If fix doesn't work — failure escalation:**
+
+   **Track your attempt count.** Each failed fix escalates the response:
+
+   | Attempt | Level | Forced Action |
+   |---------|-------|---------------|
+   | 2nd | L1 — Switch approach | Use a **fundamentally different** method. Tweaking the same logic doesn't count. |
+   | 3rd | L2 — Deep investigation | Search online + read source code + list 3 distinct hypotheses before trying anything. |
+   | 4th | L3 — 7-point checklist | Complete ALL items below. Skipping any = you're still guessing. |
+   | 5th+ | L4 — Architecture review | **STOP.** Discuss with user. This is not a bug — it's a design problem. |
+
+   ### 7-Point Checklist (mandatory at L3+)
+
+   - [ ] Read the error message character-by-character? (not skimming)
+   - [ ] Used tools to search the core problem? (grep, web search, docs)
+   - [ ] Read 50+ lines of context around the failure location?
+   - [ ] Verified ALL assumptions with tools? (versions, paths, permissions, deps)
+   - [ ] Tried the **opposite** assumption? (if "problem is in A" failed, try "problem is NOT in A")
+   - [ ] Can reproduce in minimal scope? (smallest possible repro case)
+   - [ ] Switched tools/method/angle? (different debugger, different approach, different layer)
+
+   **All 7 must be checked before attempting another fix at L3+.**
+
+## Red Flags — STOP and Return to Phase 1
+
+- "Quick fix for now, investigate later"
+- "Just try changing X and see"
+- "I don't fully understand but this might work"
+- Proposing solutions before tracing data flow
+- "One more fix attempt" (after 2+ failures)
+- Each fix reveals new problem in different place
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "Issue is simple, don't need process" | Simple issues have root causes too |
+| "Emergency, no time" | Systematic is FASTER than guess-and-check |
+| "Multiple fixes at once saves time" | Can't isolate what worked; causes new bugs |
+| "I see the problem, let me fix it" | Seeing symptoms != understanding root cause |
+| "One more fix attempt" (after 2+) | 3+ failures = architectural problem |
+| "Tried everything" | Did you search? Read source? Complete the 7-point checklist? |
+| "Probably an environment issue" | Did you verify that? Unverified attribution = guessing |
+| "Need more context" | You have tools. Search first, ask only what's truly unavailable |
+| "Suggest handling manually" | This is your bug. Own it. Exhaust all options first |
+| Same logic, different parameters | Tweaking parameters is NOT a different approach. Change the method. |
+
+## Quick Reference
+
+| Phase | Key Activities | Done When |
+|-------|---------------|-----------|
+| 1. Root Cause | Read errors, reproduce, check changes, trace data | Understand WHAT and WHY |
+| 1.5 RP Investigate | context_builder(question) with symptoms + hypotheses | Cross-file context gathered (or skipped if no RP) |
+| 2. Pattern | Find working examples, compare differences | Identified the delta |
+| 3. Hypothesis | Form theory, test ONE variable | Confirmed or new hypothesis |
+| 4. Implement | Write test, fix root cause, verify | Bug resolved, guards pass |
+
+## After Fix
+
+```
+Bug fixed. Next:
+1) Review the fix: `/flow-code:impl-review --base <pre-fix-commit>`
+2) Continue current work: `/flow-code:work <epic-id>`
+```

@@ -1,0 +1,151 @@
+{
+  "description": "Ralph workflow guards - only active when FLOW_RALPH=1 and ralph-init has been run",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook ralph-guard || true",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|Execute"
+      },
+      {
+        "description": "Track flowctl guard pass for commit-gate",
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; { [ ! -d .flow ] || [ ! -x \"$F\" ]; } || \"$F\" hook commit-gate",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|Execute"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; { [ ! -d .flow ] || [ ! -x \"$F\" ]; } || \"$F\" hook pre-compact",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook ralph-guard || true",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|Execute"
+      },
+      {
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook rtk-rewrite || true",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|Execute"
+      },
+      {
+        "description": "Block git commit when flow task is in_progress but guard has not passed",
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; { [ ! -d .flow ] || [ ! -x \"$F\" ]; } || \"$F\" hook commit-gate",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|Execute"
+      },
+      {
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook ralph-guard || true",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "SessionStart": [
+      {
+        "description": "Auto-download or build flowctl binary if missing/outdated",
+        "hooks": [
+          {
+            "command": "S=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/hooks/ensure-flowctl.sh\"; [ -x \"$S\" ] && \"$S\" || true",
+            "timeout": 180,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook ralph-guard || true",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "description": "Auto-capture session memories to .flow/memory/ (requires memory.enabled or memory.auto in config)",
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; { [ ! -d .flow ] || [ ! -x \"$F\" ]; } || \"$F\" hook auto-memory",
+            "timeout": 45,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; { [ ! -d .flow ] || [ ! -x \"$F\" ]; } || \"$F\" hook subagent-context",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook ralph-guard || true",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; { [ ! -d .flow ] || [ ! -x \"$F\" ]; } || \"$F\" hook task-completed",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
+  }
+}

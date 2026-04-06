@@ -1710,30 +1710,21 @@ CODEX_MAX_THREADS=12 \
 
 **安装：**
 ```bash
-# 克隆市场仓库（一次性）
+# 克隆并安装（一次性）
 git clone https://github.com/z23cc/flow-code.git
 cd flow-code
-
-# 运行安装脚本
-./scripts/install-codex.sh flow-code
+./scripts/install-codex.sh
 ```
 
-> Codex 还没有插件市场，所以安装需要克隆此仓库并运行安装脚本。脚本将所有内容复制到 `~/.codex/` — 安装后可以删除克隆（重新克隆以更新）。
+> 脚本将 skills/agents/prompts 复制到 `~/.codex/`，flowctl 复制到 `~/.flow/bin/`。请将 `export PATH="$HOME/.flow/bin:$PATH"` 加入 shell 配置文件。
 
 **每个项目设置**（在每个项目中运行）：
 ```bash
 # 初始化 .flow/ 目录
-~/.codex/bin/flowctl init
-
-# 可选：本地复制 flowctl 以保证项目可移植性
-mkdir -p .flow/bin
-cp ~/.codex/bin/flowctl .flow/bin/
-cp ~/.codex/bin/flowctl.py .flow/bin/
-cp -r ~/.codex/bin/flowctl .flow/bin/flowctl
-chmod +x .flow/bin/flowctl
+flowctl init
 
 # 可选：配置审查后端（推荐 codex）
-~/.codex/bin/flowctl config set review.backend codex
+flowctl config set review.backend codex
 ```
 
 **可选 AGENTS.md 片段**（帮助 Codex 理解 flow-code）：
@@ -1741,7 +1732,7 @@ chmod +x .flow/bin/flowctl
 <!-- BEGIN FLOW-CODE -->
 ## Flow-Code
 
-本项目使用 Flow-Code 进行任务追踪。使用 `.flow/bin/flowctl` 或 `~/.codex/bin/flowctl`。
+本项目使用 Flow-Code 进行任务追踪。`flowctl` 需在 PATH 中（`~/.flow/bin/`）。
 
 快速命令：
 - `flowctl list` — 列出 epic + 任务

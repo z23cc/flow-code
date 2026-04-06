@@ -1,5 +1,5 @@
 bin.name = "flowctl"
 args = ["--json", "next"]
 stdout = """
-{"epic":null,"reason":"none","status":"none","task":null}
+{"epic":"fn-22-improve-flowctl-code-quality","reason":"ready_task","status":"work","task":"fn-22-improve-flowctl-code-quality.1"}
 """

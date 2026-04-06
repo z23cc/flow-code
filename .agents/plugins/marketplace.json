@@ -1,15 +1,20 @@
 {
+  "name": "flow-code-marketplace",
+  "interface": {
+    "displayName": "Flow-Code Plugins"
+  },
   "plugins": [
     {
       "name": "flow-code",
       "source": {
         "source": "local",
-        "path": "."
+        "path": "./plugins/flow-code"
       },
       "policy": {
         "installation": "AVAILABLE",
         "authentication": "ON_INSTALL"
-      }
+      },
+      "category": "Productivity"
     }
   ]
 }

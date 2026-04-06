@@ -1836,30 +1836,21 @@ CODEX_MAX_THREADS=12 \
 
 **Install:**
 ```bash
-# Clone the marketplace repo (one-time)
+# Clone and install (one-time)
 git clone https://github.com/z23cc/flow-code.git
 cd flow-code
-
-# Run the install script
-./scripts/install-codex.sh flow-code
+./scripts/install-codex.sh
 ```
 
-> Codex doesn't have a plugin marketplace yet, so installation requires cloning this repo and running the install script. The script copies everything to `~/.codex/` — you can delete the clone after install (re-clone to update).
+> The script copies skills/agents/prompts to `~/.codex/` and flowctl to `~/.flow/bin/`. Add `export PATH="$HOME/.flow/bin:$PATH"` to your shell profile.
 
 **Per-project setup** (run in each project):
 ```bash
 # Initialize .flow/ directory
-~/.codex/bin/flowctl init
-
-# Optional: copy flowctl locally for project portability
-mkdir -p .flow/bin
-cp ~/.codex/bin/flowctl .flow/bin/
-cp ~/.codex/bin/flowctl.py .flow/bin/
-cp -r ~/.codex/bin/flowctl .flow/bin/flowctl
-chmod +x .flow/bin/flowctl
+flowctl init
 
 # Optional: configure review backend (codex recommended for Codex CLI)
-~/.codex/bin/flowctl config set review.backend codex
+flowctl config set review.backend codex
 ```
 
 **Optional AGENTS.md snippet** (helps Codex understand flow-code):
@@ -1867,7 +1858,7 @@ chmod +x .flow/bin/flowctl
 <!-- BEGIN FLOW-CODE -->
 ## Flow-Code
 
-This project uses Flow-Code for task tracking. Use `.flow/bin/flowctl` or `~/.codex/bin/flowctl`.
+This project uses Flow-Code for task tracking. `flowctl` must be in PATH (`~/.flow/bin/`).
 
 Quick commands:
 - `flowctl list` — list epics + tasks

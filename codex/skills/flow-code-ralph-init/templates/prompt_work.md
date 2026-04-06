@@ -1,0 +1,59 @@
+You are running one Ralph work iteration.
+
+Inputs:
+- TASK_ID={{TASK_ID}}
+- BRANCH_MODE={{BRANCH_MODE_EFFECTIVE}}
+- WORK_REVIEW={{WORK_REVIEW}}
+- REVIEW_MODE={{REVIEW_MODE}}
+- TDD_MODE={{TDD_MODE}}
+
+## Steps (execute ALL in order)
+
+**Step 1: Execute task**
+```
+/flow-code:work {{TASK_ID}} --branch={{BRANCH_MODE_EFFECTIVE}} --review={{WORK_REVIEW}}
+```
+If TDD_MODE=1, add `--tdd` to the command above.
+Execution uses worktree + teams by default. No extra flags needed.
+
+When `--review=rp`, the worker subagent invokes `/flow-code:impl-review` internally.
+When `--review=codex`, the worker uses `flowctl codex impl-review` for review.
+When `--review=none` (per-epic mode), skip per-task review — epic-level review runs after all tasks complete.
+The impl-review skill handles review coordination and requires `<verdict>SHIP|NEEDS_WORK|MAJOR_RETHINK</verdict>` from reviewer.
+Do NOT improvise review prompts - the skill has the correct format.
+
+**Step 2: Verify task done** (AFTER skill returns)
+```bash
+scripts/ralph/flowctl show {{TASK_ID}} --json
+```
+If status != `done`, output `<promise>RETRY</promise>` and stop.
+
+**Step 3: Write impl receipt** (SKIP if REVIEW_MODE=per-epic or WORK_REVIEW=none)
+For rp mode:
+```bash
+mkdir -p "$(dirname '{{REVIEW_RECEIPT_PATH}}')"
+ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+cat > '{{REVIEW_RECEIPT_PATH}}' <<EOF
+{"type":"impl_review","id":"{{TASK_ID}}","mode":"rp","timestamp":"$ts","iteration":{{RALPH_ITERATION}}}
+EOF
+echo "Receipt written: {{REVIEW_RECEIPT_PATH}}"
+```
+For codex mode, receipt is written automatically by `flowctl codex impl-review --receipt`.
+**CRITICAL: Copy the command EXACTLY. The `"id":"{{TASK_ID}}"` field is REQUIRED.**
+Ralph verifies receipts match this exact schema. Missing id = verification fails = forced retry.
+
+**Step 4: Validate epic**
+```bash
+scripts/ralph/flowctl validate --epic $(echo {{TASK_ID}} | sed 's/\.[0-9]*$//') --json
+```
+
+**Step 5: On hard failure** → output `<promise>FAIL</promise>` and stop.
+
+## Rules
+- Must run `flowctl done` and verify task status is `done` before commit.
+- Must `git add -A` (never list files).
+- Do NOT use TodoWrite.
+
+## ⛔ FORBIDDEN OUTPUT
+**NEVER output `<promise>COMPLETE</promise>`** — this prompt handles ONE task only.
+Ralph detects all-work-complete automatically via the selector. Outputting COMPLETE here is INVALID and will be ignored.

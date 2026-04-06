@@ -88,19 +88,20 @@ END
 
 ## Phase 4: Implementation
 
-1. **Write failing test** (if TDD mode or test framework available):
-   ```bash
-   # Test must fail, proving the bug exists
-   <FLOWCTL> guard --layer <affected-layer>
-   ```
+### Prove-It Pattern (mandatory for bug fixes)
 
-2. **Implement single fix** — address root cause, ONE change, no "while I'm here" improvements.
-   **No bundling:** Do NOT fix multiple things at once. If you're tempted to "also fix this other thing", STOP — commit the single fix first, verify, then address the next issue separately.
+1. **Write reproduction test** — a test that demonstrates the bug (MUST FAIL)
+2. **Confirm RED** — run the test, verify it actually fails. If it passes, your test doesn't reproduce the bug
+3. **Fix root cause** — implement the fix (not a workaround)
+4. **Confirm GREEN** — run the test, verify it now passes
+5. **Run full suite** — check for regressions: `<FLOWCTL> guard`
 
-3. **Verify fix:**
-   ```bash
-   <FLOWCTL> guard
-   ```
+**If the test passes on step 2, your test is wrong.** Go back to Phase 1 and refine your understanding of the bug.
+
+### Fix Discipline
+
+- **Implement single fix** — address root cause, ONE change, no "while I'm here" improvements.
+  **No bundling:** Do NOT fix multiple things at once. If you're tempted to "also fix this other thing", STOP — commit the single fix first, verify, then address the next issue separately.
 
 4. **If fix doesn't work — failure escalation:**
 
@@ -148,6 +149,7 @@ END
 | "Need more context" | You have tools. Search first, ask only what's truly unavailable |
 | "Suggest handling manually" | This is your bug. Own it. Exhaust all options first |
 | Same logic, different parameters | Tweaking parameters is NOT a different approach. Change the method. |
+| "Bug is too simple for a test" | Simple bugs regress. The test takes 2 minutes. The re-diagnosis takes 2 hours. |
 
 ## Quick Reference
 
@@ -157,7 +159,7 @@ END
 | 1.5 RP Investigate | context_builder(question) with symptoms + hypotheses | Cross-file context gathered (or skipped if no RP) |
 | 2. Pattern | Find working examples, compare differences | Identified the delta |
 | 3. Hypothesis | Form theory, test ONE variable | Confirmed or new hypothesis |
-| 4. Implement | Write test, fix root cause, verify | Bug resolved, guards pass |
+| 4. Implement | Prove-It: RED test → fix root cause → GREEN test → full suite | Bug resolved, guards pass |
 
 ## After Fix
 

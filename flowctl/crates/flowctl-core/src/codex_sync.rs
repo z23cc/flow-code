@@ -468,6 +468,39 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_agent_valid() {
+        let content = "---\nname: my-agent\ndescription: A test agent\nmodel: opus\ndisallowedTools: Edit, Write\ncolor: blue\n---\nBody instructions here.\n";
+        let doc = frontmatter::parse::<AgentFrontmatter>(content).unwrap();
+        assert_eq!(doc.frontmatter.name, "my-agent");
+        assert_eq!(doc.frontmatter.description, "A test agent");
+        assert_eq!(doc.frontmatter.model, "opus");
+        assert_eq!(doc.frontmatter.disallowed_tools.as_deref(), Some("Edit, Write"));
+        assert_eq!(doc.frontmatter.color.as_deref(), Some("blue"));
+        assert!(doc.body.contains("Body instructions here."));
+    }
+
+    #[test]
+    fn test_parse_agent_no_frontmatter() {
+        let content = "No frontmatter at all, just plain text.";
+        let result = frontmatter::parse::<AgentFrontmatter>(content);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_agent_invalid_yaml() {
+        let content = "---\n: : : not valid yaml [[[{\n---\nBody.\n";
+        let result = frontmatter::parse::<AgentFrontmatter>(content);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_agent_missing_model() {
+        let content = "---\nname: incomplete\ndescription: Missing model field\n---\nBody.\n";
+        let result = frontmatter::parse::<AgentFrontmatter>(content);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_sync_all_dry_run() {
         let dir = tempfile::tempdir().unwrap();
         let agents = dir.path().join("agents");

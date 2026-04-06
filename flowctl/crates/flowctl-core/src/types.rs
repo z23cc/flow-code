@@ -305,6 +305,7 @@ impl std::fmt::Display for PhaseStatus {
 pub const PHASE_DEFS: &[(&str, &str, &str)] = &[
     ("0", "Verify Configuration", "OWNED_FILES verified and configuration validated"),
     ("1", "Re-anchor", "Run flowctl show <task> and verify spec was read"),
+    ("1.5", "Investigation", "Required investigation target files read and patterns noted"),
     ("2a", "TDD Red-Green", "Failing tests written and confirmed to fail"),
     ("2", "Implement", "Feature implemented and code compiles"),
     ("2.5", "Verify & Fix", "flowctl guard passes and diff reviewed"),
@@ -319,9 +320,9 @@ pub const PHASE_DEFS: &[(&str, &str, &str)] = &[
 /// Phase sequences by mode (from Python constants.py).
 /// Phase `5c` (outputs_dump) is NOT in these static sequences — it is added
 /// dynamically by `worker-phase next` based on the `outputs.enabled` config.
-pub const PHASE_SEQ_DEFAULT: &[&str] = &["0", "1", "2", "2.5", "3", "5", "5b", "6"];
-pub const PHASE_SEQ_TDD: &[&str] = &["0", "1", "2a", "2", "2.5", "3", "5", "5b", "6"];
-pub const PHASE_SEQ_REVIEW: &[&str] = &["0", "1", "2", "2.5", "3", "4", "5", "5b", "6"];
+pub const PHASE_SEQ_DEFAULT: &[&str] = &["0", "1", "1.5", "2", "2.5", "3", "5", "5b", "6"];
+pub const PHASE_SEQ_TDD: &[&str] = &["0", "1", "1.5", "2a", "2", "2.5", "3", "5", "5b", "6"];
+pub const PHASE_SEQ_REVIEW: &[&str] = &["0", "1", "1.5", "2", "2.5", "3", "4", "5", "5b", "6"];
 
 // ── Evidence ─────────────────────────────────────────────────────────
 
@@ -551,7 +552,7 @@ mod tests {
 
     #[test]
     fn test_phase_defs_complete() {
-        assert_eq!(PHASE_DEFS.len(), 11);
+        assert_eq!(PHASE_DEFS.len(), 12);
         // Verify all phase sequences reference valid phase IDs
         let valid_ids: Vec<&str> = PHASE_DEFS.iter().map(|(id, _, _)| *id).collect();
         for seq_id in PHASE_SEQ_DEFAULT {

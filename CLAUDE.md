@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Is This
 
-Flow-Code is a Claude Code plugin for structured, plan-first development. It provides slash commands (`/flow-code:plan`, `/flow-code:work`, etc.), skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with SQLite storage and MCP server support.
+Flow-Code is a Claude Code plugin for structured, plan-first development. It provides slash commands (`/flow-code:plan`, `/flow-code:work`, etc.), skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with libSQL storage (async, native vector search) and MCP server support.
 
 ## Core Architecture
 

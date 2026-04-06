@@ -1,6 +1,6 @@
 # flowctl
 
-A fast, native task and workflow engine for structured, plan-first development. Manages epics, tasks, dependencies, and state machines in a local `.flow/` directory backed by SQLite.
+A fast, native task and workflow engine for structured, plan-first development. Manages epics, tasks, dependencies, and state machines in a local `.flow/` directory backed by libSQL (async, native vector search).
 
 flowctl is the Rust rewrite of the Python `flowctl` CLI from [flow-code](https://github.com/anthropics/flow-code), designed for speed, cross-platform support, and zero-dependency deployment.
 
@@ -52,34 +52,17 @@ flowctl status
 flowctl tasks -e ep-1
 ```
 
-## Feature flags
-
-| Flag | Crate | Effect |
-|------|-------|--------|
-| `tui` | flowctl-cli | Enables the TUI dashboard (`flowctl tui`) |
-| `daemon` | flowctl-daemon | Enables the background daemon with HTTP API |
-| `daemon` | flowctl-scheduler | Enables file-watcher integration |
-
-Build with all features:
-
-```sh
-cargo build --release --all-features
-```
-
 ## Architecture
 
-flowctl is split into six crates for modularity:
+flowctl is split into three crates:
 
 ```
-flowctl-core        Core types, ID parsing, state machine, YAML/JSON I/O
-flowctl-db          SQLite storage layer (rusqlite + migrations)
-flowctl-scheduler   DAG-based task scheduler and event bus
+flowctl-core        Core types, ID parsing, state machine, DAG, JSON I/O
+flowctl-db          libSQL storage layer (async, native vector search)
 flowctl-cli         CLI entry point (clap) — the `flowctl` binary
-flowctl-daemon      Background daemon: scheduler, file watcher, HTTP/WS API
-flowctl-tui         Terminal UI dashboard (ratatui)
 ```
 
-**Data flow**: CLI parses commands via `clap`, calls into `flowctl-db` for storage, which uses `flowctl-core` types. The scheduler builds a DAG from task dependencies to determine execution order. The daemon wraps the scheduler with file watching and an HTTP API. The TUI provides a live dashboard.
+**Data flow**: CLI parses commands via `clap`, calls into `flowctl-db` for storage, which uses `flowctl-core` types. The DAG module computes task dependencies and execution order.
 
 ## Release profile
 

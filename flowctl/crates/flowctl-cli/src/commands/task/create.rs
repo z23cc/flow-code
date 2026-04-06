@@ -130,7 +130,7 @@ pub(super) fn cmd_task_create(
     let body = create_task_spec(&task_id, title, acceptance.as_deref());
 
     // Write to DB via write_task_doc (DB-only, no MD export)
-    let doc = flowctl_core::frontmatter::Document {
+    let doc = flowctl_core::types::Document {
         frontmatter: task,
         body,
     };

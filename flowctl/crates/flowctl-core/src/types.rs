@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::state_machine::Status;
 
+// Re-export Document from frontmatter for use as a general-purpose container.
+// This allows CLI CRUD code to import Document from types (not frontmatter).
+pub use crate::frontmatter::Document;
+
 // ── Constants ────────────────────────────────────────────────────────
 
 /// Current schema version for Markdown frontmatter.

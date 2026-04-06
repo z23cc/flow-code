@@ -16,10 +16,12 @@ use flowctl_core::types::{
 
 use super::get_flow_dir;
 
-/// Try to open a DB connection. Returns None if DB doesn't exist or can't be opened.
-fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
-    let cwd = env::current_dir().ok()?;
-    crate::commands::db_shim::open(&cwd).ok()
+/// Open DB connection (hard error on failure, DB is sole source of truth).
+fn require_db() -> crate::commands::db_shim::Connection {
+    crate::commands::db_shim::require_db()
+        .unwrap_or_else(|e| {
+            crate::output::error_exit(&format!("Cannot open database: {e}"));
+        })
 }
 
 // ── Status command ──────────────────────────────────────────────────
@@ -221,9 +223,9 @@ fn is_daemon_heartbeat_alive(flow_dir: &Path) -> bool {
 fn find_interrupted_epics(_flow_dir: &Path) -> Vec<serde_json::Value> {
     let mut interrupted = Vec::new();
 
-    let conn = match try_open_db() {
-        Some(c) => c,
-        None => return interrupted,
+    let conn = match crate::commands::db_shim::require_db() {
+        Ok(c) => c,
+        Err(_) => return interrupted,
     };
 
     let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
@@ -339,20 +341,18 @@ pub(super) fn validate_epic(flow_dir: &Path, epic_id: &str) -> (Vec<String>, Vec
     let mut tasks: std::collections::HashMap<String, flowctl_core::types::Task> =
         std::collections::HashMap::new();
 
-    if let Some(conn) = try_open_db() {
-        let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Ok(task_list) = task_repo.list_by_epic(epic_id) {
-            for task in task_list {
-                tasks.insert(task.id.clone(), task);
-            }
+    let conn = require_db();
+    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    if let Ok(task_list) = task_repo.list_by_epic(epic_id) {
+        for task in task_list {
+            tasks.insert(task.id.clone(), task);
         }
     }
 
     // Validate each task
     for (task_id, task) in &tasks {
         // Validate task body has required headings (read from DB)
-        if let Some(conn) = try_open_db() {
-            let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+        {
             match task_repo.get_with_body(task_id) {
                 Ok((_t, body)) => {
                     if body.is_empty() {
@@ -430,13 +430,13 @@ pub fn cmd_validate(json_mode: bool, epic: Option<String>, all: bool) {
         // Validate all epics
         let root_errors = validate_flow_root(&flow_dir);
 
-        let mut epic_ids: Vec<String> = Vec::new();
-        if let Some(conn) = try_open_db() {
-            let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
-            if let Ok(epics) = epic_repo.list(None) {
-                epic_ids = epics.into_iter().map(|e| e.id).collect();
-            }
-        }
+        let conn = require_db();
+        let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
+        let mut epic_ids: Vec<String> = epic_repo.list(None)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
         epic_ids.sort();
 
         let mut all_errors: Vec<String> = root_errors.clone();
@@ -552,7 +552,8 @@ pub fn cmd_doctor(json_mode: bool) {
     let root_errors = validate_flow_root(&flow_dir);
     let mut validate_errors = root_errors.clone();
 
-    if let Some(conn) = try_open_db() {
+    {
+        let conn = require_db();
         let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Ok(epics) = epic_repo.list(None) {
             for epic in &epics {

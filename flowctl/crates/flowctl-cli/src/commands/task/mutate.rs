@@ -217,7 +217,7 @@ pub(super) fn cmd_task_split(json_mode: bool, task_id: &str, titles: &str, chain
         };
 
         let body = create_task_spec(&sub_id, sub_title, None);
-        let sub_doc = flowctl_core::frontmatter::Document {
+        let sub_doc = flowctl_core::types::Document {
             frontmatter: sub_task,
             body,
         };

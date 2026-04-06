@@ -34,10 +34,10 @@ pub(crate) fn ensure_flow_exists() -> PathBuf {
     flow_dir
 }
 
-/// Try to open a DB connection.
-pub(crate) fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
-    let cwd = env::current_dir().ok()?;
-    crate::commands::db_shim::open(&cwd).ok()
+/// Open DB connection (hard error on failure, DB is sole source of truth).
+pub(crate) fn require_db() -> crate::commands::db_shim::Connection {
+    crate::commands::db_shim::require_db()
+        .unwrap_or_else(|e| error_exit(&format!("Cannot open database: {e}")))
 }
 
 /// Try to open a libSQL async DB connection (for service-layer calls).
@@ -65,29 +65,26 @@ pub(crate) fn block_on<F: std::future::Future>(fut: F) -> F::Output {
 
 /// Load all tasks for an epic from DB (sole source of truth).
 pub(crate) fn load_tasks_for_epic(_flow_dir: &Path, epic_id: &str) -> HashMap<String, Task> {
-    if let Some(conn) = try_open_db() {
-        let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Ok(tasks) = task_repo.list_by_epic(epic_id) {
-            let mut map = HashMap::new();
-            for task in tasks {
-                map.insert(task.id.clone(), task);
-            }
-            return map;
-        }
+    let conn = require_db();
+    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    let tasks = task_repo.list_by_epic(epic_id).unwrap_or_default();
+    let mut map = HashMap::new();
+    for task in tasks {
+        map.insert(task.id.clone(), task);
     }
-    HashMap::new()
+    map
 }
 
 /// Load an epic from DB (sole source of truth).
 pub(crate) fn load_epic(_flow_dir: &Path, epic_id: &str) -> Option<Epic> {
-    let conn = try_open_db()?;
+    let conn = require_db();
     let repo = crate::commands::db_shim::EpicRepo::new(&conn);
     repo.get(epic_id).ok()
 }
 
 /// Get runtime state for a task.
 pub(crate) fn get_runtime(task_id: &str) -> Option<RuntimeState> {
-    let conn = try_open_db()?;
+    let conn = require_db();
     let repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
     repo.get(task_id).ok().flatten()
 }
@@ -104,13 +101,13 @@ pub(crate) fn task_sort_key(task: &Task) -> (u32, u32, String) {
 
 /// Get all epic IDs from DB, sorted by epic number.
 pub(crate) fn scan_epic_ids(_flow_dir: &Path) -> Vec<String> {
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        if let Ok(epics) = repo.list(None) {
-            let mut ids: Vec<String> = epics.into_iter().map(|e| e.id).collect();
-            ids.sort_by_key(|id| parse_id(id).map(|p| p.epic).unwrap_or(0));
-            return ids;
-        }
-    }
-    Vec::new()
+    let conn = require_db();
+    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    let mut ids: Vec<String> = repo.list(None)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    ids.sort_by_key(|id| parse_id(id).map(|p| p.epic).unwrap_or(0));
+    ids
 }

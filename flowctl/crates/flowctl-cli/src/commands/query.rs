@@ -2,7 +2,6 @@
 //!
 //! Reads from SQLite as the sole source of truth.
 
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 
@@ -26,12 +25,6 @@ fn ensure_flow_exists() -> PathBuf {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
     }
     flow_dir
-}
-
-/// Try to open a DB connection. Returns None if DB doesn't exist or can't be opened.
-fn try_open_db() -> Option<crate::commands::db_shim::Connection> {
-    let cwd = env::current_dir().ok()?;
-    crate::commands::db_shim::open(&cwd).ok()
 }
 
 /// Serialize an Epic to the JSON format matching Python output.
@@ -65,15 +58,14 @@ fn task_to_json(task: &Task) -> serde_json::Value {
     let mut claimed_at: serde_json::Value = json!(null);
     let claim_note: serde_json::Value = json!("");
 
-    if let Some(conn) = try_open_db() {
-        let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
-        if let Ok(Some(state)) = runtime_repo.get(&task.id) {
-            if let Some(a) = &state.assignee {
-                assignee = json!(a);
-            }
-            if let Some(ca) = &state.claimed_at {
-                claimed_at = json!(ca.to_rfc3339());
-            }
+    let conn = require_db();
+    let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
+    if let Ok(Some(state)) = runtime_repo.get(&task.id) {
+        if let Some(a) = &state.assignee {
+            assignee = json!(a);
+        }
+        if let Some(ca) = &state.claimed_at {
+            claimed_at = json!(ca.to_rfc3339());
         }
     }
 
@@ -132,38 +124,30 @@ fn require_db() -> crate::commands::db_shim::Connection {
 
 /// Get a single epic by ID from DB.
 fn get_epic(_flow_dir: &PathBuf, id: &str) -> Option<Epic> {
-    let conn = try_open_db()?;
+    let conn = require_db();
     let repo = crate::commands::db_shim::EpicRepo::new(&conn);
     repo.get(id).ok()
 }
 
 /// Get a single task by ID from DB.
 fn get_task(_flow_dir: &PathBuf, id: &str) -> Option<Task> {
-    let conn = try_open_db()?;
+    let conn = require_db();
     let repo = crate::commands::db_shim::TaskRepo::new(&conn);
     repo.get(id).ok()
 }
 
 /// Get all tasks for an epic from DB.
 fn get_epic_tasks(_flow_dir: &PathBuf, epic_id: &str) -> Vec<Task> {
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Ok(tasks) = repo.list_by_epic(epic_id) {
-            return tasks;
-        }
-    }
-    Vec::new()
+    let conn = require_db();
+    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    repo.list_by_epic(epic_id).unwrap_or_default()
 }
 
 /// Get all epics from DB.
 fn get_all_epics(_flow_dir: &PathBuf) -> Vec<Epic> {
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        if let Ok(epics) = repo.list(None) {
-            return epics;
-        }
-    }
-    Vec::new()
+    let conn = require_db();
+    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    repo.list(None).unwrap_or_default()
 }
 
 /// Get all tasks, optionally filtered, from DB.
@@ -173,28 +157,21 @@ fn get_all_tasks(
     status_filter: Option<&str>,
     domain_filter: Option<&str>,
 ) -> Vec<Task> {
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        match epic_filter {
-            Some(epic_id) => {
-                if let Ok(mut tasks) = repo.list_by_epic(epic_id) {
-                    if let Some(status) = status_filter {
-                        tasks.retain(|t| t.status.to_string() == status);
-                    }
-                    if let Some(domain) = domain_filter {
-                        tasks.retain(|t| t.domain.to_string() == domain);
-                    }
-                    return tasks;
-                }
+    let conn = require_db();
+    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    match epic_filter {
+        Some(epic_id) => {
+            let mut tasks = repo.list_by_epic(epic_id).unwrap_or_default();
+            if let Some(status) = status_filter {
+                tasks.retain(|t| t.status.to_string() == status);
             }
-            None => {
-                if let Ok(tasks) = repo.list_all(status_filter, domain_filter) {
-                    return tasks;
-                }
+            if let Some(domain) = domain_filter {
+                tasks.retain(|t| t.domain.to_string() == domain);
             }
+            tasks
         }
+        None => repo.list_all(status_filter, domain_filter).unwrap_or_default(),
     }
-    Vec::new()
 }
 
 // ── Show command ────────────────────────────────────────────────────
@@ -550,24 +527,22 @@ pub fn cmd_files(json_mode: bool, epic: String) {
     let mut ownership: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
 
-    let conn_opt = try_open_db();
+    let conn = require_db();
     for task in &tasks {
         let mut task_files: Vec<String> = task.files.clone();
 
         // Fallback: parse **Files:** from task body in DB if no structured files
         if task_files.is_empty() {
-            if let Some(ref conn) = conn_opt {
-                let repo = crate::commands::db_shim::TaskRepo::new(conn);
-                if let Ok((_t, body)) = repo.get_with_body(&task.id) {
-                    for line in body.lines() {
-                        if let Some(rest) = line.strip_prefix("**Files:**") {
-                            task_files = rest
-                                .split(',')
-                                .map(|f| f.trim().trim_matches('`').to_string())
-                                .filter(|f| !f.is_empty())
-                                .collect();
-                            break;
-                        }
+            let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+            if let Ok((_t, body)) = repo.get_with_body(&task.id) {
+                for line in body.lines() {
+                    if let Some(rest) = line.strip_prefix("**Files:**") {
+                        task_files = rest
+                            .split(',')
+                            .map(|f| f.trim().trim_matches('`').to_string())
+                            .filter(|f| !f.is_empty())
+                            .collect();
+                        break;
                     }
                 }
             }

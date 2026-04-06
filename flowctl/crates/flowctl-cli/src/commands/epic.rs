@@ -12,10 +12,9 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
-use flowctl_core::frontmatter;
 use flowctl_core::id::{generate_epic_suffix, is_epic_id, parse_id, slugify};
 use flowctl_core::types::{
-    Epic, EpicStatus, ReviewStatus, ARCHIVE_DIR, FLOW_DIR, META_FILE,
+    Document, Epic, EpicStatus, ReviewStatus, ARCHIVE_DIR, FLOW_DIR, META_FILE,
     REVIEWS_DIR, SPECS_DIR,
 };
 
@@ -169,18 +168,18 @@ fn validate_epic_id(id: &str) {
 }
 
 /// Load epic document from DB (sole source of truth).
-fn load_epic(id: &str) -> frontmatter::Document<Epic> {
+fn load_epic(id: &str) -> Document<Epic> {
     let conn = require_db()
         .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
     let repo = crate::commands::db_shim::EpicRepo::new(&conn);
     match repo.get_with_body(id) {
-        Ok((epic, body)) => frontmatter::Document { frontmatter: epic, body },
+        Ok((epic, body)) => Document { frontmatter: epic, body },
         Err(_) => error_exit(&format!("Epic {id} not found")),
     }
 }
 
 /// Write an epic document to DB (sole source of truth, no MD export).
-fn save_epic(doc: &frontmatter::Document<Epic>) {
+fn save_epic(doc: &Document<Epic>) {
     let conn = require_db()
         .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
     let repo = crate::commands::db_shim::EpicRepo::new(&conn);
@@ -297,7 +296,7 @@ fn cmd_create(title: &str, branch: &Option<String>, json_mode: bool) {
 
     // Write to DB (sole source of truth)
     let body = create_epic_spec_body(&epic_id, title);
-    let doc = frontmatter::Document {
+    let doc = Document {
         frontmatter: epic,
         body: body.clone(),
     };

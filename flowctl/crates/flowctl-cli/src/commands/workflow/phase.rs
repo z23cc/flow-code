@@ -9,7 +9,7 @@ use crate::output::{error_exit, json_output};
 
 use flowctl_core::id::is_task_id;
 
-use super::{ensure_flow_exists, try_open_db};
+use super::{ensure_flow_exists, require_db};
 
 /// Worker-phase subcommands.
 #[derive(Subcommand, Debug)]
@@ -128,21 +128,17 @@ fn build_phase_sequence(tdd: bool, review: bool) -> Vec<&'static str> {
 
 /// Load completed phases from SQLite.
 fn load_completed_phases(task_id: &str) -> Vec<String> {
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::PhaseProgressRepo::new(&conn);
-        repo.get_completed(task_id).unwrap_or_default()
-    } else {
-        Vec::new()
-    }
+    let conn = require_db();
+    let repo = crate::commands::db_shim::PhaseProgressRepo::new(&conn);
+    repo.get_completed(task_id).unwrap_or_default()
 }
 
 /// Mark a phase as done in SQLite.
 fn save_phase_done(task_id: &str, phase: &str) {
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::PhaseProgressRepo::new(&conn);
-        if let Err(e) = repo.mark_done(task_id, phase) {
-            eprintln!("Warning: failed to save phase progress: {}", e);
-        }
+    let conn = require_db();
+    let repo = crate::commands::db_shim::PhaseProgressRepo::new(&conn);
+    if let Err(e) = repo.mark_done(task_id, phase) {
+        eprintln!("Warning: failed to save phase progress: {}", e);
     }
 }
 

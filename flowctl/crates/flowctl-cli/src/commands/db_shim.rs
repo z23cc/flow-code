@@ -62,8 +62,8 @@ pub fn open(working_dir: &Path) -> Result<Connection, DbError> {
 }
 
 /// Open DB connection with hard error on failure (DB must be available).
-/// This is the preferred entry point — replaces `try_open_db()` which
-/// returned `Option<Connection>` and silently degraded to MD fallback.
+/// This is the preferred entry point — all CLI code should use this
+/// (DB is the sole source of truth, no fallback path).
 pub fn require_db() -> Result<Connection, DbError> {
     let cwd = std::env::current_dir()
         .map_err(|e| DbError::StateDir(format!("cannot get current dir: {e}")))?;

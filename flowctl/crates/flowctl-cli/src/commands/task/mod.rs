@@ -13,10 +13,9 @@ use regex::Regex;
 
 use crate::output::error_exit;
 
-use flowctl_core::frontmatter;
 use flowctl_core::id::epic_id_from_task;
 use flowctl_core::types::{
-    Domain, Epic, Task,
+    Document, Domain, Epic, Task,
 };
 
 #[derive(Subcommand, Debug)]
@@ -194,20 +193,20 @@ fn load_epic_md(_flow_dir: &Path, epic_id: &str) -> Option<Epic> {
 }
 
 /// Load task's full document (frontmatter + body) from DB (no MD fallback).
-fn load_task_doc(_flow_dir: &Path, task_id: &str) -> frontmatter::Document<Task> {
+fn load_task_doc(_flow_dir: &Path, task_id: &str) -> Document<Task> {
     let conn = require_db()
         .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
     let repo = crate::commands::db_shim::TaskRepo::new(&conn);
     let (task, body) = repo.get_with_body(task_id)
         .unwrap_or_else(|_| error_exit(&format!("Task {} not found", task_id)));
-    frontmatter::Document {
+    Document {
         frontmatter: task,
         body,
     }
 }
 
 /// Write a task document to DB only (no MD export).
-fn write_task_doc(_flow_dir: &Path, task_id: &str, doc: &frontmatter::Document<Task>) {
+fn write_task_doc(_flow_dir: &Path, task_id: &str, doc: &Document<Task>) {
     let conn = require_db()
         .unwrap_or_else(|e| error_exit(&format!("DB required for write: {e}")));
     let repo = crate::commands::db_shim::TaskRepo::new(&conn);

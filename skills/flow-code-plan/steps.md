@@ -86,9 +86,13 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 
 ### Scout decision guide
 
-- **Always**: `repo-scout` (or `context-scout` if multi-module/unfamiliar code + rp-cli available). `memory-scout` if memory.enabled. `capability-scout` unless `--no-capability-scan` passed (non-blocking; fails open — planning continues if it errors).
+- **Always**: `repo-scout` (fast grep-based research). `memory-scout` if memory.enabled. `capability-scout` unless `--no-capability-scan` passed (non-blocking; fails open — planning continues if it errors).
+- **Deep context** (replaces `context-scout` in this guide — exactly one runs per plan, not multiple):
+  - **Tier 1** (MCP available): direct `context_builder(response_type:"plan")` call — best quality, automatic workspace binding
+  - **Tier 2** (rp-cli available, no MCP): `rp-cli -e 'builder "<request + repo-scout findings>" --response-type plan'` (timeout: 300s)
+  - **Tier 3** (neither available): `context-scout` subagent (existing behavior, unchanged)
 - **Add when needed**: `practice-scout` for security/auth/payments/concurrency. `docs-scout` for external APIs/libraries. `github-scout` for novel patterns (requires scouts.github). `epic-scout` if 2+ open epics. `docs-gap-scout` if user-facing changes.
-- **Constraints**: min 1 (repo or context), max 7. Run ALL selected scouts in ONE parallel Agent/Task call.
+- **Constraints**: min 1 (repo-scout required), max 7. Run ALL selected scouts in ONE parallel Agent/Task call. Deep context (Tier 1/2/3) runs AFTER repo-scout returns — it uses repo-scout findings as input.
 
 Must capture:
 - File paths + line refs
@@ -96,10 +100,35 @@ Must capture:
 - Similar patterns / prior work
 - External docs links
 - Project conventions (CLAUDE.md, CONTRIBUTING, etc)
-- Architecture patterns and data flow (especially with context-scout)
+- Architecture patterns and data flow
 - Epic dependencies (from epic-scout)
 - Doc updates needed (from docs-gap-scout) - add to task acceptance criteria
 - Capability gaps (from capability-scout) - persist in Step 5 (see below)
+
+### Step 1a: Deep context via RP (after repo-scout)
+
+After repo-scout returns, gather deep codebase context using the best available RP tier. **Exactly one RP-powered call per plan run** — do not call both context_builder and context-scout.
+
+**Tier 1 — RP MCP (preferred):**
+```
+context_builder(
+  instructions: "<request summary> + <repo-scout key findings>",
+  response_type: "plan"
+)
+```
+
+**Tier 2 — rp-cli (fallback when MCP unavailable):**
+```bash
+rp-cli -e 'builder "<request summary> + <repo-scout key findings>" --response-type plan'
+# Timeout: 300s (builder can take minutes)
+```
+
+**Tier 3 — context-scout subagent (fallback when neither MCP nor CLI available):**
+Run `context-scout` as a subagent (existing behavior, unchanged). This is the pre-existing path.
+
+**Skip condition:** If the request is trivial (clear bug fix, single-file change, S-size task), skip deep context — repo-scout alone is sufficient.
+
+Feed RP/context-scout findings into the epic spec alongside repo-scout findings.
 
 ## Step 1b: Apply memory lessons (if memory.enabled)
 

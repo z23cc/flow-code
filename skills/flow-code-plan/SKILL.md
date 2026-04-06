@@ -81,7 +81,10 @@ REVIEW_BACKEND=$($FLOWCTL review-backend)
 ```
 
 Based on the request text, decide:
-- **Research**: request references existing code paths → `repo-scout`. involves new/unfamiliar tech → `context-scout`.
+- **Research**: always `repo-scout`. For deep context, detect RP availability:
+  - MCP tools available (context_builder in tool list) → `rp(mcp)`
+  - `which rp-cli` succeeds → `rp(cli)`
+  - Neither → `rp(scout-fallback)` (uses context-scout subagent)
 - **Depth**: clear and scoped request → `short`. needs design decisions → `standard`. architecture change → `deep`.
 - **Review** (auto, layer-aware):
   - Check `$REVIEW_BACKEND`:
@@ -95,7 +98,7 @@ Based on the request text, decide:
 
 Output one line:
 ```
-Research: <repo-scout|context-scout> | Depth: <short|standard|deep> | Review: <rp|codex|none> (auto-detected)
+Research: repo-scout + rp(<mcp|cli|scout-fallback>) | Depth: <short|standard|deep> | Review: <rp|codex|none> (auto-detected)
 ```
 
 ### Explicit flag overrides

@@ -198,90 +198,23 @@ async fn daemon_request(
     TransportResult::Unreachable
 }
 
+/// Daemon removed — transport stubs return None.
 async fn unix_socket_request(
-    socket_path: &Path,
-    method: &str,
-    path: &str,
-    body: Option<&Value>,
+    _socket_path: &Path,
+    _method: &str,
+    _path: &str,
+    _body: Option<&Value>,
 ) -> Option<TransportResult> {
-    use http_body_util::{BodyExt, Full};
-    use hyper_util::rt::TokioIo;
-
-    let stream = tokio::net::UnixStream::connect(socket_path).await.ok()?;
-    let io = TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.ok()?;
-    tokio::spawn(async move {
-        let _ = conn.await;
-    });
-
-    let body_bytes = match body {
-        Some(v) => serde_json::to_vec(v).ok()?,
-        None => Vec::new(),
-    };
-
-    let req = hyper::Request::builder()
-        .method(method)
-        .uri(path)
-        .header("host", "localhost")
-        .header("content-type", "application/json")
-        .body(Full::new(bytes::Bytes::from(body_bytes)))
-        .ok()?;
-
-    let resp = sender.send_request(req).await.ok()?;
-    let status = resp.status().as_u16();
-    let collected = resp.into_body().collect().await.ok()?.to_bytes();
-    let json_body: Value = if collected.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&collected).ok()?
-    };
-    Some(TransportResult::Response {
-        status,
-        body: json_body,
-    })
+    None // No daemon
 }
 
 async fn tcp_request(
-    port: u16,
-    method: &str,
-    path: &str,
-    body: Option<&Value>,
+    _port: u16,
+    _method: &str,
+    _path: &str,
+    _body: Option<&Value>,
 ) -> Option<TransportResult> {
-    use http_body_util::{BodyExt, Full};
-    use hyper_util::rt::TokioIo;
-
-    let stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.ok()?;
-    let io = TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.ok()?;
-    tokio::spawn(async move {
-        let _ = conn.await;
-    });
-
-    let body_bytes = match body {
-        Some(v) => serde_json::to_vec(v).ok()?,
-        None => Vec::new(),
-    };
-
-    let req = hyper::Request::builder()
-        .method(method)
-        .uri(path)
-        .header("host", format!("127.0.0.1:{port}"))
-        .header("content-type", "application/json")
-        .body(Full::new(bytes::Bytes::from(body_bytes)))
-        .ok()?;
-
-    let resp = sender.send_request(req).await.ok()?;
-    let status = resp.status().as_u16();
-    let collected = resp.into_body().collect().await.ok()?.to_bytes();
-    let json_body: Value = if collected.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&collected).ok()?
-    };
-    Some(TransportResult::Response {
-        status,
-        body: json_body,
-    })
+    None // No daemon
 }
 
 // ── Direct-DB fallback ──────────────────────────────────────────────

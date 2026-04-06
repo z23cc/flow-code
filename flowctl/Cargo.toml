@@ -3,10 +3,8 @@ resolver = "2"
 members = [
     "crates/flowctl-core",
     "crates/flowctl-db",
-    "crates/flowctl-scheduler",
     "crates/flowctl-service",
     "crates/flowctl-cli",
-    "crates/flowctl-daemon",
 ]
 
 # ── Shared package metadata (nushell convention) ──────────────────────
@@ -57,15 +55,9 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 miette = { version = "7", features = ["fancy"] }
 
-# Async runtime (daemon + scheduler)
+# Async runtime (service layer)
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-
-# HTTP (daemon)
-axum = { version = "0.8", features = ["ws"] }
-
-# File watching (daemon)
-notify = "7"
 
 # Unix process management
 nix = { version = "0.30", features = ["signal", "process"] }
@@ -79,7 +71,6 @@ trycmd = "0.15"
 # Internal crate references
 flowctl-core = { path = "crates/flowctl-core" }
 flowctl-db = { path = "crates/flowctl-db" }
-flowctl-scheduler = { path = "crates/flowctl-scheduler" }
 flowctl-service = { path = "crates/flowctl-service" }
 
 # ── Release profile (size-optimized) ─────────────────────────────────

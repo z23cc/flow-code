@@ -414,14 +414,6 @@ enum Commands {
         shell: Shell,
     },
 
-    // ── Daemon ───────────────────────────────────────────────────────
-    /// Start the daemon process (HTTP API + scheduler + event bus).
-    #[cfg(feature = "daemon")]
-    Serve {
-        /// Port override (default: Unix socket).
-        #[arg(long)]
-        port: Option<u16>,
-    },
 
 }
 
@@ -575,114 +567,6 @@ fn main() {
             generate(shell, &mut cmd, "flowctl", &mut std::io::stdout());
         }
 
-        // Daemon
-        #[cfg(feature = "daemon")]
-        Commands::Serve { port } => {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-            rt.block_on(async {
-                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                let flow_dir = cwd.join(flowctl_core::types::FLOW_DIR);
-                if !flow_dir.exists() {
-                    eprintln!("error: .flow/ does not exist. Run 'flowctl init' first.");
-                    std::process::exit(1);
-                }
-
-                let paths = flowctl_daemon::lifecycle::DaemonPaths::new(&flow_dir);
-                if let Err(e) = paths.ensure_state_dir() {
-                    eprintln!("error: failed to create state dir: {e}");
-                    std::process::exit(1);
-                }
-
-                // Acquire PID lock.
-                if let Err(e) = flowctl_daemon::lifecycle::acquire_pid_lock(&paths) {
-                    eprintln!("error: {e}");
-                    std::process::exit(1);
-                }
-
-                // Clean up orphaned socket from previous run.
-                let _ = flowctl_daemon::lifecycle::cleanup_orphaned_socket(&paths);
-
-                let runtime = flowctl_daemon::lifecycle::DaemonRuntime::new(paths.clone());
-                let cancel = runtime.cancel.clone();
-
-                let (event_bus, _critical_rx) = flowctl_scheduler::EventBus::with_default_capacity();
-
-                // Start notification listener (sound + webhook).
-                let notif_config = flowctl_daemon::notifications::load_config(&flow_dir);
-                let notif_rx = event_bus.subscribe();
-                flowctl_daemon::notifications::spawn_listener(
-                    &runtime.tracker,
-                    notif_rx,
-                    notif_config,
-                );
-
-                // Handle Ctrl+C.
-                let cancel_clone = cancel.clone();
-                tokio::spawn(async move {
-                    tokio::signal::ctrl_c().await.ok();
-                    eprintln!("\nShutting down daemon...");
-                    cancel_clone.cancel();
-                });
-
-                let result = if let Some(tcp_port) = port {
-                    println!("flowctl daemon starting on http://127.0.0.1:{tcp_port}");
-
-                    // Build API router from daemon.
-                    let (state, cancel) = flowctl_daemon::server::create_state(runtime, event_bus)
-                        .await
-                        .expect("failed to create state");
-                    let api_router = flowctl_daemon::server::build_router(state);
-
-                    // Serve static frontend from frontend/dist/ if it exists,
-                    // with SPA fallback to index.html for non-API routes.
-                    use axum::response::IntoResponse;
-                    let dist_dir = cwd.join("frontend").join("dist");
-                    let router = if dist_dir.exists() {
-                        let index_path = dist_dir.join("index.html");
-                        let spa_fallback = axum::routing::get(move || {
-                            let path = index_path.clone();
-                            async move {
-                                match tokio::fs::read_to_string(&path).await {
-                                    Ok(html) => axum::response::Html(html).into_response(),
-                                    Err(_) => axum::http::StatusCode::NOT_FOUND.into_response(),
-                                }
-                            }
-                        });
-                        api_router
-                            .fallback_service(
-                                tower_http::services::ServeDir::new(&dist_dir)
-                                    .not_found_service(spa_fallback),
-                            )
-                    } else {
-                        api_router
-                    };
-
-                    let addr = format!("127.0.0.1:{tcp_port}");
-                    let listener = tokio::net::TcpListener::bind(&addr).await
-                        .expect("failed to bind TCP");
-
-                    axum::serve(listener, router)
-                        .with_graceful_shutdown(async move {
-                            cancel.cancelled().await;
-                        })
-                        .await
-                        .map_err(|e| anyhow::anyhow!("{e}"))
-                } else {
-                    println!("flowctl daemon starting on {}", paths.socket_file.display());
-                    flowctl_daemon::server::serve(runtime, event_bus).await
-                };
-
-                if let Err(e) = result {
-                    eprintln!("daemon error: {e}");
-                    std::process::exit(1);
-                }
-
-                // Cleanup.
-                let _ = std::fs::remove_file(&paths.socket_file);
-                let _ = std::fs::remove_file(&paths.pid_file);
-                println!("daemon stopped.");
-            });
-        }
 
     }
 }

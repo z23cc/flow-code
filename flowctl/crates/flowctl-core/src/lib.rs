@@ -14,7 +14,6 @@ pub mod json_store;
 pub mod outputs;
 pub mod review_protocol;
 pub mod state_machine;
-pub mod task_profile;
 pub mod types;
 
 // Re-export commonly used items at crate root.

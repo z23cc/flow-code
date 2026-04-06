@@ -389,10 +389,6 @@ enum Commands {
         force: bool,
     },
 
-    // ── MCP Server ───────────────────────────────────────────────────
-    /// Start as MCP (Model Context Protocol) server on stdio.
-    Mcp,
-
     // ── Data exchange ────────────────────────────────────────────────
     /// Export epics/tasks from DB to Markdown files.
     Export {
@@ -553,9 +549,6 @@ fn main() {
             workflow::cmd_block(json, id, reason_text)
         }
         Commands::Fail { id, reason, force } => workflow::cmd_fail(json, id, reason, force),
-
-        // MCP Server
-        Commands::Mcp => commands::mcp::run(),
 
         // Data exchange
         Commands::Export { epic, format } => admin::cmd_export(json, epic, format),

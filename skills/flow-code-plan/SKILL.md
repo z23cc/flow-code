@@ -142,3 +142,31 @@ All plans go into `.flow/`:
 **After work completes** (if auto-executed):
 - All tasks done → Layer 3 adversarial review runs automatically (Phase 3j)
 - Then auto push + draft PR (Phase 5)
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "This is obvious, skip scouts" | Scouts find patterns and reuse points you don't know about |
+| "Only one task, no DAG needed" | Even single tasks need dependency analysis and acceptance criteria |
+| "Requirements are clear, skip interview" | Your understanding ≠ user's intent. A 2-minute check prevents 2-hour rework |
+| "This is too small to plan" | Small plans still need acceptance criteria. A 3-line spec is fine |
+| "I'll refine the plan during implementation" | Implementation drift is the #1 cause of rework. Plan now |
+
+## Red Flags
+
+- Any task estimated >L size without being split
+- Scout returns "Cannot analyze" but planning continues without investigation
+- Task title contains "and" (likely two tasks combined)
+- No acceptance criteria on any task
+- Plan has zero file references from repo-scout
+- 7+ tasks in a single epic (possible over-splitting)
+
+## Verification
+
+- [ ] Every task has ≥1 testable acceptance criterion
+- [ ] Every task is ≤M size (L tasks split)
+- [ ] File refs from repo-scout included in task specs
+- [ ] DAG validated (`flowctl validate`)
+- [ ] Quick commands section exists in epic spec
+- [ ] No task title contains "and" without justification

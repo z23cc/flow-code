@@ -155,3 +155,29 @@ If verdict is NEEDS_WORK, loop internally until SHIP:
 5. **Repeat** until `<verdict>SHIP</verdict>`
 
 **CRITICAL**: For RP, re-reviews must stay in the SAME chat so reviewer has context. Only use `--new-chat` on the FIRST review.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "Reviewer said fix, so it must be right" | Review feedback needs technical verification too. Reviewers can be wrong |
+| "This is just cosmetic" | 3 cosmetic issues often signal a structural problem underneath |
+| "3 iterations is overkill for this" | The circuit breaker exists for a reason. If you hit it, the plan was wrong |
+| "I already fixed the important ones" | "Important" is defined by severity, not your estimate of effort |
+| "The code works, reviewer is being pedantic" | Working code is the minimum bar, not the finish line |
+
+## Red Flags
+
+- Same issue appears across 3+ review iterations (underlying design problem)
+- Fix introduces a new Critical finding
+- SHIP verdict issued with zero test evidence
+- Review only checks code quality but ignores spec compliance
+- ≥3 Critical findings in a single review pass
+
+## Verification
+
+- [ ] All Critical findings addressed with specific fixes
+- [ ] No fix introduced new Critical or Important issues
+- [ ] Tests still pass after all fixes applied
+- [ ] Review receipt saved to .flow/reviews/
+- [ ] Acceptance criteria verified (not just code quality)

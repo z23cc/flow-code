@@ -275,6 +275,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dep_repo_reverse_deps_and_transitive() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let deps = DepRepo::new(conn.clone());
+
+        // Build chain: fn-1.1 -> fn-1.2 -> fn-1.3, fn-1.1 -> fn-1.4
+        deps.add_task_dep("fn-1.2", "fn-1.1").await.unwrap();
+        deps.add_task_dep("fn-1.3", "fn-1.2").await.unwrap();
+        deps.add_task_dep("fn-1.4", "fn-1.1").await.unwrap();
+
+        // Direct dependents of fn-1.1: fn-1.2 and fn-1.4
+        let direct = deps.list_dependents("fn-1.1").await.unwrap();
+        assert_eq!(direct, vec!["fn-1.2".to_string(), "fn-1.4".to_string()]);
+
+        // Direct dependents of fn-1.2: fn-1.3
+        let direct2 = deps.list_dependents("fn-1.2").await.unwrap();
+        assert_eq!(direct2, vec!["fn-1.3".to_string()]);
+
+        // No dependents of fn-1.3
+        let direct3 = deps.list_dependents("fn-1.3").await.unwrap();
+        assert!(direct3.is_empty());
+
+        // Transitive dependents of fn-1.1: fn-1.2, fn-1.3, fn-1.4
+        let all = deps.list_all_dependents("fn-1.1").await.unwrap();
+        assert_eq!(
+            all,
+            vec!["fn-1.2".to_string(), "fn-1.3".to_string(), "fn-1.4".to_string()]
+        );
+
+        // Transitive dependents of fn-1.2: fn-1.3
+        let all2 = deps.list_all_dependents("fn-1.2").await.unwrap();
+        assert_eq!(all2, vec!["fn-1.3".to_string()]);
+
+        // Remove fn-1.2 -> fn-1.1 dep: reverse index should update
+        deps.remove_task_dep("fn-1.2", "fn-1.1").await.unwrap();
+        let after = deps.list_dependents("fn-1.1").await.unwrap();
+        assert_eq!(after, vec!["fn-1.4".to_string()]);
+
+        // Transitive from fn-1.1 no longer includes fn-1.2 or fn-1.3
+        let all_after = deps.list_all_dependents("fn-1.1").await.unwrap();
+        assert_eq!(all_after, vec!["fn-1.4".to_string()]);
+    }
+
+    #[tokio::test]
     async fn file_ownership_repo_roundtrip() {
         let (_db, conn) = open_memory_async().await.unwrap();
         let f = FileOwnershipRepo::new(conn.clone());

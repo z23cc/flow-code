@@ -334,6 +334,21 @@ impl FileLockRepo {
     }
 }
 
+// ── Event repository ──────────────────────────────────────────────
+
+pub struct EventRepoSync(libsql::Connection);
+
+impl EventRepoSync {
+    pub fn new(conn: &Connection) -> Self {
+        Self(conn.inner())
+    }
+
+    /// Return the inner async EventRepo for use with ChangesApplier.
+    pub fn as_async(&self) -> flowctl_db::EventRepo {
+        flowctl_db::EventRepo::new(self.0.clone())
+    }
+}
+
 // ── Phase progress repository ──────────────────────────────────────
 
 pub struct PhaseProgressRepo(libsql::Connection);

@@ -1,11 +1,14 @@
 //! Dependency management commands: add, remove.
 
+use std::path::Path;
+
 use chrono::Utc;
 use clap::Subcommand;
 use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
+use flowctl_core::changes::{Changes, Mutation};
 use flowctl_core::id::{epic_id_from_task, is_task_id};
 
 use super::helpers::get_flow_dir;
@@ -36,16 +39,20 @@ fn ensure_flow_exists() -> std::path::PathBuf {
     flow_dir
 }
 
-pub fn dispatch(cmd: &DepCmd, json: bool) {
+pub fn dispatch(cmd: &DepCmd, json: bool, dry_run: bool) {
     match cmd {
-        DepCmd::Add { task, depends_on } => cmd_dep_add(json, task, depends_on),
-        DepCmd::Rm { task, depends_on } => cmd_dep_rm(json, task, depends_on),
+        DepCmd::Add { task, depends_on } => cmd_dep_add(json, task, depends_on, dry_run),
+        DepCmd::Rm { task, depends_on } => cmd_dep_rm(json, task, depends_on, dry_run),
     }
 }
 
-fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
-    let flow_dir = ensure_flow_exists();
-
+/// Pure compute: build Changes to add a dependency.
+/// Returns (updated task, whether dep was actually added).
+fn compute_dep_add(
+    flow_dir: &Path,
+    task_id: &str,
+    depends_on: &str,
+) -> (flowctl_core::types::Task, bool, Changes) {
     if !is_task_id(task_id) {
         error_exit(&format!(
             "Invalid task ID: {}. Expected format: fn-N.M or fn-N-slug.M",
@@ -59,7 +66,6 @@ fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
         ));
     }
 
-    // Validate same epic
     let task_epic = epic_id_from_task(task_id)
         .unwrap_or_else(|_| error_exit(&format!("Cannot parse epic from task ID: {}", task_id)));
     let dep_epic = epic_id_from_task(depends_on)
@@ -71,15 +77,34 @@ fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
         ));
     }
 
-    let mut task = flowctl_core::json_store::task_read(&flow_dir, task_id)
+    let mut task = flowctl_core::json_store::task_read(flow_dir, task_id)
         .unwrap_or_else(|_| error_exit(&format!("Task not found: {}", task_id)));
 
-    if !task.depends_on.contains(&depends_on.to_string()) {
+    let added = if !task.depends_on.contains(&depends_on.to_string()) {
         task.depends_on.push(depends_on.to_string());
         task.updated_at = Utc::now();
-        if let Err(e) = flowctl_core::json_store::task_write_definition(&flow_dir, &task) {
-            error_exit(&format!("Failed to write task: {e}"));
-        }
+        true
+    } else {
+        false
+    };
+
+    let changes = if added {
+        Changes::new().with(Mutation::UpdateTask { task: task.clone() })
+    } else {
+        Changes::new()
+    };
+
+    (task, added, changes)
+}
+
+fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str, dry_run: bool) {
+    let flow_dir = ensure_flow_exists();
+
+    let (task, _added, changes) = compute_dep_add(&flow_dir, task_id, depends_on);
+
+    crate::commands::helpers::maybe_apply_changes(&flow_dir, &changes, dry_run);
+    if dry_run {
+        return;
     }
 
     if json {
@@ -93,9 +118,13 @@ fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str) {
     }
 }
 
-fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str) {
-    let flow_dir = ensure_flow_exists();
-
+/// Pure compute: build Changes to remove a dependency.
+/// Returns (updated task, whether dep was actually removed).
+fn compute_dep_rm(
+    flow_dir: &Path,
+    task_id: &str,
+    depends_on: &str,
+) -> (flowctl_core::types::Task, bool, Changes) {
     if !is_task_id(task_id) {
         error_exit(&format!("Invalid task ID: {}", task_id));
     }
@@ -103,16 +132,37 @@ fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str) {
         error_exit(&format!("Invalid dependency ID: {}", depends_on));
     }
 
-    let mut task = flowctl_core::json_store::task_read(&flow_dir, task_id)
+    let mut task = flowctl_core::json_store::task_read(flow_dir, task_id)
         .unwrap_or_else(|_| error_exit(&format!("Task not found: {}", task_id)));
 
-    if let Some(pos) = task.depends_on.iter().position(|d| d == depends_on) {
+    let removed = if let Some(pos) = task.depends_on.iter().position(|d| d == depends_on) {
         task.depends_on.remove(pos);
         task.updated_at = Utc::now();
-        if let Err(e) = flowctl_core::json_store::task_write_definition(&flow_dir, &task) {
-            error_exit(&format!("Failed to write task: {e}"));
-        }
+        true
+    } else {
+        false
+    };
 
+    let changes = if removed {
+        Changes::new().with(Mutation::UpdateTask { task: task.clone() })
+    } else {
+        Changes::new()
+    };
+
+    (task, removed, changes)
+}
+
+fn cmd_dep_rm(json: bool, task_id: &str, depends_on: &str, dry_run: bool) {
+    let flow_dir = ensure_flow_exists();
+
+    let (task, removed, changes) = compute_dep_rm(&flow_dir, task_id, depends_on);
+
+    crate::commands::helpers::maybe_apply_changes(&flow_dir, &changes, dry_run);
+    if dry_run {
+        return;
+    }
+
+    if removed {
         if json {
             json_output(json!({
                 "task": task_id,

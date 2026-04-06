@@ -102,6 +102,36 @@ if [[ -x "$FLOWCTL" ]]; then
 fi
 ```
 
+#### Step 1a-rp: RP Refactor Analysis (optional, three-tier fallback)
+
+After collecting statistical signals, attempt RP-powered refactor analysis for deeper insight into code quality issues (redundancies, complexity hotspots, dead code). This complements the statistical signals above with AI-driven structural analysis.
+
+**Tier 1 (MCP) -- context_builder available:**
+
+If the `mcp__RepoPrompt__context_builder` tool is available in the current session, invoke it directly:
+
+```
+mcp__RepoPrompt__context_builder(
+  instructions: "Analyze the codebase under ${SCOPE} for improvement opportunities aligned with the goal: ${GOAL}. Focus on: (1) redundant or duplicated logic that could be consolidated, (2) overly complex functions/modules that need simplification, (3) dead code or unused exports, (4) missing error handling patterns, (5) performance anti-patterns. Return a ranked list of specific, actionable findings with file paths and line references.",
+  response_type: "review"
+)
+```
+
+Store the result as `RP_REFACTOR_FINDINGS`. Proceed to Step 1b.
+
+**Tier 2 (CLI) -- rp-cli available, MCP not:**
+
+```bash
+RP_REFACTOR_FINDINGS=""
+if command -v rp-cli >/dev/null 2>&1; then
+  RP_REFACTOR_FINDINGS=$(timeout 120 rp-cli -e 'builder "Analyze the codebase under '"${SCOPE}"' for improvement opportunities aligned with the goal: '"${GOAL}"'. Focus on: (1) redundant or duplicated logic, (2) overly complex functions/modules, (3) dead code or unused exports, (4) missing error handling, (5) performance anti-patterns. Return a ranked list of specific findings with file paths." --response-type review' 2>/dev/null || echo "")
+fi
+```
+
+**Tier 3 (none) -- neither available:**
+
+Skip RP analysis entirely. `RP_REFACTOR_FINDINGS` remains empty. Step 1b uses only the statistical signals collected above (hotspots, lint, coverage, memory). Zero regression from current behavior.
+
 #### Step 1b: Generate Action Catalog
 
 Using the collected signals + user's GOAL, generate `scripts/auto-improve/program.md` with this structure:
@@ -121,8 +151,8 @@ Direction: lint errors ↓, test count ↑, type errors ↓
 
 ## Action Catalog (ranked by estimated impact)
 
-| # | Action | Impact | File | How |
-|---|--------|--------|------|-----|
+| # | Action | Impact | File | Source | How |
+|---|--------|--------|------|--------|-----|
 ```
 
 **Populate the Action Catalog by combining:**
@@ -136,13 +166,23 @@ Direction: lint errors ↓, test count ↑, type errors ↓
 
 3. **From lint errors**: Group ruff errors by type, suggest top 3 fixable categories
 
-4. **From memory pitfalls**: Include any relevant pitfalls as "Gotchas" section:
+4. **From RP refactor analysis** (if `RP_REFACTOR_FINDINGS` is non-empty): Merge RP-identified issues into the catalog. Each RP-sourced action gets a `source: rp-refactor` tag in the table:
+   ```markdown
+   | # | Action | Impact | File | Source | How |
+   |---|--------|--------|------|--------|-----|
+   | 1 | Consolidate duplicate validation logic | High | src/api/views.py | rp-refactor | Extract shared validator... |
+   | 2 | Remove dead export in utils | Low | src/utils.py | rp-refactor | Delete unused `format_legacy()` |
+   ```
+   - De-duplicate: if RP findings overlap with hotspot or lint signals, keep the more specific one
+   - RP findings that don't overlap with statistical signals are especially valuable (they catch structural issues that metrics miss)
+
+5. **From memory pitfalls**: Include any relevant pitfalls as "Gotchas" section:
    ```markdown
    ## Gotchas (from project memory)
    - [pitfall content from memory #N]
    ```
 
-5. **Impact estimation**:
+6. **Impact estimation**:
    - High: Fixes a bug, adds tests for untested code, removes N+1 queries
    - Medium: Reduces lint errors, improves types, simplifies complex code
    - Low: Style fixes, dead code removal, documentation

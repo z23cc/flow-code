@@ -15,7 +15,7 @@ Conduct a John Carmack-level review of epic plans.
 
 **CRITICAL: flowctl is BUNDLED — NOT installed globally.** `which flowctl` will fail (expected). Always use:
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+FLOWCTL="$HOME/.flow/bin/flowctl"
 ```
 
 ## Backend Selection
@@ -111,7 +111,7 @@ Include the capability-gaps.md contents (if present) in the context sent to the 
 **See [workflow.md](workflow.md) for full details on each backend.**
 
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+FLOWCTL="$HOME/.flow/bin/flowctl"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
 

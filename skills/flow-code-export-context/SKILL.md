@@ -19,7 +19,7 @@ Arguments: $ARGUMENTS — Format: `<type> <target> [focus areas]`
 ### Step 1: Gather Content
 
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+FLOWCTL="$HOME/.flow/bin/flowctl"
 OUTPUT_FILE="prompt-exports/$(date +%Y%m%d-%H%M%S)-export.md"
 mkdir -p prompt-exports
 ```

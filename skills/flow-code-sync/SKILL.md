@@ -10,7 +10,7 @@ Manually trigger plan-sync to update downstream task specs.
 
 **CRITICAL: flowctl is BUNDLED - NOT installed globally.** Always use:
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+FLOWCTL="$HOME/.flow/bin/flowctl"
 ```
 
 ## Input
@@ -26,7 +26,7 @@ Format: `<id> [--dry-run]`
 ### Step 1: Parse Arguments
 
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+FLOWCTL="$HOME/.flow/bin/flowctl"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
 
@@ -102,7 +102,7 @@ Build context and spawn via Task tool:
 Sync task specs from <source> to downstream tasks.
 
 COMPLETED_TASK_ID: <source task id - the input task, or selected source for epic mode>
-FLOWCTL: ${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl
+FLOWCTL: $HOME/.flow/bin/flowctl
 EPIC_ID: <epic id>
 DOWNSTREAM_TASK_IDS: <comma-separated list from step 4>
 DRY_RUN: <true|false>

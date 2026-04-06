@@ -12,7 +12,7 @@ Explore and pressure-test an idea before committing to a plan. Outputs a require
 
 **CRITICAL: flowctl is BUNDLED — NOT installed globally.** `which flowctl` will fail (expected). Always use:
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+FLOWCTL="$HOME/.flow/bin/flowctl"
 $FLOWCTL <command>
 ```
 
@@ -52,7 +52,7 @@ Examples:
 Analyze the request and the codebase to gauge complexity:
 
 ```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+FLOWCTL="$HOME/.flow/bin/flowctl"
 ```
 
 Read relevant code, git log, and project structure to understand the scope.

@@ -130,11 +130,6 @@ fn ensure_flow_exists() -> PathBuf {
     flow_dir
 }
 
-/// Open DB connection (hard error if unavailable).
-fn require_db() -> Result<crate::commands::db_shim::Connection, crate::commands::db_shim::DbError> {
-    crate::commands::db_shim::require_db()
-}
-
 /// Read file content, or read from stdin if path is "-".
 fn read_file_or_stdin(path: &str) -> String {
     if path == "-" {
@@ -149,12 +144,9 @@ fn read_file_or_stdin(path: &str) -> String {
     }
 }
 
-/// Get max task number for an epic from DB. Returns 0 if none exist.
-fn scan_max_task_id(_flow_dir: &Path, epic_id: &str) -> u32 {
-    let conn = require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required for scan_max_task_id: {e}")));
-    let n = crate::commands::db_shim::max_task_num(&conn, epic_id).unwrap_or(0);
-    n as u32
+/// Get max task number for an epic from JSON files.
+fn scan_max_task_id(flow_dir: &Path, epic_id: &str) -> u32 {
+    flowctl_core::json_store::task_max_num(flow_dir, epic_id).unwrap_or(0)
 }
 
 /// Parse a domain string into a Domain enum.
@@ -179,42 +171,36 @@ fn create_task_spec(id: &str, title: &str, acceptance: Option<&str>) -> String {
     )
 }
 
-/// Load a task from DB (no MD fallback).
-fn load_task_md(_flow_dir: &Path, task_id: &str) -> Task {
-    let conn = require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
-    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    repo.get(task_id)
+/// Load a task from JSON files.
+fn load_task_md(flow_dir: &Path, task_id: &str) -> Task {
+    flowctl_core::json_store::task_read(flow_dir, task_id)
         .unwrap_or_else(|_| error_exit(&format!("Task {} not found", task_id)))
 }
 
-/// Load an epic from DB (no MD fallback).
-fn load_epic_md(_flow_dir: &Path, epic_id: &str) -> Option<Epic> {
-    let conn = require_db().ok()?;
-    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    repo.get(epic_id).ok()
+/// Load an epic from JSON files.
+fn load_epic_md(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
+    flowctl_core::json_store::epic_read(flow_dir, epic_id).ok()
 }
 
-/// Load task's full document (frontmatter + body) from DB (no MD fallback).
-fn load_task_doc(_flow_dir: &Path, task_id: &str) -> Document<Task> {
-    let conn = require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")));
-    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    let (task, body) = repo.get_with_body(task_id)
+/// Load task's full document (definition + spec body) from JSON files.
+fn load_task_doc(flow_dir: &Path, task_id: &str) -> Document<Task> {
+    let task = flowctl_core::json_store::task_read(flow_dir, task_id)
         .unwrap_or_else(|_| error_exit(&format!("Task {} not found", task_id)));
+    let body = flowctl_core::json_store::task_spec_read(flow_dir, task_id)
+        .unwrap_or_default();
     Document {
         frontmatter: task,
         body,
     }
 }
 
-/// Write a task document to DB only (no MD export).
-fn write_task_doc(_flow_dir: &Path, task_id: &str, doc: &Document<Task>) {
-    let conn = require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required for write: {e}")));
-    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    if let Err(e) = repo.upsert_with_body(&doc.frontmatter, &doc.body) {
-        error_exit(&format!("DB write failed for {task_id}: {e}"));
+/// Write a task document to JSON files (definition + spec body).
+fn write_task_doc(flow_dir: &Path, _task_id: &str, doc: &Document<Task>) {
+    if let Err(e) = flowctl_core::json_store::task_write_definition(flow_dir, &doc.frontmatter) {
+        error_exit(&format!("Failed to write task definition: {e}"));
+    }
+    if let Err(e) = flowctl_core::json_store::task_spec_write(flow_dir, &doc.frontmatter.id, &doc.body) {
+        error_exit(&format!("Failed to write task spec: {e}"));
     }
 }
 
@@ -264,21 +250,15 @@ fn patch_body_section(body: &str, section: &str, new_content: &str) -> String {
     result.join("\n")
 }
 
-/// Find tasks that depend on a given task (recursive BFS within same epic) via DB.
-fn find_dependents(_flow_dir: &Path, task_id: &str) -> Vec<String> {
+/// Find tasks that depend on a given task (recursive BFS within same epic) via JSON files.
+fn find_dependents(flow_dir: &Path, task_id: &str) -> Vec<String> {
     let epic_id = match epic_id_from_task(task_id) {
         Ok(id) => id,
         Err(_) => return vec![],
     };
 
-    let conn = match require_db() {
-        Ok(c) => c,
-        Err(_) => return vec![],
-    };
-
-    // Load all tasks in the epic from DB
-    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    let all_tasks: Vec<(String, Vec<String>)> = match repo.list_by_epic(&epic_id) {
+    // Load all tasks in the epic from JSON files
+    let all_tasks: Vec<(String, Vec<String>)> = match flowctl_core::json_store::task_list_by_epic(flow_dir, &epic_id) {
         Ok(tasks) => tasks.into_iter().map(|t| (t.id.clone(), t.depends_on.clone())).collect(),
         Err(_) => return vec![],
     };

@@ -336,6 +336,56 @@ pub fn state_write(flow_dir: &Path, task_id: &str, state: &TaskState) -> Result<
     Ok(())
 }
 
+/// Find the highest epic number by scanning `epics/fn-N-*.json`.
+pub fn epic_max_num(flow_dir: &Path) -> Result<u32> {
+    let dir = epics_dir(flow_dir);
+    if !dir.exists() {
+        return Ok(0);
+    }
+    let mut max = 0u32;
+    for entry in fs::read_dir(&dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_str().unwrap_or("");
+        if name.starts_with("fn-") && name.ends_with(".json") {
+            // Extract N from "fn-N-slug.json"
+            let without_prefix = name.trim_start_matches("fn-");
+            if let Some(num_str) = without_prefix.split('-').next() {
+                if let Ok(num) = num_str.parse::<u32>() {
+                    max = max.max(num);
+                }
+            }
+        }
+    }
+    Ok(max)
+}
+
+/// List all tasks across all epics.
+pub fn task_list_all(flow_dir: &Path) -> Result<Vec<Task>> {
+    let dir = tasks_dir(flow_dir);
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut tasks = Vec::new();
+    for entry in fs::read_dir(&dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.ends_with(".json") {
+            let content = fs::read_to_string(&path)?;
+            if let Ok(mut task) = serde_json::from_str::<Task>(&content) {
+                if let Ok(state) = state_read(flow_dir, &task.id) {
+                    task.status = state.status;
+                    task.updated_at = state.updated_at;
+                }
+                tasks.push(task);
+            }
+        }
+    }
+    tasks.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(tasks)
+}
+
 // ── Gap operations ──────────────────────────────────────────────────
 
 /// Gap entry stored in `gaps/<epic-id>.json`.

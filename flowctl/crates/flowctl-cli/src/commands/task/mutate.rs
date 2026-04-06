@@ -11,7 +11,7 @@ use flowctl_core::types::{Task, FLOW_DIR};
 
 use super::{
     clear_evidence_in_body, create_task_spec, ensure_flow_exists, find_dependents, load_epic_md,
-    load_task_doc, scan_max_task_id, require_db, write_task_doc,
+    load_task_doc, scan_max_task_id, write_task_doc,
 };
 
 pub(super) fn cmd_task_reset(json_mode: bool, task_id: &str, cascade: bool) {
@@ -61,18 +61,9 @@ pub(super) fn cmd_task_reset(json_mode: bool, task_id: &str, cascade: bool) {
     doc.body = clear_evidence_in_body(&doc.body);
     write_task_doc(&flow_dir, task_id, &doc);
 
-    // Update DB
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        let _ = repo.update_status(task_id, Status::Todo);
-        // Clear runtime state by upserting a blank state
-        let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
-        let blank = flowctl_core::types::RuntimeState {
-            task_id: task_id.to_string(),
-            ..Default::default()
-        };
-        let _ = runtime_repo.upsert(&blank);
-    }
+    // Reset runtime state
+    let blank_state = flowctl_core::json_store::TaskState::default();
+    let _ = flowctl_core::json_store::state_write(&flow_dir, task_id, &blank_state);
 
     let mut reset_ids = vec![task_id.to_string()];
 
@@ -91,16 +82,8 @@ pub(super) fn cmd_task_reset(json_mode: bool, task_id: &str, cascade: bool) {
             dep_doc.body = clear_evidence_in_body(&dep_doc.body);
             write_task_doc(&flow_dir, dep_id, &dep_doc);
 
-            if let Ok(conn) = require_db() {
-                let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-                let _ = repo.update_status(dep_id, Status::Todo);
-                let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
-                let blank = flowctl_core::types::RuntimeState {
-                    task_id: dep_id.to_string(),
-                    ..Default::default()
-                };
-                let _ = runtime_repo.upsert(&blank);
-            }
+            let blank_state = flowctl_core::json_store::TaskState::default();
+            let _ = flowctl_core::json_store::state_write(&flow_dir, dep_id, &blank_state);
             reset_ids.push(dep_id.clone());
         }
     }
@@ -232,33 +215,30 @@ pub(super) fn cmd_task_split(json_mode: bool, task_id: &str, titles: &str, chain
     orig_doc.frontmatter.updated_at = now;
     write_task_doc(&flow_dir, task_id, &orig_doc);
 
-    // Update tasks that depended on original to depend on last sub-task (via DB)
+    // Update tasks that depended on original to depend on last sub-task
     let last_sub = created.last().unwrap().clone();
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Ok(all_tasks) = repo.list_by_epic(&epic_id) {
-            for other_task in all_tasks {
-                let other_id = &other_task.id;
-                if other_id == task_id || created.contains(other_id) {
-                    continue;
-                }
-                if other_task.depends_on.contains(&task_id.to_string()) {
-                    let mut other_doc = load_task_doc(&flow_dir, other_id);
-                    other_doc.frontmatter.depends_on = other_doc
-                        .frontmatter
-                        .depends_on
-                        .iter()
-                        .map(|d| {
-                            if d == task_id {
-                                last_sub.clone()
-                            } else {
-                                d.clone()
-                            }
-                        })
-                        .collect();
-                    other_doc.frontmatter.updated_at = now;
-                    write_task_doc(&flow_dir, other_id, &other_doc);
-                }
+    if let Ok(all_tasks) = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id) {
+        for other_task in all_tasks {
+            let other_id = &other_task.id;
+            if other_id == task_id || created.contains(other_id) {
+                continue;
+            }
+            if other_task.depends_on.contains(&task_id.to_string()) {
+                let mut other_doc = load_task_doc(&flow_dir, other_id);
+                other_doc.frontmatter.depends_on = other_doc
+                    .frontmatter
+                    .depends_on
+                    .iter()
+                    .map(|d| {
+                        if d == task_id {
+                            last_sub.clone()
+                        } else {
+                            d.clone()
+                        }
+                    })
+                    .collect();
+                other_doc.frontmatter.updated_at = now;
+                write_task_doc(&flow_dir, other_id, &other_doc);
             }
         }
     }

@@ -7,11 +7,11 @@ use crate::output::{error_exit, json_output};
 
 use flowctl_core::id::{epic_id_from_task, is_epic_id, is_task_id};
 use flowctl_core::state_machine::Status;
-use flowctl_core::types::{Domain, Task, FLOW_DIR, SPECS_DIR};
+use flowctl_core::types::{Domain, Task, FLOW_DIR};
 
 use super::{
     create_task_spec, ensure_flow_exists, parse_domain, read_file_or_stdin, scan_max_task_id,
-    require_db, write_task_doc,
+    write_task_doc,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -34,33 +34,21 @@ pub(super) fn cmd_task_create(
         ));
     }
 
-    // Verify epic exists (DB is authoritative)
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        if repo.get(epic_id).is_err() {
-            error_exit(&format!("Epic {} not found", epic_id));
-        }
-    } else {
-        // Fallback: check spec file if DB unavailable
-        let epic_spec = flow_dir.join(SPECS_DIR).join(format!("{}.md", epic_id));
-        if !epic_spec.exists() {
-            error_exit(&format!("Epic {} not found", epic_id));
-        }
+    // Verify epic exists (JSON file)
+    if flowctl_core::json_store::epic_read(&flow_dir, epic_id).is_err() {
+        error_exit(&format!("Epic {} not found", epic_id));
     }
 
     // Scan-based ID allocation
     let task_num = scan_max_task_id(&flow_dir, epic_id) + 1;
     let task_id = format!("{}.{}", epic_id, task_num);
 
-    // Check no collision in DB
-    if let Ok(conn) = require_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if repo.get(&task_id).is_ok() {
-            error_exit(&format!(
-                "Refusing to overwrite existing task {}. Check for orphaned entries.",
-                task_id
-            ));
-        }
+    // Check no collision
+    if flowctl_core::json_store::task_read(&flow_dir, &task_id).is_ok() {
+        error_exit(&format!(
+            "Refusing to overwrite existing task {}. Check for orphaned entries.",
+            task_id
+        ));
     }
 
     // Parse dependencies
@@ -129,12 +117,18 @@ pub(super) fn cmd_task_create(
     // Create spec markdown body
     let body = create_task_spec(&task_id, title, acceptance.as_deref());
 
-    // Write to DB via write_task_doc (DB-only, no MD export)
+    // Write task definition + spec + initial state
     let doc = flowctl_core::types::Document {
         frontmatter: task,
         body,
     };
     write_task_doc(&flow_dir, &task_id, &doc);
+
+    // Write initial runtime state
+    let initial_state = flowctl_core::json_store::TaskState::default();
+    if let Err(e) = flowctl_core::json_store::state_write(&flow_dir, &task_id, &initial_state) {
+        error_exit(&format!("Failed to write initial state: {e}"));
+    }
 
     let spec_path_str = format!("{}/tasks/{}.md", FLOW_DIR, task_id);
     if json_mode {

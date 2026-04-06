@@ -5,113 +5,55 @@ description: "Use when you want to review code or plans with an external model (
 
 # Export Context Mode
 
-Build RepoPrompt context and export to a markdown file for use with external LLMs (ChatGPT Pro, Claude web, etc.).
-
-**Use case**: When you want Carmack-level review but prefer to use an external model.
-
-**CRITICAL: flowctl is BUNDLED — NOT installed globally.** `which flowctl` will fail (expected). Always use:
-```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
-$FLOWCTL <command>
-```
+Export flow-code context to a markdown file for external LLMs (ChatGPT Pro, Claude web, etc.).
 
 ## Input
 
-Arguments: $ARGUMENTS
-Format: `<type> <target> [focus areas]`
+Arguments: $ARGUMENTS — Format: `<type> <target> [focus areas]`
 
-Types:
-- `plan <epic-id>` - Export plan review context
-- `impl` - Export implementation review context (current branch)
-
-Examples:
-- `/flow-code:export-context plan fn-1 focus on security`
-- `/flow-code:export-context impl focus on the auth changes`
-
-## Setup
-
-```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-```
+- `plan <epic-id>` — Export plan review context
+- `impl` — Export implementation review context (current branch)
 
 ## Workflow
 
-### Step 1: Determine Type
-
-Parse arguments to determine if this is a plan or impl export.
-
-### Step 2: Gather Content
-
-**For plan export:**
-```bash
-$FLOWCTL show <epic-id> --json
-$FLOWCTL cat <epic-id>
-```
-
-**For impl export:**
-```bash
-git branch --show-current
-git log main..HEAD --oneline 2>/dev/null || git log master..HEAD --oneline
-git diff main..HEAD --name-only 2>/dev/null || git diff master..HEAD --name-only
-```
-
-### Step 3: Setup RepoPrompt
+### Step 1: Gather Content
 
 ```bash
-eval "$($FLOWCTL rp setup-review --repo-root "$REPO_ROOT" --summary "<summary based on type>" --create)"
+FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
+OUTPUT_FILE="prompt-exports/$(date +%Y%m%d-%H%M%S)-export.md"
+mkdir -p prompt-exports
 ```
 
-### Step 4: Augment Selection
+**Plan:** `$FLOWCTL show <epic-id> --json`, `$FLOWCTL cat <epic-id>`, gather task specs.
 
+**Impl:** `git branch --show-current`, `git log main..HEAD --oneline`, `git diff main..HEAD --stat`.
+
+### Step 2: Export (three-tier fallback)
+
+Build instructions from gathered context. Extract the real task from the request — strip meta-framing about exporting.
+
+**Tier 1 — RP MCP** (if `mcp__RepoPrompt__context_builder` available):
+```
+context_builder(instructions="<task><extracted task></task>\n<context><flowctl content></context>", response_type="clarify")
+prompt(op="export", path="<OUTPUT_FILE>", copy_preset="<plan|codeReview>")
+```
+
+**Tier 2 — rp-cli** (if `which rp-cli` succeeds):
 ```bash
-$FLOWCTL rp select-get --window "$W" --tab "$T"
-
-# Add relevant files
-$FLOWCTL rp select-add --window "$W" --tab "$T" <files>
+WINDOW_ID=$(rp-cli -e 'windows' | head -1 | awk '{print $1}')
+rp-cli -w "$WINDOW_ID" -e 'builder "<instructions>" --response-type clarify'
+rp-cli -w "$WINDOW_ID" -e "prompt export \"$OUTPUT_FILE\" --copy-preset <plan|codeReview>"
 ```
 
-### Step 5: Build Review Prompt
+**Tier 3 — Basic Markdown** (no RP available):
+Write gathered content directly to `$OUTPUT_FILE` as structured markdown with sections for context, specs, changed files, and focus areas.
 
-Get builder's handoff:
-```bash
-$FLOWCTL rp prompt-get --window "$W" --tab "$T"
-```
+Preset mapping: plan -> `plan`, impl -> `codeReview`.
 
-Build combined prompt with review criteria (same as plan-review or impl-review).
+### Step 3: Report
 
-Set the prompt:
-```bash
-cat > /tmp/export-prompt.md << 'EOF'
-[COMBINED PROMPT WITH REVIEW CRITERIA]
-EOF
-
-$FLOWCTL rp prompt-set --window "$W" --tab "$T" --message-file /tmp/export-prompt.md
-```
-
-### Step 6: Export
-
-```bash
-OUTPUT_FILE=~/Desktop/review-export-$(date +%Y%m%d-%H%M%S).md
-$FLOWCTL rp prompt-export --window "$W" --tab "$T" --out "$OUTPUT_FILE"
-open "$OUTPUT_FILE"
-```
-
-### Step 7: Inform User
-
-```
-Exported review context to: $OUTPUT_FILE
-
-The file contains:
-- Full file tree with selected files marked
-- Code maps (signatures/structure)
-- Complete file contents
-- Review prompt with Carmack-level criteria
-
-Paste into ChatGPT Pro, Claude web, or your preferred LLM.
-After receiving feedback, return here to implement fixes.
-```
+Report `$OUTPUT_FILE` path, tier used, and export type. Instruct user to paste into their preferred external LLM.
 
 ## Note
 
-This skill is for **manual** external review only. It does not work with Ralph autonomous mode (no receipts, no status updates).
+Manual external review only. No Ralph support (no receipts, no status updates).

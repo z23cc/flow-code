@@ -78,12 +78,6 @@ enum Commands {
         #[arg(long)]
         task: Option<String>,
     },
-    /// Migrate runtime state from definition files to state-dir.
-    MigrateState {
-        /// Remove runtime fields from definition files after migration.
-        #[arg(long)]
-        clean: bool,
-    },
     /// Get review backend.
     ReviewBackend {
         /// Compare review receipts (comma-separated file paths).
@@ -453,7 +447,6 @@ fn main() {
         Commands::Doctor => admin::cmd_doctor(json),
         Commands::Validate { epic, all } => admin::cmd_validate(json, epic, all),
         Commands::StatePath { task } => admin::cmd_state_path(json, task),
-        Commands::MigrateState { clean } => admin::cmd_migrate_state(json, clean),
         Commands::ReviewBackend { compare, epic } => admin::cmd_review_backend(json, compare, epic),
         Commands::ParseFindings {
             file,

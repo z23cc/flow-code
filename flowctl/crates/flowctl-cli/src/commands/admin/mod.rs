@@ -1,4 +1,4 @@
-//! Admin commands: init, detect, status, doctor, validate, state-path, migrate-state,
+//! Admin commands: init, detect, status, doctor, validate, state-path,
 //! review-backend, parse-findings, guard, worker-prompt, config.
 
 use std::fs;
@@ -66,6 +66,6 @@ mod exchange;
 pub use init::{cmd_init, cmd_detect};
 pub use status::{cmd_status, cmd_doctor, cmd_validate};
 pub use review::{cmd_review_backend, cmd_parse_findings};
-pub use config::{cmd_config, cmd_state_path, cmd_migrate_state, ConfigCmd};
+pub use config::{cmd_config, cmd_state_path, ConfigCmd};
 pub use guard::{cmd_guard, cmd_worker_prompt};
 pub use exchange::{cmd_export, cmd_import};

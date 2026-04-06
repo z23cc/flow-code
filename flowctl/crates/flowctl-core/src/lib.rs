@@ -5,6 +5,7 @@
 //! other flowctl crates.
 
 pub mod approvals;
+pub mod changes;
 pub mod codex_sync;
 pub mod compress;
 pub mod dag;
@@ -18,6 +19,7 @@ pub mod state_machine;
 pub mod types;
 
 // Re-export commonly used items at crate root.
+pub use changes::{Changes, Mutation};
 pub use dag::TaskDag;
 pub use error::CoreError;
 pub use id::{parse_id, slugify, EpicId, ParsedId, TaskId};

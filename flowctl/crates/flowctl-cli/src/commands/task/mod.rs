@@ -296,7 +296,7 @@ fn clear_evidence_in_body(body: &str) -> String {
 
 // ── Dispatch ────────────────────────────────────────────────────────
 
-pub fn dispatch(cmd: &TaskCmd, json: bool) {
+pub fn dispatch(cmd: &TaskCmd, json: bool, dry_run: bool) {
     match cmd {
         TaskCmd::Create {
             epic,
@@ -315,6 +315,7 @@ pub fn dispatch(cmd: &TaskCmd, json: bool) {
             *priority,
             domain.as_deref(),
             files.as_deref(),
+            dry_run,
         ),
         TaskCmd::Spec {
             id,
@@ -323,13 +324,13 @@ pub fn dispatch(cmd: &TaskCmd, json: bool) {
             accept,
             investigation,
         } => query::cmd_task_set_spec(json, id, file.as_deref(), desc.as_deref(), accept.as_deref(), investigation.as_deref()),
-        TaskCmd::Reset { task_id, cascade } => mutate::cmd_task_reset(json, task_id, *cascade),
-        TaskCmd::Skip { task_id, reason } => mutate::cmd_task_skip(json, task_id, reason.as_deref()),
+        TaskCmd::Reset { task_id, cascade } => mutate::cmd_task_reset(json, task_id, *cascade, dry_run),
+        TaskCmd::Skip { task_id, reason } => mutate::cmd_task_skip(json, task_id, reason.as_deref(), dry_run),
         TaskCmd::Split {
             task_id,
             titles,
             chain,
-        } => mutate::cmd_task_split(json, task_id, titles, *chain),
+        } => mutate::cmd_task_split(json, task_id, titles, *chain, dry_run),
         TaskCmd::SetBackend {
             id,
             impl_spec,
@@ -337,6 +338,6 @@ pub fn dispatch(cmd: &TaskCmd, json: bool) {
             sync,
         } => query::cmd_task_set_backend(json, id, impl_spec.as_deref(), review.as_deref(), sync.as_deref()),
         TaskCmd::ShowBackend { id } => query::cmd_task_show_backend(json, id),
-        TaskCmd::SetDeps { task_id, deps } => mutate::cmd_task_set_deps(json, task_id, deps),
+        TaskCmd::SetDeps { task_id, deps } => mutate::cmd_task_set_deps(json, task_id, deps, dry_run),
     }
 }

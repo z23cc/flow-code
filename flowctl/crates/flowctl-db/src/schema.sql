@@ -44,6 +44,28 @@ CREATE TABLE IF NOT EXISTS epic_deps (
     PRIMARY KEY (epic_id, depends_on)
 );
 
+-- Reverse dependency index: O(1) lookup of "what depends on task X"
+CREATE TABLE IF NOT EXISTS task_reverse_deps (
+    depends_on  TEXT NOT NULL,
+    task_id     TEXT NOT NULL,
+    PRIMARY KEY (depends_on, task_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_reverse_deps_task ON task_reverse_deps(task_id);
+
+-- Auto-maintain reverse index from task_deps INSERT/DELETE
+CREATE TRIGGER IF NOT EXISTS trg_task_deps_insert AFTER INSERT ON task_deps
+BEGIN
+    INSERT OR IGNORE INTO task_reverse_deps (depends_on, task_id)
+    VALUES (NEW.depends_on, NEW.task_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_task_deps_delete AFTER DELETE ON task_deps
+BEGIN
+    DELETE FROM task_reverse_deps
+    WHERE depends_on = OLD.depends_on AND task_id = OLD.task_id;
+END;
+
 CREATE TABLE IF NOT EXISTS file_ownership (
     file_path   TEXT NOT NULL,
     task_id     TEXT NOT NULL,

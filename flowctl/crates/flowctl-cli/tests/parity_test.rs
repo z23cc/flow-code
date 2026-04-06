@@ -69,7 +69,8 @@ fn assert_has_keys(output: &str, keys: &[&str], label: &str) {
 /// Assert a JSON field equals a specific value.
 #[allow(dead_code)]
 fn assert_field(output: &str, field: &str, expected: &Value, label: &str) {
-    let json = parse_json(output).expect(&format!("{label}: not valid JSON"));
+    let msg = format!("{label}: not valid JSON");
+    let json = parse_json(output).expect(&msg);
     assert_eq!(
         json.get(field),
         Some(expected),

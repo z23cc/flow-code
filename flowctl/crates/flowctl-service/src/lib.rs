@@ -19,6 +19,7 @@
 //! functions are async and accept the connection by reference.
 
 pub mod approvals;
+pub mod changes;
 pub mod connection;
 pub mod error;
 pub mod lifecycle;

@@ -37,6 +37,10 @@ struct Cli {
     #[command(flatten)]
     output: OutputOpts,
 
+    /// Preview mutations as JSON without applying them.
+    #[arg(long, global = true)]
+    dry_run: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -431,6 +435,7 @@ fn main() {
     let cli = Cli::parse();
     output::init_compact(cli.output.compact);
     let json = cli.output.json;
+    let dry_run = cli.dry_run;
 
     match cli.command {
         // Admin / top-level
@@ -465,9 +470,9 @@ fn main() {
 
         // Nested groups
         Commands::Config { cmd } => admin::cmd_config(&cmd, json),
-        Commands::Epic { cmd } => commands::epic::dispatch(&cmd, json),
-        Commands::Task { cmd } => commands::task::dispatch(&cmd, json),
-        Commands::Dep { cmd } => commands::dep::dispatch(&cmd, json),
+        Commands::Epic { cmd } => commands::epic::dispatch(&cmd, json, dry_run),
+        Commands::Task { cmd } => commands::task::dispatch(&cmd, json, dry_run),
+        Commands::Dep { cmd } => commands::dep::dispatch(&cmd, json, dry_run),
         Commands::Approval { cmd } => commands::approval::dispatch(&cmd, json),
         Commands::Gap { cmd } => commands::gap::dispatch(&cmd, json),
         Commands::Memory { cmd } => commands::memory::dispatch(&cmd, json),

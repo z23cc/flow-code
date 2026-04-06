@@ -15,9 +15,9 @@ pub use history::{cmd_diff, cmd_replay};
 pub use types::EpicCmd;
 
 /// Dispatch an epic subcommand.
-pub fn dispatch(cmd: &EpicCmd, json: bool) {
+pub fn dispatch(cmd: &EpicCmd, json: bool, dry_run: bool) {
     match cmd {
-        EpicCmd::Create { title, branch } => crud::cmd_create(title, branch, json),
+        EpicCmd::Create { title, branch } => crud::cmd_create(title, branch, json, dry_run),
         EpicCmd::Plan { id, file } => crud::cmd_set_plan(id, file, json),
         EpicCmd::Review { id, status } => crud::cmd_set_plan_review_status(id, status, json),
         EpicCmd::Completion { id, status } => {

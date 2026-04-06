@@ -456,7 +456,7 @@ mod tests {
             status: Status::Todo,
             priority: None,
             domain: Domain::General,
-            depends_on: deps.iter().map(|s| s.to_string()).collect(),
+            depends_on: deps.iter().copied().map(String::from).collect(),
             files: vec![],
             r#impl: None,
             review: None,

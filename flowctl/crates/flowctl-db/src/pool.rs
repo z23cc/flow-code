@@ -90,6 +90,14 @@ async fn apply_schema(conn: &Connection) -> Result<(), DbError> {
         .await
         .map_err(|e| DbError::Schema(format!("schema apply failed: {e}")))?;
 
+    // Backfill reverse deps from any pre-existing task_deps rows.
+    conn.execute(
+        "INSERT OR IGNORE INTO task_reverse_deps (depends_on, task_id) SELECT depends_on, task_id FROM task_deps",
+        (),
+    )
+    .await
+    .map_err(|e| DbError::Schema(format!("reverse deps backfill failed: {e}")))?;
+
     // Try to create the vector index (requires libSQL server extensions).
     // Gracefully degrade if not available (embedded/core mode).
     let _ = conn
@@ -194,6 +202,7 @@ mod tests {
             "epics",
             "tasks",
             "task_deps",
+            "task_reverse_deps",
             "epic_deps",
             "file_ownership",
             "runtime_state",

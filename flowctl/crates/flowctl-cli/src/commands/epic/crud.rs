@@ -1,33 +1,38 @@
 //! Epic CRUD commands: create, plan, review, completion, branch, title, backend, auto_exec.
 
 use std::fs;
+use std::path::Path;
 
 use chrono::Utc;
 use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
+use flowctl_core::changes::{Changes, Mutation};
 use flowctl_core::id::{generate_epic_suffix, parse_id, slugify};
 use flowctl_core::types::{
-    Epic, EpicStatus, ReviewStatus, Document, FLOW_DIR, SPECS_DIR,
+    Epic, EpicStatus, ReviewStatus, FLOW_DIR, SPECS_DIR,
 };
 
 use super::helpers::{
     create_epic_spec_body, ensure_flow_exists, ensure_meta_exists, find_max_epic_number,
     load_epic, read_file_or_stdin, save_epic, validate_epic_id,
 };
-pub fn cmd_create(title: &str, branch: &Option<String>, json_mode: bool) {
-    let flow_dir = ensure_flow_exists();
-    ensure_meta_exists(&flow_dir);
 
-    // DB-based ID allocation
+/// Pure compute: build Changes for epic creation.
+/// Returns (epic_id, spec_body, changes).
+fn compute_epic_create(
+    flow_dir: &Path,
+    title: &str,
+    branch: &Option<String>,
+) -> (String, String, Changes) {
     let max_epic = find_max_epic_number();
     let epic_num = max_epic + 1;
     let slug = slugify(title, 40);
     let suffix = slug.unwrap_or_else(|| generate_epic_suffix(3));
     let epic_id = format!("fn-{epic_num}-{suffix}");
 
-    // Collision check: only check spec file (no more epic MD)
+    // Collision check
     let spec_path = flow_dir.join(SPECS_DIR).join(format!("{epic_id}.md"));
     if spec_path.exists() {
         error_exit(&format!(
@@ -59,15 +64,31 @@ pub fn cmd_create(title: &str, branch: &Option<String>, json_mode: bool) {
         updated_at: now,
     };
 
-    // Write to DB (sole source of truth)
     let body = create_epic_spec_body(&epic_id, title);
-    let doc = Document {
-        frontmatter: epic,
-        body: body.clone(),
-    };
-    save_epic(&doc);
 
-    // Write spec file (body-only Markdown in specs/)
+    let changes = Changes::new()
+        .with(Mutation::CreateEpic { epic })
+        .with(Mutation::SetEpicSpec {
+            epic_id: epic_id.clone(),
+            content: body.clone(),
+        });
+
+    (epic_id, body, changes)
+}
+
+pub fn cmd_create(title: &str, branch: &Option<String>, json_mode: bool, dry_run: bool) {
+    let flow_dir = ensure_flow_exists();
+    ensure_meta_exists(&flow_dir);
+
+    let (epic_id, body, changes) = compute_epic_create(&flow_dir, title, branch);
+
+    crate::commands::helpers::maybe_apply_changes(&flow_dir, &changes, dry_run);
+    if dry_run {
+        return;
+    }
+
+    // Also write the spec Markdown file (body-only in specs/)
+    let spec_path = flow_dir.join(SPECS_DIR).join(format!("{epic_id}.md"));
     if let Some(parent) = spec_path.parent() {
         let _ = fs::create_dir_all(parent);
     }

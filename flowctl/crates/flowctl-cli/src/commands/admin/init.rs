@@ -16,8 +16,22 @@ use super::{deep_merge, get_default_config, get_flow_dir, write_json_file};
 // ── Init command ────────────────────────────────────────────────────
 
 pub fn cmd_init(json: bool) {
-    let flow_dir = get_flow_dir();
+    let cwd = std::env::current_dir()
+        .unwrap_or_else(|e| error_exit(&format!("Cannot get current dir: {e}")));
     let mut actions: Vec<String> = Vec::new();
+
+    // Ensure .flow/ symlink → .git/flow-state/flow/ (or plain dir outside git)
+    match crate::commands::helpers::ensure_flow_symlink(&cwd) {
+        Ok(shared_dir) => {
+            let flow_dir = get_flow_dir();
+            if flow_dir.is_symlink() {
+                actions.push(format!(".flow/ → {}", shared_dir.display()));
+            }
+        }
+        Err(e) => error_exit(&format!("Failed to setup .flow/: {e}")),
+    }
+
+    let flow_dir = get_flow_dir();
 
     // Create directories if missing (idempotent, never destroys existing)
     for subdir in &[EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR, REVIEWS_DIR] {
@@ -61,8 +75,6 @@ pub fn cmd_init(json: bool) {
     }
 
     // Create/open flow.db (runs migrations automatically)
-    let cwd = std::env::current_dir()
-        .unwrap_or_else(|e| error_exit(&format!("Cannot get current dir: {e}")));
     match crate::commands::db_shim::open(&cwd) {
         Ok(conn) => {
             actions.push("flow.db ready".to_string());

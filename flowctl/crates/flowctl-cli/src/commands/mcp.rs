@@ -184,7 +184,7 @@ fn handle_tools_call(id: &Value, request: &Value) -> Value {
 /// Resolve flow_dir and open DB connection for direct service calls.
 fn mcp_context() -> Result<(PathBuf, Option<libsql::Connection>), String> {
     let cwd = env::current_dir().map_err(|e| format!("cannot get cwd: {e}"))?;
-    let flow_dir = super::helpers::resolve_flow_dir(&cwd);
+    let flow_dir = super::helpers::get_flow_dir();
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

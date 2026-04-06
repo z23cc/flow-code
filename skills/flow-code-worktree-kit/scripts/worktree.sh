@@ -143,6 +143,17 @@ case "$cmd" in
     fi
 
     copy_env "$target"
+
+    # Create .flow/ symlink in worktree → shared .git/flow-state/flow/
+    git_common_dir="$(git -C "$target" rev-parse --git-common-dir 2>/dev/null || true)"
+    if [[ -n "$git_common_dir" ]]; then
+      shared_flow="$git_common_dir/flow-state/flow"
+      wt_flow="$target/.flow"
+      if [[ -d "$shared_flow" && ! -e "$wt_flow" ]]; then
+        ln -s "$shared_flow" "$wt_flow"
+      fi
+    fi
+
     echo "created: $target"
     ;;
   list)

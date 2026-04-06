@@ -18,6 +18,7 @@ pub(super) fn cmd_task_set_spec(
     file: Option<&str>,
     description: Option<&str>,
     acceptance: Option<&str>,
+    investigation: Option<&str>,
 ) {
     let flow_dir = ensure_flow_exists();
 
@@ -28,8 +29,8 @@ pub(super) fn cmd_task_set_spec(
         ));
     }
 
-    if file.is_none() && description.is_none() && acceptance.is_none() {
-        error_exit("Requires --file, --description, or --acceptance");
+    if file.is_none() && description.is_none() && acceptance.is_none() && investigation.is_none() {
+        error_exit("Requires --file, --description, --acceptance, or --investigation");
     }
 
     let mut doc = load_task_doc(&flow_dir, task_id);
@@ -65,6 +66,12 @@ pub(super) fn cmd_task_set_spec(
         let acc_content = read_file_or_stdin(acc_file);
         doc.body = patch_body_section(&doc.body, "## Acceptance", &acc_content);
         sections_updated.push("## Acceptance");
+    }
+
+    if let Some(inv_file) = investigation {
+        let inv_content = read_file_or_stdin(inv_file);
+        doc.body = patch_body_section(&doc.body, "## Investigation targets", &inv_content);
+        sections_updated.push("## Investigation targets");
     }
 
     doc.frontmatter.updated_at = Utc::now();

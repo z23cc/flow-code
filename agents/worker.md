@@ -219,6 +219,40 @@ git diff --stat HEAD 2>/dev/null || true
 Save `GIT_BASELINE_REV` — you'll use it in Phase 5 to generate workspace change evidence.
 <!-- /section:core -->
 
+<!-- section:core -->
+## Phase 1.5: Pre-implementation Investigation
+
+**If the task spec contains `## Investigation targets` with content, execute this phase. Otherwise skip to Phase 2a/2.**
+
+1. **Read every Required file** listed before writing any code. Note:
+   - Patterns to follow (function signatures, naming conventions, structure)
+   - Constraints discovered (validation rules, type contracts, env requirements)
+   - Anything surprising that might affect your approach
+
+2. **Similar functionality search** — before writing new code:
+   ```bash
+   # Search for functions/modules that do similar things
+   # Use terms from the task description + acceptance criteria
+   grep -r "<key domain term>" --include="*.rs" --include="*.ts" --include="*.py" -l src/
+   ```
+   If similar functionality exists, pick one:
+   - **Reuse**: Use the existing code directly
+   - **Extend**: Modify existing code to support the new case
+   - **New**: Create new code (justify why existing isn't suitable)
+
+   Report what you found:
+   ```
+   Investigation results:
+   - Found: `existingHelper()` in src/utils.ts:23 — reusing
+   - Found: `src/routes/api.ts:45` — following this pattern
+   - No existing implementation found — creating new
+   ```
+
+3. Read **Optional** files as needed based on Step 1 findings.
+
+4. Continue to Phase 2a/2 only after investigation is complete.
+<!-- /section:core -->
+
 <!-- section:tdd -->
 ## Phase 2a: TDD Red-Green (if TDD_MODE=true)
 

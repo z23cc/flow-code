@@ -57,6 +57,9 @@ pub enum TaskCmd {
         /// Acceptance section file.
         #[arg(long, alias = "acceptance")]
         accept: Option<String>,
+        /// Investigation targets section file.
+        #[arg(long)]
+        investigation: Option<String>,
     },
     /// Reset task to todo.
     Reset {
@@ -171,7 +174,7 @@ fn parse_domain(s: &str) -> Domain {
 fn create_task_spec(id: &str, title: &str, acceptance: Option<&str>) -> String {
     let acceptance_content = acceptance.unwrap_or("- [ ] TBD");
     format!(
-        "# {} {}\n\n## Description\nTBD\n\n## Acceptance\n{}\n\n## Done summary\nTBD\n\n## Evidence\n- Commits:\n- Tests:\n- PRs:\n",
+        "# {} {}\n\n## Description\nTBD\n\n## Investigation targets\n\n## Acceptance\n{}\n\n## Done summary\nTBD\n\n## Evidence\n- Commits:\n- Tests:\n- PRs:\n",
         id, title, acceptance_content
     )
 }
@@ -338,7 +341,8 @@ pub fn dispatch(cmd: &TaskCmd, json: bool) {
             file,
             desc,
             accept,
-        } => query::cmd_task_set_spec(json, id, file.as_deref(), desc.as_deref(), accept.as_deref()),
+            investigation,
+        } => query::cmd_task_set_spec(json, id, file.as_deref(), desc.as_deref(), accept.as_deref(), investigation.as_deref()),
         TaskCmd::Reset { task_id, cascade } => mutate::cmd_task_reset(json, task_id, *cascade),
         TaskCmd::Skip { task_id, reason } => mutate::cmd_task_skip(json, task_id, reason.as_deref()),
         TaskCmd::Split {

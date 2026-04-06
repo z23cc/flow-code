@@ -137,6 +137,26 @@ $FLOWCTL start <task-id-1> --json
 $FLOWCTL start <task-id-2> --json
 ```
 
+### 3c½. File Ownership & Locking (Teams mode)
+
+For each ready task, read file ownership from the task spec and lock:
+
+```bash
+# Read owned files from task spec's **Files:** field
+TASK_SPEC=$($FLOWCTL cat <task-id>)
+OWNED_FILES=$(echo "$TASK_SPEC" | grep -A20 '^\*\*Files:\*\*' | grep -oE '[a-zA-Z0-9/_.-]+\.(rs|md|toml|yml|yaml|sh|py|ts|js|json)' | paste -sd,)
+
+# Lock files for this task (if any declared)
+if [[ -n "$OWNED_FILES" ]]; then
+  $FLOWCTL lock --task <task-id> --files $(echo "$OWNED_FILES" | tr ',' ' ')
+  echo "Locked for <task-id>: $OWNED_FILES"
+else
+  echo "Warning: <task-id> has no **Files:** field — worker gets unrestricted access"
+fi
+```
+
+If a task spec has no `**Files:**` field, log a warning but still spawn. Worker will have unrestricted access (backward compat).
+
 **RP context detection (once per wave, before spawning workers):**
 
 Detect RP availability and set `RP_CONTEXT` for workers. This controls whether workers use `context_builder` for deep implementation context in Phase 1.5.
@@ -188,11 +208,14 @@ Agent({
     TDD_MODE: true|false
     RP_CONTEXT: $RP_CONTEXT
     TEAM_MODE: true
+    OWNED_FILES: <comma-separated file list from 3c½>
   "
 })
 ```
 
 Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls. Workers run in isolated worktrees (kernel-level file separation) with Teams coordination (SendMessage for status reporting).
+
+**Team lifecycle**: `TeamCreate` is called ONCE per epic execution (not per wave). The same team persists across waves — workers join via spawn and leave on completion. No `TeamDelete` needed; the team is ephemeral to the session.
 
 **Worker returns**: Summary of implementation, files changed, test results, review verdict.
 
@@ -221,7 +244,13 @@ git branch -d <worker-branch> 2>/dev/null || true
 
 ### 3f. Wave Cleanup
 
-No special cleanup needed for worktree mode — worktrees are cleaned up automatically by the worktree kit.
+Release file locks so the next wave can re-lock with new ownership:
+
+```bash
+$FLOWCTL unlock --all
+```
+
+Worktrees are cleaned up automatically by the worktree kit.
 
 ### 3g. Verify Completion & Checkpoint
 

@@ -282,6 +282,14 @@ Default to standard unless complexity demands more or less.
    - Follow pattern at `src/example.ts:42`
    - Reuse `existingHelper()` from `lib/utils.ts`
 
+   ## Investigation targets
+   **Required** (read before coding):
+   - `src/auth/oauth.ts` — existing OAuth flow to extend
+   - `src/middleware/session.ts:23-45` — session validation pattern
+
+   **Optional** (reference as needed):
+   - `src/auth/*.test.ts` — existing test patterns
+
    ## Key context
    [Only for recent API changes, surprising patterns, or non-obvious gotchas]
    [If stack config exists, include relevant framework conventions here]
@@ -290,6 +298,13 @@ Default to standard unless complexity demands more or less.
    - [ ] Criterion 1
    - [ ] Criterion 2
    ```
+
+   **Investigation targets rules:**
+   - Max 5-7 targets per task — enough to ground the worker, not so many it wastes context
+   - Use exact file paths with optional line ranges (e.g., `src/auth.ts:23-45`)
+   - **Required** = must read before implementing. **Optional** = helpful reference
+   - Auto-populated from repo-scout/context-scout findings in Step 1 research
+   - If no relevant files found by scouts, leave the section empty (worker skips Phase 1.5)
 
    **Layer field**: If stack config is set, tag each task with its primary layer. This helps the worker select the right guard commands (e.g., `pytest` for backend, `pnpm test` for frontend). Full-stack tasks run all guards.
 

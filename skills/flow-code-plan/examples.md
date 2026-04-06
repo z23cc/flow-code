@@ -332,6 +332,43 @@ flowchart LR
 
 ---
 
+## Good vs Bad: Investigation Targets
+
+### ✅ GOOD: Specific paths with purpose
+
+```markdown
+## Investigation targets
+**Required** (read before coding):
+- `flowctl/crates/flowctl-cli/src/commands/task/mod.rs:170-177` — existing task spec template to extend
+- `flowctl/crates/flowctl-cli/src/commands/task/query.rs:15-82` — `--desc`/`--accept` pattern to follow
+
+**Optional** (reference as needed):
+- `flowctl/crates/flowctl-core/src/types.rs:305-325` — phase registry structure
+```
+
+**Why it works**: Exact paths with line ranges. Clear Required vs Optional. Brief purpose descriptions. Worker reads these before coding, grounding implementation in real patterns.
+
+### ❌ BAD: Vague or overloaded targets
+
+```markdown
+## Investigation targets
+- `src/` — look at the source code
+- `tests/` — check the tests
+- `lib/utils.ts` — might be useful
+- `src/auth/oauth.ts`
+- `src/auth/session.ts`
+- `src/auth/middleware.ts`
+- `src/auth/types.ts`
+- `src/auth/index.ts`
+- `src/auth/helpers.ts`
+- `src/auth/validators.ts`
+- `src/auth/errors.ts`
+```
+
+**Why it's bad**: No Required/Optional labels. Vague descriptions ("might be useful"). Directory-level paths waste context. Too many targets (11) — worker reads everything and remembers nothing. Max 5-7 targets per task.
+
+---
+
 ## Summary
 
 | Include in specs | Don't include |
@@ -342,3 +379,4 @@ flowchart LR
 | Recent/surprising APIs | Obvious patterns |
 | Non-obvious gotchas | Every function body |
 | Acceptance criteria | Redundant details |
+| Investigation targets (Required/Optional) | Vague directory paths |

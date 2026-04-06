@@ -10,7 +10,6 @@ use crate::output::{error_exit, json_output, pretty_output};
 use flowctl_core::id::{is_epic_id, parse_id};
 use flowctl_core::state_machine::Status;
 use flowctl_core::types::EpicStatus;
-use flowctl_core::types::EPICS_DIR;
 
 use super::{
     ensure_flow_exists, get_runtime, load_epic, load_tasks_for_epic, resolve_actor, scan_epic_ids,
@@ -27,8 +26,8 @@ pub fn cmd_ready(json_mode: bool, epic: String) {
         ));
     }
 
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{}.md", epic));
-    if !epic_path.exists() {
+    // Verify epic exists in DB
+    if load_epic(&flow_dir, &epic).is_none() {
         error_exit(&format!("Epic {} not found", epic));
     }
 

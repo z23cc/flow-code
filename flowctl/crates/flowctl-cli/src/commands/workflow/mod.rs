@@ -12,17 +12,13 @@ pub use scheduling::{cmd_next, cmd_queue, cmd_ready};
 
 use std::collections::HashMap;
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
-
-use regex::Regex;
 
 use crate::output::error_exit;
 
-use flowctl_core::frontmatter;
-use flowctl_core::id::{epic_id_from_task, is_task_id, parse_id};
+use flowctl_core::id::parse_id;
 use flowctl_core::types::{
-    Epic, RuntimeState, Task, EPICS_DIR, TASKS_DIR,
+    Epic, RuntimeState, Task,
 };
 
 use super::helpers::{get_flow_dir, resolve_actor};
@@ -67,75 +63,26 @@ pub(crate) fn block_on<F: std::future::Future>(fut: F) -> F::Output {
     rt.block_on(fut)
 }
 
-/// Load a single epic from Markdown frontmatter.
-fn load_epic_md(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{}.md", epic_id));
-    if !epic_path.exists() {
-        return None;
-    }
-    let content = fs::read_to_string(&epic_path).ok()?;
-    frontmatter::parse_frontmatter::<Epic>(&content).ok()
-}
-
-/// Load all tasks for an epic, trying DB first then Markdown.
-pub(crate) fn load_tasks_for_epic(flow_dir: &Path, epic_id: &str) -> HashMap<String, Task> {
-    // Try DB first
+/// Load all tasks for an epic from DB (sole source of truth).
+pub(crate) fn load_tasks_for_epic(_flow_dir: &Path, epic_id: &str) -> HashMap<String, Task> {
     if let Some(conn) = try_open_db() {
         let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Ok(tasks) = task_repo.list_by_epic(epic_id) {
-            if !tasks.is_empty() {
-                let mut map = HashMap::new();
-                for task in tasks {
-                    map.insert(task.id.clone(), task);
-                }
-                return map;
+            let mut map = HashMap::new();
+            for task in tasks {
+                map.insert(task.id.clone(), task);
             }
+            return map;
         }
     }
-
-    // Fall back to Markdown scanning
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    if !tasks_dir.is_dir() {
-        return HashMap::new();
-    }
-
-    let mut map = HashMap::new();
-    if let Ok(entries) = fs::read_dir(&tasks_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            if !is_task_id(stem) {
-                continue;
-            }
-            if let Ok(eid) = epic_id_from_task(stem) {
-                if eid != epic_id {
-                    continue;
-                }
-            } else {
-                continue;
-            }
-            if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(task) = frontmatter::parse_frontmatter::<Task>(&content) {
-                    map.insert(task.id.clone(), task);
-                }
-            }
-        }
-    }
-    map
+    HashMap::new()
 }
 
-/// Load an epic, trying DB first then Markdown.
-pub(crate) fn load_epic(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        if let Ok(epic) = repo.get(epic_id) {
-            return Some(epic);
-        }
-    }
-    load_epic_md(flow_dir, epic_id)
+/// Load an epic from DB (sole source of truth).
+pub(crate) fn load_epic(_flow_dir: &Path, epic_id: &str) -> Option<Epic> {
+    let conn = try_open_db()?;
+    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    repo.get(epic_id).ok()
 }
 
 /// Get runtime state for a task.
@@ -155,29 +102,15 @@ pub(crate) fn task_sort_key(task: &Task) -> (u32, u32, String) {
     )
 }
 
-/// Scan all epic .md files in the epics directory, return their IDs sorted.
-pub(crate) fn scan_epic_ids(flow_dir: &Path) -> Vec<String> {
-    let epics_dir = flow_dir.join(EPICS_DIR);
-    if !epics_dir.is_dir() {
-        return Vec::new();
-    }
-
-    let epic_re = Regex::new(
-        r"^fn-(\d+)(?:-[a-z0-9][a-z0-9-]*[a-z0-9]|-[a-z0-9]{1,3})?\.md$",
-    )
-    .unwrap();
-
-    let mut ids = Vec::new();
-    if let Ok(entries) = fs::read_dir(&epics_dir) {
-        for entry in entries.flatten() {
-            let fname = entry.file_name();
-            let name = fname.to_string_lossy();
-            if epic_re.is_match(&name) {
-                let stem = name.trim_end_matches(".md");
-                ids.push(stem.to_string());
-            }
+/// Get all epic IDs from DB, sorted by epic number.
+pub(crate) fn scan_epic_ids(_flow_dir: &Path) -> Vec<String> {
+    if let Some(conn) = try_open_db() {
+        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+        if let Ok(epics) = repo.list(None) {
+            let mut ids: Vec<String> = epics.into_iter().map(|e| e.id).collect();
+            ids.sort_by_key(|id| parse_id(id).map(|p| p.epic).unwrap_or(0));
+            return ids;
         }
     }
-    ids.sort_by_key(|id| parse_id(id).map(|p| p.epic).unwrap_or(0));
-    ids
+    Vec::new()
 }

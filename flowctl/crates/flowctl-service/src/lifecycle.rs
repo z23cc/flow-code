@@ -2,8 +2,7 @@
 //!
 //! These functions contain the business logic extracted from the CLI
 //! lifecycle commands. Each accepts a request struct and returns
-//! `ServiceResult<Response>`, handling both SQLite writes and Markdown
-//! file updates.
+//! `ServiceResult<Response>`, using SQLite as the sole source of truth.
 
 use std::fs;
 use std::path::Path;
@@ -11,11 +10,10 @@ use std::path::Path;
 use chrono::Utc;
 use libsql::Connection;
 
-use flowctl_core::frontmatter;
 use flowctl_core::id::{epic_id_from_task, is_task_id};
 use flowctl_core::state_machine::{Status, Transition};
 use flowctl_core::types::{
-    Epic, EpicStatus, Evidence, RuntimeState, Task, EPICS_DIR, REVIEWS_DIR, TASKS_DIR,
+    Epic, EpicStatus, Evidence, RuntimeState, Task, REVIEWS_DIR,
 };
 
 use crate::error::{ServiceError, ServiceResult};
@@ -111,39 +109,17 @@ fn validate_task_id(id: &str) -> ServiceResult<()> {
     Ok(())
 }
 
-/// Load a task, trying DB first then Markdown.
-async fn load_task(conn: Option<&Connection>, flow_dir: &Path, task_id: &str) -> Option<Task> {
-    if let Some(conn) = conn {
-        let repo = flowctl_db::TaskRepo::new(conn.clone());
-        if let Ok(task) = repo.get(task_id).await {
-            return Some(task);
-        }
-    }
-    load_task_md(flow_dir, task_id)
+/// Load a task from the DB (sole source of truth).
+async fn load_task(conn: Option<&Connection>, _flow_dir: &Path, task_id: &str) -> Option<Task> {
+    let conn = conn?;
+    let repo = flowctl_db::TaskRepo::new(conn.clone());
+    repo.get(task_id).await.ok()
 }
 
-fn load_task_md(flow_dir: &Path, task_id: &str) -> Option<Task> {
-    let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
-    if !task_path.exists() {
-        return None;
-    }
-    let content = fs::read_to_string(&task_path).ok()?;
-    frontmatter::parse_frontmatter::<Task>(&content).ok()
-}
-
-async fn load_epic(conn: Option<&Connection>, flow_dir: &Path, epic_id: &str) -> Option<Epic> {
-    if let Some(conn) = conn {
-        let repo = flowctl_db::EpicRepo::new(conn.clone());
-        if let Ok(epic) = repo.get(epic_id).await {
-            return Some(epic);
-        }
-    }
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{}.md", epic_id));
-    if !epic_path.exists() {
-        return None;
-    }
-    let content = fs::read_to_string(&epic_path).ok()?;
-    frontmatter::parse_frontmatter::<Epic>(&content).ok()
+async fn load_epic(conn: Option<&Connection>, _flow_dir: &Path, epic_id: &str) -> Option<Epic> {
+    let conn = conn?;
+    let repo = flowctl_db::EpicRepo::new(conn.clone());
+    repo.get(epic_id).await.ok()
 }
 
 async fn get_runtime(conn: Option<&Connection>, task_id: &str) -> Option<RuntimeState> {
@@ -152,10 +128,10 @@ async fn get_runtime(conn: Option<&Connection>, task_id: &str) -> Option<Runtime
     repo.get(task_id).await.ok().flatten()
 }
 
-/// Load all tasks for an epic, trying DB first then Markdown.
+/// Load all tasks for an epic from the DB (sole source of truth).
 async fn load_tasks_for_epic(
     conn: Option<&Connection>,
-    flow_dir: &Path,
+    _flow_dir: &Path,
     epic_id: &str,
 ) -> std::collections::HashMap<String, Task> {
     use std::collections::HashMap;
@@ -163,47 +139,15 @@ async fn load_tasks_for_epic(
     if let Some(conn) = conn {
         let task_repo = flowctl_db::TaskRepo::new(conn.clone());
         if let Ok(tasks) = task_repo.list_by_epic(epic_id).await {
-            if !tasks.is_empty() {
-                let mut map = HashMap::new();
-                for task in tasks {
-                    map.insert(task.id.clone(), task);
-                }
-                return map;
+            let mut map = HashMap::new();
+            for task in tasks {
+                map.insert(task.id.clone(), task);
             }
+            return map;
         }
     }
 
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    if !tasks_dir.is_dir() {
-        return HashMap::new();
-    }
-
-    let mut map = HashMap::new();
-    if let Ok(entries) = fs::read_dir(&tasks_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            if !is_task_id(stem) {
-                continue;
-            }
-            if let Ok(eid) = epic_id_from_task(stem) {
-                if eid != epic_id {
-                    continue;
-                }
-            } else {
-                continue;
-            }
-            if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(task) = frontmatter::parse_frontmatter::<Task>(&content) {
-                    map.insert(task.id.clone(), task);
-                }
-            }
-        }
-    }
-    map
+    HashMap::new()
 }
 
 /// Find all downstream dependents of a task within the same epic.
@@ -284,24 +228,10 @@ async fn propagate_upstream_failure(
             continue;
         }
 
-        // Update SQLite
+        // Update DB (sole source of truth)
         if let Some(conn) = conn {
             let task_repo = flowctl_db::TaskRepo::new(conn.clone());
             let _ = task_repo.update_status(tid, Status::UpstreamFailed).await;
-        }
-
-        // Update Markdown frontmatter
-        let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", tid));
-        if task_path.exists() {
-            if let Ok(content) = fs::read_to_string(&task_path) {
-                if let Ok(mut doc) = frontmatter::parse::<Task>(&content) {
-                    doc.frontmatter.status = Status::UpstreamFailed;
-                    doc.frontmatter.updated_at = Utc::now();
-                    if let Ok(new_content) = frontmatter::write(&doc) {
-                        let _ = fs::write(&task_path, new_content);
-                    }
-                }
-            }
         }
 
         affected.push(tid.clone());
@@ -342,19 +272,6 @@ async fn handle_task_failure(
             let _ = runtime_repo.upsert(&rt).await;
         }
 
-        let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
-        if task_path.exists() {
-            if let Ok(content) = fs::read_to_string(&task_path) {
-                if let Ok(mut doc) = frontmatter::parse::<Task>(&content) {
-                    doc.frontmatter.status = Status::UpForRetry;
-                    doc.frontmatter.updated_at = Utc::now();
-                    if let Ok(new_content) = frontmatter::write(&doc) {
-                        let _ = fs::write(&task_path, new_content);
-                    }
-                }
-            }
-        }
-
         (Status::UpForRetry, Vec::new())
     } else {
         if let Some(conn) = conn {
@@ -362,54 +279,9 @@ async fn handle_task_failure(
             let _ = task_repo.update_status(task_id, Status::Failed).await;
         }
 
-        let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task_id));
-        if task_path.exists() {
-            if let Ok(content) = fs::read_to_string(&task_path) {
-                if let Ok(mut doc) = frontmatter::parse::<Task>(&content) {
-                    doc.frontmatter.status = Status::Failed;
-                    doc.frontmatter.updated_at = Utc::now();
-                    if let Ok(new_content) = frontmatter::write(&doc) {
-                        let _ = fs::write(&task_path, new_content);
-                    }
-                }
-            }
-        }
-
         let affected = propagate_upstream_failure(conn, flow_dir, task_id).await;
         (Status::Failed, affected)
     }
-}
-
-/// Patch a Markdown section (## heading) with new content.
-fn patch_md_section(doc: &str, heading: &str, new_content: &str) -> Option<String> {
-    let heading_prefix = format!("{}\n", heading);
-    let pos = doc.find(&heading_prefix)?;
-    let after_heading = pos + heading_prefix.len();
-
-    let rest = &doc[after_heading..];
-    let next_heading = rest.find("\n## ").map(|p| after_heading + p + 1);
-
-    let mut result = String::with_capacity(doc.len());
-    result.push_str(&doc[..after_heading]);
-    result.push_str(new_content.trim_end());
-    result.push('\n');
-    if let Some(nh) = next_heading {
-        result.push('\n');
-        result.push_str(&doc[nh..]);
-    }
-    Some(result)
-}
-
-/// Get a Markdown section content.
-fn get_md_section(doc: &str, heading: &str) -> String {
-    let heading_prefix = format!("{}\n", heading);
-    let Some(pos) = doc.find(&heading_prefix) else {
-        return String::new();
-    };
-    let after_heading = pos + heading_prefix.len();
-    let rest = &doc[after_heading..];
-    let section_end = rest.find("\n## ").unwrap_or(rest.len());
-    rest[..section_end].trim().to_string()
 }
 
 // ── Service functions ──────────────────────────────────────────────
@@ -539,20 +411,6 @@ pub async fn start_task(
             .map_err(ServiceError::from)?;
     }
 
-    // Update Markdown frontmatter
-    let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", req.task_id));
-    if task_path.exists() {
-        if let Ok(content) = fs::read_to_string(&task_path) {
-            if let Ok(mut doc) = frontmatter::parse::<Task>(&content) {
-                doc.frontmatter.status = Status::InProgress;
-                doc.frontmatter.updated_at = now;
-                if let Ok(new_content) = frontmatter::write(&doc) {
-                    let _ = fs::write(&task_path, new_content);
-                }
-            }
-        }
-    }
-
     Ok(StartTaskResponse {
         task_id: req.task_id,
         status: Status::InProgress,
@@ -605,16 +463,12 @@ pub async fn done_task(
         }
     }
 
-    // Get summary
-    let summary_text = if let Some(ref file) = req.summary_file {
+    // Get summary (validate files are readable, even though no longer written to MD)
+    if let Some(ref file) = req.summary_file {
         fs::read_to_string(file).map_err(|e| {
             ServiceError::IoError(std::io::Error::new(e.kind(), format!("Cannot read summary file: {}", e)))
-        })?
-    } else if let Some(ref s) = req.summary {
-        s.clone()
-    } else {
-        "- Task completed".to_string()
-    };
+        })?;
+    }
 
     // Get evidence
     let evidence_obj: serde_json::Value = if let Some(ref ev) = req.evidence_json {
@@ -682,7 +536,7 @@ pub async fn done_task(
         }
     }
 
-    // Format evidence as markdown
+    // Extract evidence lists for DB storage
     let to_list = |val: Option<&serde_json::Value>| -> Vec<String> {
         match val {
             None => Vec::new(),
@@ -700,62 +554,7 @@ pub async fn done_task(
     let tests = to_list(evidence_obj.get("tests"));
     let prs = to_list(evidence_obj.get("prs"));
 
-    let mut evidence_md = Vec::new();
-    if commits.is_empty() {
-        evidence_md.push("- Commits:".to_string());
-    } else {
-        evidence_md.push(format!("- Commits: {}", commits.join(", ")));
-    }
-    if tests.is_empty() {
-        evidence_md.push("- Tests:".to_string());
-    } else {
-        evidence_md.push(format!("- Tests: {}", tests.join(", ")));
-    }
-    if prs.is_empty() {
-        evidence_md.push("- PRs:".to_string());
-    } else {
-        evidence_md.push(format!("- PRs: {}", prs.join(", ")));
-    }
-
-    if ws_warning.is_none() {
-        if let Some(wc) = ws_changes {
-            if wc.is_object() {
-                let fc = wc.get("files_changed").and_then(|v| v.as_u64()).unwrap_or(0);
-                let ins = wc.get("insertions").and_then(|v| v.as_u64()).unwrap_or(0);
-                let del = wc.get("deletions").and_then(|v| v.as_u64()).unwrap_or(0);
-                let br = wc
-                    .get("baseline_rev")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                let fr = wc
-                    .get("final_rev")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
-                evidence_md.push(format!(
-                    "- Workspace: {} files changed, +{} -{} ({}..{})",
-                    fc,
-                    ins,
-                    del,
-                    &br[..br.len().min(7)],
-                    &fr[..fr.len().min(7)]
-                ));
-            }
-        }
-    }
-
-    if let Some(dur) = duration_seconds {
-        let mins = dur / 60;
-        let secs = dur % 60;
-        let dur_str = if mins > 0 {
-            format!("{}m {}s", mins, secs)
-        } else {
-            format!("{}s", secs)
-        };
-        evidence_md.push(format!("- Duration: {}", dur_str));
-    }
-    let evidence_content = evidence_md.join("\n");
-
-    // Write SQLite (authoritative)
+    // Write SQLite (sole source of truth)
     if let Some(conn) = conn {
         let task_repo = flowctl_db::TaskRepo::new(conn.clone());
         let _ = task_repo.update_status(&req.task_id, Status::Done).await;
@@ -783,30 +582,6 @@ pub async fn done_task(
         };
         let evidence_repo = flowctl_db::EvidenceRepo::new(conn.clone());
         let _ = evidence_repo.upsert(&req.task_id, &ev).await;
-    }
-
-    // Update Markdown spec
-    let task_spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", req.task_id));
-    if task_spec_path.exists() {
-        if let Ok(current_spec) = fs::read_to_string(&task_spec_path) {
-            let mut updated = current_spec;
-            if let Some(patched) = patch_md_section(&updated, "## Done summary", &summary_text) {
-                updated = patched;
-            }
-            if let Some(patched) = patch_md_section(&updated, "## Evidence", &evidence_content) {
-                updated = patched;
-            }
-
-            if let Ok(mut doc) = frontmatter::parse::<Task>(&updated) {
-                doc.frontmatter.status = Status::Done;
-                doc.frontmatter.updated_at = Utc::now();
-                if let Ok(new_content) = frontmatter::write(&doc) {
-                    let _ = fs::write(&task_spec_path, new_content);
-                }
-            } else {
-                let _ = fs::write(&task_spec_path, updated);
-            }
-        }
     }
 
     // Archive review receipt if present
@@ -885,35 +660,6 @@ pub async fn block_task(
         let _ = runtime_repo.upsert(&rt).await;
     }
 
-    // Update Markdown spec
-    let task_spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", req.task_id));
-    if task_spec_path.exists() {
-        if let Ok(current_spec) = fs::read_to_string(&task_spec_path) {
-            let existing_summary = get_md_section(&current_spec, "## Done summary");
-            let new_summary =
-                if existing_summary.is_empty() || existing_summary.to_lowercase() == "tbd" {
-                    format!("Blocked:\n{}", reason)
-                } else {
-                    format!("{}\n\nBlocked:\n{}", existing_summary, reason)
-                };
-
-            let mut updated = current_spec;
-            if let Some(patched) = patch_md_section(&updated, "## Done summary", &new_summary) {
-                updated = patched;
-            }
-
-            if let Ok(mut doc) = frontmatter::parse::<Task>(&updated) {
-                doc.frontmatter.status = Status::Blocked;
-                doc.frontmatter.updated_at = Utc::now();
-                if let Ok(new_content) = frontmatter::write(&doc) {
-                    let _ = fs::write(&task_spec_path, new_content);
-                }
-            } else {
-                let _ = fs::write(&task_spec_path, updated);
-            }
-        }
-    }
-
     Ok(BlockTaskResponse {
         task_id: req.task_id,
         status: Status::Blocked,
@@ -944,19 +690,6 @@ pub async fn fail_task(
 
     let (final_status, upstream_failed_ids) =
         handle_task_failure(conn, flow_dir, &req.task_id, &runtime).await;
-
-    // Update Done summary with failure reason
-    let task_spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", req.task_id));
-    if task_spec_path.exists() {
-        if let Ok(content) = fs::read_to_string(&task_spec_path) {
-            let mut updated = content;
-            let summary = format!("Failed:\n{}", reason_text);
-            if let Some(patched) = patch_md_section(&updated, "## Done summary", &summary) {
-                updated = patched;
-            }
-            let _ = fs::write(&task_spec_path, updated);
-        }
-    }
 
     let max_retries = get_max_retries(flow_dir);
     let retry_count = if final_status == Status::UpForRetry {
@@ -1079,30 +812,6 @@ pub async fn restart_task(
                 retry_count: 0,
             };
             let _ = runtime_repo.upsert(&rt).await;
-        }
-
-        let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", tid));
-        if task_path.exists() {
-            if let Ok(content) = fs::read_to_string(&task_path) {
-                let mut updated = content;
-
-                if let Some(patched) = patch_md_section(&updated, "## Done summary", "TBD") {
-                    updated = patched;
-                }
-                if let Some(patched) = patch_md_section(&updated, "## Evidence", "TBD") {
-                    updated = patched;
-                }
-
-                if let Ok(mut doc) = frontmatter::parse::<Task>(&updated) {
-                    doc.frontmatter.status = Status::Todo;
-                    doc.frontmatter.updated_at = Utc::now();
-                    if let Ok(new_content) = frontmatter::write(&doc) {
-                        updated = new_content;
-                    }
-                }
-
-                let _ = fs::write(&task_path, updated);
-            }
         }
 
         reset_ids.push(tid.clone());

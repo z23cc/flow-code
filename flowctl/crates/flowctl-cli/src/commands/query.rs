@@ -1,19 +1,18 @@
 //! Query commands: show, epics, tasks, list, cat, files, lock, unlock, lock-check.
 //!
-//! Reads from SQLite if available, falls back to scanning Markdown files.
+//! Reads from SQLite as the sole source of truth.
 
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde_json::json;
 
 use crate::output::{error_exit, json_output, pretty_output};
 
-use flowctl_core::frontmatter;
-use flowctl_core::id::{is_epic_id, is_task_id, parse_id};
+use flowctl_core::id::{is_epic_id, is_task_id};
 use flowctl_core::types::{
-    Epic, Task, EPICS_DIR, SPECS_DIR, TASKS_DIR,
+    Epic, Task, SPECS_DIR,
 };
 
 use super::helpers::get_flow_dir;
@@ -123,213 +122,79 @@ fn task_list_json(task: &Task) -> serde_json::Value {
     })
 }
 
-// ── Markdown scanning fallback ──────────────────────────────────────
+// ── DB-only data access ────────────────────────────────────────────
 
-/// Scan .flow/epics/*.md and parse all epics from frontmatter.
-fn scan_epics_md(flow_dir: &Path) -> Vec<Epic> {
-    let epics_dir = flow_dir.join(EPICS_DIR);
-    if !epics_dir.is_dir() {
-        return Vec::new();
-    }
-
-    let mut entries: Vec<PathBuf> = match fs::read_dir(&epics_dir) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("md"))
-            .collect(),
-        Err(_) => return Vec::new(),
-    };
-    entries.sort();
-
-    let mut epics = Vec::new();
-    for path in entries {
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        if !is_epic_id(stem) {
-            continue;
-        }
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(mut epic) = frontmatter::parse_frontmatter::<Epic>(&content) {
-                epic.file_path = Some(format!("epics/{}", path.file_name().unwrap().to_string_lossy()));
-                epics.push(epic);
-            }
-        }
-    }
-
-    // Sort by epic number
-    epics.sort_by_key(|e| parse_id(&e.id).map(|p| p.epic).unwrap_or(0));
-    epics
+/// Open DB or exit with error (DB is sole source of truth).
+fn require_db() -> crate::commands::db_shim::Connection {
+    crate::commands::db_shim::require_db()
+        .unwrap_or_else(|e| error_exit(&format!("Cannot open database: {}", e)))
 }
 
-/// Scan .flow/tasks/*.md and parse all tasks from frontmatter.
-fn scan_tasks_md(flow_dir: &Path, epic_filter: Option<&str>) -> Vec<Task> {
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    if !tasks_dir.is_dir() {
-        return Vec::new();
-    }
-
-    let mut entries: Vec<PathBuf> = match fs::read_dir(&tasks_dir) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("md"))
-            .collect(),
-        Err(_) => return Vec::new(),
-    };
-    entries.sort();
-
-    let mut tasks = Vec::new();
-    for path in entries {
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        if !is_task_id(stem) {
-            continue;
-        }
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(mut task) = frontmatter::parse_frontmatter::<Task>(&content) {
-                if let Some(filter) = epic_filter {
-                    if task.epic != filter {
-                        continue;
-                    }
-                }
-                task.file_path = Some(format!("tasks/{}", path.file_name().unwrap().to_string_lossy()));
-                tasks.push(task);
-            }
-        }
-    }
-
-    // Sort by (epic_num, task_num)
-    tasks.sort_by_key(|t| {
-        let parsed = parse_id(&t.id).ok();
-        (
-            parsed.as_ref().map(|p| p.epic).unwrap_or(0),
-            parsed.as_ref().and_then(|p| p.task).unwrap_or(0),
-        )
-    });
-    tasks
+/// Get a single epic by ID from DB.
+fn get_epic(_flow_dir: &PathBuf, id: &str) -> Option<Epic> {
+    let conn = try_open_db()?;
+    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
+    repo.get(id).ok()
 }
 
-/// Get a single epic by ID, trying DB first then Markdown.
-fn get_epic(flow_dir: &Path, id: &str) -> Option<Epic> {
-    // Try DB first
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-        if let Ok(epic) = repo.get(id) {
-            return Some(epic);
-        }
-    }
-
-    // Fall back to Markdown
-    let epic_path = flow_dir.join(EPICS_DIR).join(format!("{}.md", id));
-    if !epic_path.exists() {
-        return None;
-    }
-    let content = fs::read_to_string(&epic_path).ok()?;
-    let mut epic = frontmatter::parse_frontmatter::<Epic>(&content).ok()?;
-    epic.file_path = Some(format!("epics/{}.md", id));
-    Some(epic)
+/// Get a single task by ID from DB.
+fn get_task(_flow_dir: &PathBuf, id: &str) -> Option<Task> {
+    let conn = try_open_db()?;
+    let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    repo.get(id).ok()
 }
 
-/// Get a single task by ID, trying DB first then Markdown.
-fn get_task(flow_dir: &Path, id: &str) -> Option<Task> {
-    // Try DB first
-    if let Some(conn) = try_open_db() {
-        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
-        if let Ok(task) = repo.get(id) {
-            return Some(task);
-        }
-    }
-
-    // Fall back to Markdown
-    let task_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", id));
-    if !task_path.exists() {
-        return None;
-    }
-    let content = fs::read_to_string(&task_path).ok()?;
-    let mut task = frontmatter::parse_frontmatter::<Task>(&content).ok()?;
-    task.file_path = Some(format!("tasks/{}.md", id));
-    Some(task)
-}
-
-/// Get all tasks for an epic, trying DB first then Markdown.
-fn get_epic_tasks(flow_dir: &Path, epic_id: &str) -> Vec<Task> {
-    // Try DB first
+/// Get all tasks for an epic from DB.
+fn get_epic_tasks(_flow_dir: &PathBuf, epic_id: &str) -> Vec<Task> {
     if let Some(conn) = try_open_db() {
         let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         if let Ok(tasks) = repo.list_by_epic(epic_id) {
-            if !tasks.is_empty() {
-                return tasks;
-            }
+            return tasks;
         }
     }
-
-    // Fall back to Markdown
-    scan_tasks_md(flow_dir, Some(epic_id))
+    Vec::new()
 }
 
-/// Get all epics, trying DB first then Markdown.
-fn get_all_epics(flow_dir: &Path) -> Vec<Epic> {
-    // Try DB first
+/// Get all epics from DB.
+fn get_all_epics(_flow_dir: &PathBuf) -> Vec<Epic> {
     if let Some(conn) = try_open_db() {
         let repo = crate::commands::db_shim::EpicRepo::new(&conn);
         if let Ok(epics) = repo.list(None) {
-            if !epics.is_empty() {
-                return epics;
-            }
+            return epics;
         }
     }
-
-    // Fall back to Markdown
-    scan_epics_md(flow_dir)
+    Vec::new()
 }
 
-/// Get all tasks, optionally filtered, trying DB first then Markdown.
+/// Get all tasks, optionally filtered, from DB.
 fn get_all_tasks(
-    flow_dir: &Path,
+    _flow_dir: &PathBuf,
     epic_filter: Option<&str>,
     status_filter: Option<&str>,
     domain_filter: Option<&str>,
 ) -> Vec<Task> {
-    // Try DB first
     if let Some(conn) = try_open_db() {
         let repo = crate::commands::db_shim::TaskRepo::new(&conn);
         match epic_filter {
             Some(epic_id) => {
                 if let Ok(mut tasks) = repo.list_by_epic(epic_id) {
-                    // Apply status/domain filters
                     if let Some(status) = status_filter {
                         tasks.retain(|t| t.status.to_string() == status);
                     }
                     if let Some(domain) = domain_filter {
                         tasks.retain(|t| t.domain.to_string() == domain);
                     }
-                    if !tasks.is_empty() {
-                        return tasks;
-                    }
-                    // If empty, might be a new epic not yet in DB - fall through
+                    return tasks;
                 }
             }
             None => {
                 if let Ok(tasks) = repo.list_all(status_filter, domain_filter) {
-                    if !tasks.is_empty() {
-                        return tasks;
-                    }
+                    return tasks;
                 }
             }
         }
     }
-
-    // Fall back to Markdown scan
-    let mut tasks = scan_tasks_md(flow_dir, epic_filter);
-
-    // Apply filters
-    if let Some(status) = status_filter {
-        tasks.retain(|t| t.status.to_string() == status);
-    }
-    if let Some(domain) = domain_filter {
-        tasks.retain(|t| t.domain.to_string() == domain);
-    }
-
-    tasks
+    Vec::new()
 }
 
 // ── Show command ────────────────────────────────────────────────────
@@ -638,25 +503,35 @@ pub fn cmd_list(json: bool) {
 pub fn cmd_cat(id: String) {
     let flow_dir = ensure_flow_exists();
 
-    let spec_path = if is_epic_id(&id) {
-        flow_dir.join(SPECS_DIR).join(format!("{}.md", id))
+    if is_epic_id(&id) {
+        // Epic spec: still read from specs/ directory
+        let spec_path = flow_dir.join(SPECS_DIR).join(format!("{}.md", id));
+        match fs::read_to_string(&spec_path) {
+            Ok(content) => print!("{}", content),
+            Err(_) => {
+                error_exit(&format!("Spec not found: {}", spec_path.display()));
+            }
+        }
     } else if is_task_id(&id) {
-        flow_dir.join(TASKS_DIR).join(format!("{}.md", id))
+        // Task body: read from DB (sole source of truth)
+        let conn = require_db();
+        let repo = crate::commands::db_shim::TaskRepo::new(&conn);
+        match repo.get_with_body(&id) {
+            Ok((_task, body)) => {
+                if body.is_empty() {
+                    error_exit(&format!("Task body not found in DB: {}", id));
+                }
+                print!("{}", body);
+            }
+            Err(_) => {
+                error_exit(&format!("Task not found: {}", id));
+            }
+        }
     } else {
         error_exit(&format!(
             "Invalid ID: {}. Expected format: fn-N or fn-N-slug (epic), fn-N.M or fn-N-slug.M (task)",
             id
         ));
-    };
-
-    match fs::read_to_string(&spec_path) {
-        Ok(content) => print!("{}", content),
-        Err(_) => {
-            error_exit(&format!(
-                "Spec not found: {}",
-                spec_path.display()
-            ));
-        }
     }
 }
 
@@ -675,21 +550,24 @@ pub fn cmd_files(json_mode: bool, epic: String) {
     let mut ownership: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
 
+    let conn_opt = try_open_db();
     for task in &tasks {
         let mut task_files: Vec<String> = task.files.clone();
 
-        // Fallback: parse **Files:** from spec markdown if no structured files
+        // Fallback: parse **Files:** from task body in DB if no structured files
         if task_files.is_empty() {
-            let spec_path = flow_dir.join(TASKS_DIR).join(format!("{}.md", task.id));
-            if let Ok(spec_text) = fs::read_to_string(&spec_path) {
-                for line in spec_text.lines() {
-                    if let Some(rest) = line.strip_prefix("**Files:**") {
-                        task_files = rest
-                            .split(',')
-                            .map(|f| f.trim().trim_matches('`').to_string())
-                            .filter(|f| !f.is_empty())
-                            .collect();
-                        break;
+            if let Some(ref conn) = conn_opt {
+                let repo = crate::commands::db_shim::TaskRepo::new(conn);
+                if let Ok((_t, body)) = repo.get_with_body(&task.id) {
+                    for line in body.lines() {
+                        if let Some(rest) = line.strip_prefix("**Files:**") {
+                            task_files = rest
+                                .split(',')
+                                .map(|f| f.trim().trim_matches('`').to_string())
+                                .filter(|f| !f.is_empty())
+                                .collect();
+                            break;
+                        }
                     }
                 }
             }
@@ -745,16 +623,6 @@ pub fn cmd_files(json_mode: bool, epic: String) {
 
 // ── Lock commands (Teams mode) ─────────────────────────────────────
 
-/// Open DB or exit with error.
-fn open_db_or_exit() -> crate::commands::db_shim::Connection {
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    match crate::commands::db_shim::open(&cwd) {
-        Ok(conn) => conn,
-        Err(e) => {
-            error_exit(&format!("Cannot open database: {}", e));
-        }
-    }
-}
 
 pub fn cmd_lock(json: bool, task: String, files: String) {
     let _flow_dir = ensure_flow_exists();
@@ -764,7 +632,7 @@ pub fn cmd_lock(json: bool, task: String, files: String) {
         error_exit("No files specified for locking.");
     }
 
-    let conn = open_db_or_exit();
+    let conn = require_db();
     let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
 
     let mut locked = Vec::new();
@@ -811,7 +679,7 @@ pub fn cmd_lock(json: bool, task: String, files: String) {
 
 pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all: bool) {
     let _flow_dir = ensure_flow_exists();
-    let conn = open_db_or_exit();
+    let conn = require_db();
     let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
 
     if all {
@@ -856,7 +724,7 @@ pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all:
 
 pub fn cmd_lock_check(json: bool, file: Option<String>) {
     let _flow_dir = ensure_flow_exists();
-    let conn = open_db_or_exit();
+    let conn = require_db();
     let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
 
     match file {

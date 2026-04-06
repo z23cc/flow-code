@@ -43,11 +43,19 @@ pub struct TaskState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<Evidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_rev: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_rev: Option<String>,
+    #[serde(default)]
+    pub retry_count: u32,
     #[serde(default = "Utc::now")]
     pub updated_at: DateTime<Utc>,
 }
@@ -58,9 +66,13 @@ impl Default for TaskState {
             status: Status::Todo,
             assignee: None,
             claimed_at: None,
+            completed_at: None,
             evidence: None,
             blocked_reason: None,
             duration_seconds: None,
+            baseline_rev: None,
+            final_rev: None,
+            retry_count: 0,
             updated_at: Utc::now(),
         }
     }

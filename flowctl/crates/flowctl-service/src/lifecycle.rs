@@ -118,10 +118,20 @@ async fn load_epic(_conn: Option<&Connection>, flow_dir: &Path, epic_id: &str) -
     flowctl_core::json_store::epic_read(flow_dir, epic_id).ok()
 }
 
-async fn get_runtime(conn: Option<&Connection>, _flow_dir: &Path, task_id: &str) -> Option<RuntimeState> {
-    let conn = conn?;
-    let repo = flowctl_db::RuntimeRepo::new(conn.clone());
-    repo.get(task_id).await.ok().flatten()
+async fn get_runtime(_conn: Option<&Connection>, flow_dir: &Path, task_id: &str) -> Option<RuntimeState> {
+    // Read from JSON state and convert to RuntimeState for compatibility
+    let state = flowctl_core::json_store::state_read(flow_dir, task_id).ok()?;
+    Some(RuntimeState {
+        task_id: task_id.to_string(),
+        assignee: state.assignee,
+        claimed_at: state.claimed_at,
+        completed_at: state.completed_at,
+        duration_secs: state.duration_seconds,
+        blocked_reason: state.blocked_reason,
+        baseline_rev: state.baseline_rev,
+        final_rev: state.final_rev,
+        retry_count: state.retry_count,
+    })
 }
 
 /// Load all tasks for an epic from JSON files.
@@ -221,10 +231,17 @@ async fn propagate_upstream_failure(
             continue;
         }
 
-        // Update DB (sole source of truth)
-        if let Some(conn) = conn {
-            let task_repo = flowctl_db::TaskRepo::new(conn.clone());
-            let _ = task_repo.update_status(tid, Status::UpstreamFailed).await;
+        // Update JSON state
+        if let Ok(mut state) = flowctl_core::json_store::state_read(flow_dir, tid) {
+            state.status = Status::UpstreamFailed;
+            state.updated_at = Utc::now();
+            let _ = flowctl_core::json_store::state_write(flow_dir, tid, &state);
+        } else {
+            let state = flowctl_core::json_store::TaskState {
+                status: Status::UpstreamFailed,
+                ..Default::default()
+            };
+            let _ = flowctl_core::json_store::state_write(flow_dir, tid, &state);
         }
 
         affected.push(tid.clone());
@@ -246,31 +263,28 @@ async fn handle_task_failure(
     if max_retries > 0 && current_retry_count < max_retries {
         let new_retry_count = current_retry_count + 1;
 
-        if let Some(conn) = conn {
-            let task_repo = flowctl_db::TaskRepo::new(conn.clone());
-            let _ = task_repo.update_status(task_id, Status::UpForRetry).await;
-
-            let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
-            let rt = RuntimeState {
-                task_id: task_id.to_string(),
-                assignee: runtime.as_ref().and_then(|r| r.assignee.clone()),
-                claimed_at: None,
-                completed_at: None,
-                duration_secs: None,
-                blocked_reason: None,
-                baseline_rev: runtime.as_ref().and_then(|r| r.baseline_rev.clone()),
-                final_rev: None,
-                retry_count: new_retry_count,
-            };
-            let _ = runtime_repo.upsert(&rt).await;
-        }
+        let task_state = flowctl_core::json_store::TaskState {
+            status: Status::UpForRetry,
+            assignee: runtime.as_ref().and_then(|r| r.assignee.clone()),
+            claimed_at: None,
+            completed_at: None,
+            evidence: None,
+            blocked_reason: None,
+            duration_seconds: None,
+            baseline_rev: runtime.as_ref().and_then(|r| r.baseline_rev.clone()),
+            final_rev: None,
+            retry_count: new_retry_count,
+            updated_at: Utc::now(),
+        };
+        let _ = flowctl_core::json_store::state_write(flow_dir, task_id, &task_state);
 
         (Status::UpForRetry, Vec::new())
     } else {
-        if let Some(conn) = conn {
-            let task_repo = flowctl_db::TaskRepo::new(conn.clone());
-            let _ = task_repo.update_status(task_id, Status::Failed).await;
-        }
+        let task_state = flowctl_core::json_store::TaskState {
+            status: Status::Failed,
+            ..Default::default()
+        };
+        let _ = flowctl_core::json_store::state_write(flow_dir, task_id, &task_state);
 
         let affected = propagate_upstream_failure(conn, flow_dir, task_id).await;
         (Status::Failed, affected)
@@ -373,13 +387,14 @@ pub async fn start_task(
         Some(now)
     };
 
-    let runtime_state = RuntimeState {
-        task_id: req.task_id.clone(),
+    let task_state = flowctl_core::json_store::TaskState {
+        status: Status::InProgress,
         assignee: Some(new_assignee),
         claimed_at,
         completed_at: None,
-        duration_secs: None,
+        evidence: None,
         blocked_reason: None,
+        duration_seconds: None,
         baseline_rev: existing_rt
             .as_ref()
             .and_then(|rt| rt.baseline_rev.clone()),
@@ -388,21 +403,12 @@ pub async fn start_task(
             .as_ref()
             .map(|rt| rt.retry_count)
             .unwrap_or(0),
+        updated_at: Utc::now(),
     };
 
-    // Write SQLite (authoritative)
-    if let Some(conn) = conn {
-        let task_repo = flowctl_db::TaskRepo::new(conn.clone());
-        task_repo
-            .update_status(&req.task_id, Status::InProgress)
-            .await
-            .map_err(ServiceError::from)?;
-        let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
-        runtime_repo
-            .upsert(&runtime_state)
-            .await
-            .map_err(ServiceError::from)?;
-    }
+    // Write to JSON state file
+    flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state)
+        .map_err(|e| ServiceError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
     Ok(StartTaskResponse {
         task_id: req.task_id,
@@ -547,34 +553,29 @@ pub async fn done_task(
     let tests = to_list(evidence_obj.get("tests"));
     let prs = to_list(evidence_obj.get("prs"));
 
-    // Write SQLite (sole source of truth)
-    if let Some(conn) = conn {
-        let task_repo = flowctl_db::TaskRepo::new(conn.clone());
-        let _ = task_repo.update_status(&req.task_id, Status::Done).await;
-
-        let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
+    // Write to JSON state file
+    {
         let now = Utc::now();
-        let rt = RuntimeState {
-            task_id: req.task_id.clone(),
-            assignee: runtime.as_ref().and_then(|r| r.assignee.clone()),
-            claimed_at: runtime.as_ref().and_then(|r| r.claimed_at),
-            completed_at: Some(now),
-            duration_secs: duration_seconds,
-            blocked_reason: None,
-            baseline_rev: runtime.as_ref().and_then(|r| r.baseline_rev.clone()),
-            final_rev: runtime.as_ref().and_then(|r| r.final_rev.clone()),
-            retry_count: runtime.as_ref().map(|r| r.retry_count).unwrap_or(0),
-        };
-        let _ = runtime_repo.upsert(&rt).await;
-
         let ev = Evidence {
             commits: commits.clone(),
             tests: tests.clone(),
             prs: prs.clone(),
             ..Evidence::default()
         };
-        let evidence_repo = flowctl_db::EvidenceRepo::new(conn.clone());
-        let _ = evidence_repo.upsert(&req.task_id, &ev).await;
+        let task_state = flowctl_core::json_store::TaskState {
+            status: Status::Done,
+            assignee: runtime.as_ref().and_then(|r| r.assignee.clone()),
+            claimed_at: runtime.as_ref().and_then(|r| r.claimed_at),
+            completed_at: Some(now),
+            evidence: Some(ev),
+            blocked_reason: None,
+            duration_seconds: duration_seconds.map(|d| d as u64),
+            baseline_rev: runtime.as_ref().and_then(|r| r.baseline_rev.clone()),
+            final_rev: runtime.as_ref().and_then(|r| r.final_rev.clone()),
+            retry_count: runtime.as_ref().map(|r| r.retry_count).unwrap_or(0),
+            updated_at: now,
+        };
+        let _ = flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state);
     }
 
     // Archive review receipt if present
@@ -632,25 +633,23 @@ pub async fn block_task(
         ));
     }
 
-    // Write SQLite (authoritative)
-    if let Some(conn) = conn {
-        let task_repo = flowctl_db::TaskRepo::new(conn.clone());
-        let _ = task_repo.update_status(&req.task_id, Status::Blocked).await;
-
-        let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
-        let existing = runtime_repo.get(&req.task_id).await.ok().flatten();
-        let rt = RuntimeState {
-            task_id: req.task_id.clone(),
+    // Write to JSON state file
+    {
+        let existing = flowctl_core::json_store::state_read(flow_dir, &req.task_id).ok();
+        let task_state = flowctl_core::json_store::TaskState {
+            status: Status::Blocked,
             assignee: existing.as_ref().and_then(|r| r.assignee.clone()),
             claimed_at: existing.as_ref().and_then(|r| r.claimed_at),
             completed_at: None,
-            duration_secs: None,
+            evidence: existing.as_ref().and_then(|r| r.evidence.clone()),
             blocked_reason: Some(reason.clone()),
+            duration_seconds: None,
             baseline_rev: existing.as_ref().and_then(|r| r.baseline_rev.clone()),
             final_rev: None,
             retry_count: existing.as_ref().map(|r| r.retry_count).unwrap_or(0),
+            updated_at: Utc::now(),
         };
-        let _ = runtime_repo.upsert(&rt).await;
+        let _ = flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state);
     }
 
     Ok(BlockTaskResponse {
@@ -788,24 +787,9 @@ pub async fn restart_task(
     // Execute reset
     let mut reset_ids = Vec::new();
     for tid in &to_reset {
-        if let Some(conn) = conn {
-            let task_repo = flowctl_db::TaskRepo::new(conn.clone());
-            let _ = task_repo.update_status(tid, Status::Todo).await;
-
-            let runtime_repo = flowctl_db::RuntimeRepo::new(conn.clone());
-            let rt = RuntimeState {
-                task_id: tid.clone(),
-                assignee: None,
-                claimed_at: None,
-                completed_at: None,
-                duration_secs: None,
-                blocked_reason: None,
-                baseline_rev: None,
-                final_rev: None,
-                retry_count: 0,
-            };
-            let _ = runtime_repo.upsert(&rt).await;
-        }
+        // Reset to blank JSON state
+        let blank = flowctl_core::json_store::TaskState::default();
+        let _ = flowctl_core::json_store::state_write(flow_dir, tid, &blank);
 
         reset_ids.push(tid.clone());
     }

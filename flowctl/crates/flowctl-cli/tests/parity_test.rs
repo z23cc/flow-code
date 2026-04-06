@@ -367,29 +367,17 @@ fn setup_task(prefix: &str) -> (tempfile::TempDir, String) {
 
 /// Read task status from the DB directly via async libSQL.
 #[allow(dead_code)]
-fn db_task_status(work_dir: &Path, task_id: &str) -> String {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(async {
-        let db = flowctl_db::open_async(work_dir).await.expect("open db");
-        let conn = db.connect().expect("connect");
-        let repo = flowctl_db::TaskRepo::new(conn);
-        let task = repo.get(task_id).await.expect("get task");
-        task.status.to_string()
-    })
+fn json_task_status(work_dir: &Path, task_id: &str) -> String {
+    let flow_dir = work_dir.join(".flow");
+    let task = flowctl_core::json_store::task_read(&flow_dir, task_id).expect("read task");
+    task.status.to_string()
 }
-
-// Removed: rusqlite parity tests (fn-19 migration complete). The service
-// layer is now async libSQL end-to-end; the original parity placeholders
-// have been deleted.
 
 #[test]
 fn parity_service_round_trip() {
     // Smoke test: create an epic+task via the CLI, then read it back via
-    // the async libsql repo. Mirrors what the old parity tests checked.
+    // json_store. Verifies CLI writes JSON files correctly.
     let (dir, task_id) = setup_task("parity-rt");
-    let status = db_task_status(dir.path(), &task_id);
+    let status = json_task_status(dir.path(), &task_id);
     assert_eq!(status, "todo", "newly created task should be todo");
 }

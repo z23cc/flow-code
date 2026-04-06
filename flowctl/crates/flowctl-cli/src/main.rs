@@ -4,7 +4,6 @@
 //! All commands are registered as stubs that return "not yet implemented".
 
 mod commands;
-mod diagnostics;
 mod output;
 
 use clap::{CommandFactory, Parser, Subcommand};

@@ -80,7 +80,7 @@ SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
 
 4. **File access request** — when you need a file not in OWNED_FILES:
 
-   **Preferred path (daemon running):** use the approval API instead of SendMessage:
+   **Via approval API:**
    ```bash
    APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind file_access \
      --payload '{"files": ["<path>"], "reason": "<why needed>", "current_owner": "<task-id>"}' \
@@ -91,7 +91,7 @@ SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
    - On `status: rejected` → emit a `Blocked:` summary and skip the file.
    - On timeout → note in completion evidence and continue with alternative approach.
 
-   **Fallback (no daemon, non-Teams mode):**
+   **Via SendMessage (non-Teams mode):**
    ```
    SendMessage(to: "coordinator", summary: "Need file access: <file>",
      message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id>")
@@ -100,7 +100,7 @@ SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
 
 5. **Mutation request** — when the task should be split, skipped, or dependencies changed:
 
-   **Preferred path (daemon running):**
+   **Via approval API:**
    ```bash
    APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind mutation \
      --payload '{"type": "split|skip|dep_change", "details": "<why>", "action": "<suggested>"}' \
@@ -108,7 +108,7 @@ SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
    $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 600 --json
    ```
 
-   **Fallback (no daemon, non-Teams mode):**
+   **Via SendMessage (non-Teams mode):**
    ```
    SendMessage(to: "coordinator", summary: "Need mutation: <TASK_ID>",
      message: "Task <TASK_ID> needs structural change.\nType: split | skip | dep_change\nDetails: <why the mutation is needed>\nSuggested action: <split into N parts | skip because X | remove dep on Y>")

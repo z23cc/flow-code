@@ -100,25 +100,20 @@ If user chose review, pass the review mode to the worker. The worker invokes `/f
 When TEAM_MODE=true, workers request permission for out-of-ownership edits or DAG
 mutations via a two-tier protocol:
 
-**Preferred path — Approval API (daemon running):**
+**Approval API path (Teams mode):**
 - Worker calls `flowctl approval create --task <id> --kind file_access|mutation --payload '{...}'`
   to register a pending approval.
 - Worker blocks on `flowctl approval show <id> --wait --timeout 600`, which polls
   until the approval resolves (or times out after ≤10 minutes).
-- Supervisor (human via dashboard, or coordinating agent via CLI) resolves via
-  `flowctl approval approve|reject <id>`.
-- Daemon emits `ApprovalCreated` / `ApprovalResolved` WebSocket events so the
-  dashboard Approvals page updates in real time.
+- Supervisor resolves via `flowctl approval approve|reject <id>`.
 - On `status: approved` the worker proceeds; on `status: rejected` the worker
   emits a `Blocked:` summary and finds an alternative.
 
-**Fallback path — SendMessage summary-prefix (no daemon, or non-Teams scenarios):**
+**SendMessage path (non-Teams mode):**
 - Worker sends `SendMessage(summary: "Need file access: …")` or `"Need mutation: …"`.
 - Team lead responds with `"Access granted:"` / `"Access denied:"` summary-prefix reply.
-- This path remains supported for environments without a running daemon.
 
-The worker subagent auto-selects the API path when the daemon is reachable and
-falls back to SendMessage otherwise. See `agents/worker.md` for the full protocol.
+See `agents/worker.md` for the full protocol.
 
 ## Recovery
 

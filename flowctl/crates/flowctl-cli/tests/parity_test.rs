@@ -337,7 +337,7 @@ fn edge_done_no_task_id() {
 // ═══════════════════════════════════════════════════════════════════════
 // Service layer parity tests
 //
-// Verify that the service layer (used by MCP + daemon) produces the
+// Verify that the service layer (used by MCP) produces the
 // same DB state as the CLI path.
 // ═══════════════════════════════════════════════════════════════════════
 

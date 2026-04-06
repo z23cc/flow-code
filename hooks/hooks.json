@@ -11,15 +11,6 @@
           }
         ],
         "description": "Auto-download or build flowctl binary if missing/outdated"
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook daemon-start || true",
-            "timeout": 10
-          }
-        ]
       }
     ],
     "PreToolUse": [
@@ -107,15 +98,6 @@
           }
         ],
         "description": "Auto-capture session memories to .flow/memory/ (requires memory.enabled or memory.auto in config)"
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook daemon-stop 2>/dev/null || true",
-            "timeout": 5
-          }
-        ]
       }
     ],
     "SubagentStop": [

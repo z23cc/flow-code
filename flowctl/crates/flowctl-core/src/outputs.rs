@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// An entry in the outputs store — pointer + metadata for a `.flow/outputs/*.md` file.
 ///
 /// Per memory convention #008: protocol types live in flowctl-core so all
-/// transport layers (CLI, daemon, MCP) share the same shape.
+/// transport layers (CLI, MCP) share the same shape.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputEntry {
     /// Task ID (e.g. `fn-20-abf.2`).

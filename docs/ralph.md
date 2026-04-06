@@ -88,17 +88,6 @@ scripts/ralph/ralph.sh --watch verbose   # Include model responses
 scripts/ralph/ralph.sh --config alt.env  # Use alternate config file
 ```
 
-### 5. Monitor (Optional)
-
-```bash
-bun add -g flow-code-tui
-flow-code-tui
-```
-
-Real-time TUI for task progress, streaming logs, and run state.
-
-![flow-code-tui](../../../assets/tui.png)
-
 ### Uninstall
 
 Run manually in terminal:

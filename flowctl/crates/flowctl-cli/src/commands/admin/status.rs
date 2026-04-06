@@ -34,12 +34,10 @@ pub fn cmd_status(json: bool, interrupted: bool) {
             return;
         }
 
-        let daemon_alive = is_daemon_heartbeat_alive(&flow_dir);
         let interrupted_epics = find_interrupted_epics(&flow_dir);
         if json {
             json_output(json!({
                 "interrupted": interrupted_epics,
-                "daemon_running": daemon_alive,
             }));
         } else if interrupted_epics.is_empty() {
             println!("No interrupted work found.");
@@ -74,15 +72,13 @@ pub fn cmd_status(json: bool, interrupted: bool) {
                     remaining.join(", ")
                 );
 
-                // Smart recovery: if tasks are in_progress but no daemon is running,
-                // output specific restart commands for stale tasks.
-                if in_prog > 0 && !daemon_alive {
+                if in_prog > 0 {
                     let stale_tasks = ep.get("stale_task_ids")
                         .and_then(|v| v.as_array())
                         .cloned()
                         .unwrap_or_default();
                     if !stale_tasks.is_empty() {
-                        println!("    Recovery (no daemon heartbeat):");
+                        println!("    Recovery:");
                         for tid in &stale_tasks {
                             if let Some(id) = tid.as_str() {
                                 println!("      Run: flowctl restart {id}");
@@ -185,28 +181,6 @@ fn status_from_db() -> Option<(serde_json::Value, serde_json::Value)> {
     ))
 }
 
-/// Check if the daemon is running by reading `.flow/.state/flowctl.pid`
-/// and verifying the process is alive. Returns false if no PID file,
-/// PID is invalid, or the process is dead.
-fn is_daemon_heartbeat_alive(flow_dir: &Path) -> bool {
-    let pid_file = flow_dir.join(".state").join("flowctl.pid");
-    let content = match fs::read_to_string(&pid_file) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let pid_str = content.trim();
-    if pid_str.parse::<u32>().is_err() {
-        return false;
-    }
-    // Use `kill -0 <pid>` to check process existence without sending a signal.
-    Command::new("kill")
-        .args(["-0", pid_str])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
 
 /// Find open epics with undone tasks (interrupted work) from JSON files.
 fn find_interrupted_epics(flow_dir: &Path) -> Vec<serde_json::Value> {

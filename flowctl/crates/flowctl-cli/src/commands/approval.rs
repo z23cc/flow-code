@@ -1,22 +1,14 @@
 //! Approval commands: `flowctl approval create|list|show|approve|reject`.
 //!
-//! Transport contract:
-//! - Detect daemon via `.flow/.state/flowctl.pid` + `.flow/.state/flowctl.sock`.
-//! - When the daemon is reachable, ALL mutations route through the Unix
-//!   socket (or TCP fallback) so the event_bus emits exactly one set of
-//!   live events from the daemon.
-//! - When the daemon is absent, the CLI writes directly to libSQL. No
-//!   live events are emitted in that path.
+//! All operations go directly through libSQL.
 
 use std::env;
-use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use clap::Subcommand;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use flowctl_core::approvals::{ApprovalKind, ApprovalStatus, CreateApprovalRequest};
-use flowctl_core::types::{FLOW_DIR, STATE_DIR};
 use flowctl_service::approvals::{ApprovalStore, LibSqlApprovalStore};
 
 use crate::output::{error_exit, json_output};
@@ -92,132 +84,7 @@ pub fn dispatch(cmd: &ApprovalCmd, json: bool) {
     });
 }
 
-// ── Transport resolution ────────────────────────────────────────────
-
-fn flow_state_dir() -> PathBuf {
-    find_flow_dir().join(STATE_DIR)
-}
-
-/// Walk up from cwd to locate the nearest `.flow/` directory. Falls back to
-/// `./.flow` if none found (fresh repo). This matches how other tools resolve
-/// project roots (walk up until `.git`) and avoids the subdirectory pitfall
-/// where `flowctl approval ...` was bypassing the daemon when run from a
-/// crate folder.
-fn find_flow_dir() -> PathBuf {
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut cursor: &Path = &cwd;
-    loop {
-        let candidate = cursor.join(FLOW_DIR);
-        if candidate.is_dir() {
-            return candidate;
-        }
-        match cursor.parent() {
-            Some(parent) => cursor = parent,
-            None => break,
-        }
-    }
-    cwd.join(FLOW_DIR)
-}
-
-/// Where the daemon writes its PID + socket.
-fn daemon_paths() -> (PathBuf, PathBuf) {
-    let state_dir = flow_state_dir();
-    (
-        state_dir.join("flowctl.pid"),
-        state_dir.join("flowctl.sock"),
-    )
-}
-
-/// Check whether the PID file points to a live process.
-fn daemon_is_alive(pid_file: &Path) -> bool {
-    let pid_str = match std::fs::read_to_string(pid_file) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let pid: i32 = match pid_str.trim().parse() {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    // Probe with `kill -0 <pid>` (POSIX). Works without adding a nix dep.
-    #[cfg(unix)]
-    {
-        std::process::Command::new("kill")
-            .arg("-0")
-            .arg(pid.to_string())
-            .stderr(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        false
-    }
-}
-
-async fn fetch_daemon_port() -> Option<u16> {
-    // When `flowctl serve --port N` is used, status exposes the TCP port.
-    // Read `.flow/.state/flowctl.port` if the daemon wrote one; otherwise None.
-    let port_file = flow_state_dir().join("flowctl.port");
-    let content = tokio::fs::read_to_string(&port_file).await.ok()?;
-    content.trim().parse::<u16>().ok()
-}
-
-/// Result of a daemon HTTP call.
-enum TransportResult {
-    Unreachable,
-    Response { status: u16, body: Value },
-}
-
-async fn daemon_request(
-    method: &str,
-    path: &str,
-    body: Option<&Value>,
-) -> TransportResult {
-    let (pid_file, socket_file) = daemon_paths();
-    if !daemon_is_alive(&pid_file) {
-        return TransportResult::Unreachable;
-    }
-
-    // Try Unix socket first.
-    if socket_file.exists() {
-        if let Some(res) = unix_socket_request(&socket_file, method, path, body).await {
-            return res;
-        }
-    }
-
-    // TCP fallback.
-    if let Some(port) = fetch_daemon_port().await {
-        if let Some(res) = tcp_request(port, method, path, body).await {
-            return res;
-        }
-    }
-
-    TransportResult::Unreachable
-}
-
-/// Daemon removed — transport stubs return None.
-async fn unix_socket_request(
-    _socket_path: &Path,
-    _method: &str,
-    _path: &str,
-    _body: Option<&Value>,
-) -> Option<TransportResult> {
-    None // No daemon
-}
-
-async fn tcp_request(
-    _port: u16,
-    _method: &str,
-    _path: &str,
-    _body: Option<&Value>,
-) -> Option<TransportResult> {
-    None // No daemon
-}
-
-// ── Direct-DB fallback ──────────────────────────────────────────────
+// ── DB operations ───────────────────────────────────────────────────
 
 async fn open_local_store() -> LibSqlApprovalStore {
     let cwd = env::current_dir()
@@ -254,24 +121,6 @@ async fn cmd_create(json: bool, task: &str, kind_str: &str, payload: &str) {
         .unwrap_or_else(|| error_exit(&format!("invalid --kind: {kind_str}")));
     let payload_val = parse_payload(payload);
 
-    let req_json = json!({
-        "task_id": task,
-        "kind": kind.as_str(),
-        "payload": payload_val,
-    });
-
-    match daemon_request("POST", "/api/v1/approvals", Some(&req_json)).await {
-        TransportResult::Response { status, body } if (200..300).contains(&status) => {
-            emit_result(json, body);
-            return;
-        }
-        TransportResult::Response { status, body } => {
-            error_exit(&format!("daemon rejected: {status} {body}"));
-        }
-        TransportResult::Unreachable => {}
-    }
-
-    // Direct-DB path.
     let store = open_local_store().await;
     let created = store
         .create(CreateApprovalRequest {
@@ -285,23 +134,6 @@ async fn cmd_create(json: bool, task: &str, kind_str: &str, payload: &str) {
 }
 
 async fn cmd_list(json: bool, pending_only: bool) {
-    let path = if pending_only {
-        "/api/v1/approvals?status=pending"
-    } else {
-        "/api/v1/approvals"
-    };
-
-    match daemon_request("GET", path, None).await {
-        TransportResult::Response { status, body } if (200..300).contains(&status) => {
-            emit_list(json, body);
-            return;
-        }
-        TransportResult::Response { status, body } => {
-            error_exit(&format!("daemon rejected: {status} {body}"));
-        }
-        TransportResult::Unreachable => {}
-    }
-
     let store = open_local_store().await;
     let filter = if pending_only {
         Some(ApprovalStatus::Pending)
@@ -341,16 +173,6 @@ async fn cmd_show(json: bool, id: &str, wait: bool, timeout_secs: u64) {
 }
 
 async fn fetch_one(id: &str) -> Value {
-    let path = format!("/api/v1/approvals/{id}");
-    match daemon_request("GET", &path, None).await {
-        TransportResult::Response { status, body } if (200..300).contains(&status) => {
-            return body;
-        }
-        TransportResult::Response { status, body } => {
-            error_exit(&format!("daemon rejected: {status} {body}"));
-        }
-        TransportResult::Unreachable => {}
-    }
     let store = open_local_store().await;
     let approval = store
         .get(id)
@@ -361,20 +183,6 @@ async fn fetch_one(id: &str) -> Value {
 
 async fn cmd_approve(json: bool, id: &str) {
     let resolver = resolve_actor();
-    let body = json!({ "resolver": resolver });
-    let path = format!("/api/v1/approvals/{id}/approve");
-
-    match daemon_request("POST", &path, Some(&body)).await {
-        TransportResult::Response { status, body } if (200..300).contains(&status) => {
-            emit_result(json, body);
-            return;
-        }
-        TransportResult::Response { status, body } => {
-            error_exit(&format!("daemon rejected: {status} {body}"));
-        }
-        TransportResult::Unreachable => {}
-    }
-
     let store = open_local_store().await;
     let resolved = store
         .approve(id, Some(resolver))
@@ -385,20 +193,6 @@ async fn cmd_approve(json: bool, id: &str) {
 
 async fn cmd_reject(json: bool, id: &str, reason: Option<String>) {
     let resolver = resolve_actor();
-    let body = json!({ "resolver": resolver, "reason": reason });
-    let path = format!("/api/v1/approvals/{id}/reject");
-
-    match daemon_request("POST", &path, Some(&body)).await {
-        TransportResult::Response { status, body } if (200..300).contains(&status) => {
-            emit_result(json, body);
-            return;
-        }
-        TransportResult::Response { status, body } => {
-            error_exit(&format!("daemon rejected: {status} {body}"));
-        }
-        TransportResult::Unreachable => {}
-    }
-
     let store = open_local_store().await;
     let resolved = store
         .reject(id, Some(resolver), reason)

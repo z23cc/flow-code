@@ -1,8 +1,7 @@
 //! Approval store: CRUD over the `approvals` libSQL table.
 //!
 //! Wraps `flowctl_core::approvals::Approval` protocol types with persistence.
-//! Used by the CLI (direct-DB fallback) and the daemon (HTTP handlers) to
-//! keep approval state consistent.
+//! Used by the CLI and MCP to keep approval state consistent.
 
 use chrono::Utc;
 use libsql::{params, Connection};

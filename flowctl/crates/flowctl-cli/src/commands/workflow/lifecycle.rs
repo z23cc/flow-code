@@ -150,7 +150,7 @@ pub fn cmd_fail(json_mode: bool, id: String, reason: Option<String>, force: bool
                 println!("Task {} {}", resp.task_id, resp.final_status);
                 if resp.final_status == Status::UpForRetry {
                     if let (Some(count), Some(max)) = (resp.retry_count, resp.max_retries) {
-                        println!("  retry {}/{} \u{2014} will be retried by scheduler", count, max);
+                        println!("  retry {}/{} \u{2014} will be retried on next run", count, max);
                     }
                 }
                 if !resp.upstream_failed_ids.is_empty() {

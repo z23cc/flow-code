@@ -505,11 +505,11 @@ worker-prompt
 ### C. Hook Inventory
 
 ```
-SessionStart:   ensure-flowctl.sh, daemon-start
+SessionStart:   ensure-flowctl.sh
 PreToolUse:     ralph-guard, rtk-rewrite, commit-gate  (×3 on Bash)
 PreToolUse:     ralph-guard                            (on Edit|Write)
 PostToolUse:    ralph-guard, commit-gate               (×2 on Bash)
-Stop:           ralph-guard, auto-memory, daemon-stop  (×3)
+Stop:           ralph-guard, auto-memory               (×2)
 SubagentStop:   ralph-guard
 SubagentStart:  subagent-context
 PreCompact:     pre-compact

@@ -35,7 +35,6 @@ pub(crate) fn ensure_flow_exists() -> PathBuf {
 }
 
 /// Bridge: DB connection for functions not yet migrated (phase progress, runtime).
-/// TODO(fn-24): Remove once all workflow commands use json_store.
 pub(crate) fn require_db() -> crate::commands::db_shim::Connection {
     crate::commands::db_shim::require_db()
         .unwrap_or_else(|e| error_exit(&format!("Cannot open database: {e}")))

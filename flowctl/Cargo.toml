@@ -37,7 +37,7 @@ sha2 = "0.10"
 # Logging
 tracing = "0.1"
 
-# DAG (scheduler + TUI)
+# DAG
 petgraph = "0.7"
 
 # libSQL (async, native vectors) — the DB engine

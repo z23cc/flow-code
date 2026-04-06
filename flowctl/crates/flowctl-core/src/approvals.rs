@@ -6,7 +6,7 @@
 //! approvals and resolves them via approve/reject.
 //!
 //! Per convention #008, protocol types live in `flowctl-core` so all other
-//! crates (service, daemon, cli) share the same wire format.
+//! crates (service, cli) share the same wire format.
 
 use serde::{Deserialize, Serialize};
 

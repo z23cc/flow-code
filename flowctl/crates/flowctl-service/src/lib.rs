@@ -1,17 +1,16 @@
 //! flowctl-service: Business logic service layer for flowctl.
 //!
 //! This crate provides the canonical business logic that is shared across
-//! all three execution paths (CLI, daemon, MCP). It sits between the
-//! transport layer (HTTP handlers, CLI commands, MCP protocol) and the
-//! storage layer (flowctl-db).
+//! CLI and MCP execution paths. It sits between the transport layer
+//! (CLI commands, MCP protocol) and the storage layer (flowctl-db).
 //!
 //! # Architecture
 //!
 //! ```text
 //!   CLI commands ─┐
-//!   HTTP handlers ─┼─► flowctl-service ──► flowctl-db ──► SQLite
-//!   MCP server ───┘         │
-//!                    flowctl-core (types, DAG, state machine)
+//!   MCP server ───┴─► flowctl-service ──► flowctl-db ──► SQLite
+//!                            │
+//!                     flowctl-core (types, DAG, state machine)
 //! ```
 //!
 //! # Connection management

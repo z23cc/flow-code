@@ -315,6 +315,12 @@ enum Commands {
         #[arg(long)]
         all: bool,
     },
+    /// Extend lock TTL for a task (Teams mode heartbeat).
+    Heartbeat {
+        /// Task ID to extend locks for.
+        #[arg(long)]
+        task: String,
+    },
     /// Check file lock status (Teams mode).
     LockCheck {
         /// Specific file to check.
@@ -527,6 +533,7 @@ fn main() {
         Commands::Lock { task, files } => query::cmd_lock(json, task, files),
         Commands::Unlock { task, files, all } => query::cmd_unlock(json, task, files, all),
         Commands::LockCheck { file } => query::cmd_lock_check(json, file),
+        Commands::Heartbeat { task } => query::cmd_heartbeat(json, task),
 
         // Workflow
         Commands::Ready { epic } => workflow::cmd_ready(json, epic),

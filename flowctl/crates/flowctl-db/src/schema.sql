@@ -105,7 +105,9 @@ CREATE TABLE IF NOT EXISTS runtime_state (
 CREATE TABLE IF NOT EXISTS file_locks (
     file_path  TEXT PRIMARY KEY,
     task_id    TEXT NOT NULL,
-    locked_at  TEXT NOT NULL
+    locked_at  TEXT NOT NULL,
+    holder_pid INTEGER,
+    expires_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS heartbeats (

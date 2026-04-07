@@ -764,3 +764,24 @@ pub fn cmd_lock_check(json: bool, file: Option<String>) {
         }
     }
 }
+
+pub fn cmd_heartbeat(json: bool, task: String) {
+    let _flow_dir = ensure_flow_exists();
+    let conn = require_db();
+    let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
+
+    match repo.heartbeat(&task) {
+        Ok(count) => {
+            if json {
+                json_output(json!({
+                    "task": task,
+                    "extended": count,
+                    "message": format!("Extended TTL for {} lock(s)", count),
+                }));
+            } else {
+                println!("Extended TTL for {} lock(s) for task {}", count, task);
+            }
+        }
+        Err(e) => error_exit(&format!("Failed to heartbeat: {}", e)),
+    }
+}

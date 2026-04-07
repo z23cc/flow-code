@@ -322,6 +322,10 @@ impl FileLockRepo {
         block_on(flowctl_db::FileLockRepo::new(self.0.clone()).check(file_path))
     }
 
+    pub fn heartbeat(&self, task_id: &str) -> Result<u64, DbError> {
+        block_on(flowctl_db::FileLockRepo::new(self.0.clone()).heartbeat(task_id))
+    }
+
     /// List all active locks: (file_path, task_id, locked_at).
     pub fn list_all(&self) -> Result<Vec<(String, String, String)>, DbError> {
         let inner = self.0.clone();

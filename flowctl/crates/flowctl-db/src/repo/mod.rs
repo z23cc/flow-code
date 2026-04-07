@@ -501,6 +501,83 @@ mod tests {
         assert!(repo.check("src/c.rs").await.unwrap().is_none());
     }
 
+    #[tokio::test]
+    async fn file_lock_idempotent_reacquire() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = FileLockRepo::new(conn.clone());
+
+        // Acquiring the same file for the same task twice should succeed (idempotent).
+        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
+        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
+        assert_eq!(
+            repo.check("src/a.rs").await.unwrap().as_deref(),
+            Some("fn-1.1")
+        );
+    }
+
+    #[tokio::test]
+    async fn file_lock_expired_cleanup() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = FileLockRepo::new(conn.clone());
+
+        // Insert a lock with an already-expired TTL directly.
+        let past = (chrono::Utc::now() - chrono::Duration::minutes(1)).to_rfc3339();
+        conn.execute(
+            "INSERT INTO file_locks (file_path, task_id, locked_at, holder_pid, expires_at)
+             VALUES ('src/expired.rs', 'fn-old', ?1, 99999, ?2)",
+            libsql::params![past.clone(), past],
+        )
+        .await
+        .unwrap();
+
+        // The expired lock should be visible before cleanup.
+        assert!(repo.check("src/expired.rs").await.unwrap().is_some());
+
+        // cleanup_stale should remove it.
+        let cleaned = repo.cleanup_stale().await.unwrap();
+        assert!(cleaned >= 1);
+        assert!(repo.check("src/expired.rs").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn file_lock_heartbeat_extends_ttl() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = FileLockRepo::new(conn.clone());
+
+        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
+        repo.acquire("src/b.rs", "fn-1.1").await.unwrap();
+
+        let extended = repo.heartbeat("fn-1.1").await.unwrap();
+        assert_eq!(extended, 2);
+
+        // Heartbeat on a non-existent task returns 0.
+        let none = repo.heartbeat("fn-nonexistent").await.unwrap();
+        assert_eq!(none, 0);
+    }
+
+    #[tokio::test]
+    async fn file_lock_acquire_cleans_expired_before_insert() {
+        let (_db, conn) = open_memory_async().await.unwrap();
+        let repo = FileLockRepo::new(conn.clone());
+
+        // Insert expired lock for a file.
+        let past = (chrono::Utc::now() - chrono::Duration::minutes(1)).to_rfc3339();
+        conn.execute(
+            "INSERT INTO file_locks (file_path, task_id, locked_at, holder_pid, expires_at)
+             VALUES ('src/a.rs', 'fn-old', ?1, 99999, ?2)",
+            libsql::params![past.clone(), past],
+        )
+        .await
+        .unwrap();
+
+        // Acquiring the same file should succeed because the old lock is expired.
+        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
+        assert_eq!(
+            repo.check("src/a.rs").await.unwrap().as_deref(),
+            Some("fn-1.1")
+        );
+    }
+
     // ── PhaseProgressRepo ───────────────────────────────────────────
 
     #[tokio::test]

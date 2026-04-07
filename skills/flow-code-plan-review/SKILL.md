@@ -200,3 +200,24 @@ $FLOWCTL checkpoint restore --epic <EPIC_ID> --json
 ```
 
 **CRITICAL**: For RP, re-reviews must stay in the SAME chat so reviewer has context. Only use `--new-chat` on the FIRST review.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "The plan looks reasonable, ship it" | Reasonable-looking plans fail at implementation. Review forces you to find the gaps before code exists. |
+| "We already discussed this verbally" | Verbal agreement evaporates. Written review catches assumptions that felt obvious in conversation but aren't. |
+| "Reviewer doesn't know our codebase" | External perspective catches blind spots. Codebase familiarity causes pattern blindness — fresh eyes find structural issues. |
+| "Review is blocking progress" | Review prevents rework. A 30-minute review saves days of implementing the wrong design. |
+| "The spec is too detailed to review" | Over-detailed specs hide weak architecture behind volume. If it's too complex to review, it's too complex to implement. |
+| "Minor plan issues, we'll fix during implementation" | Plan issues compound during implementation. A wrong assumption in the spec becomes wrong code in every task. |
+| "Just one more iteration and it's perfect" | Diminishing returns are real. Hit the circuit breaker, ship what's good enough, and capture remaining concerns as gaps. |
+
+## Red Flags
+
+- Plan approved without any reviewer reading the actual task specs
+- SHIP verdict with zero questions asked (rubber-stamp review)
+- Review feedback ignored because "we know better"
+- Same structural issue found in implementation that was present in the plan (review missed it)
+- Plan-review skipped because "we're behind schedule"
+- Reviewer only checked formatting, not technical feasibility

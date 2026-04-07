@@ -30,6 +30,12 @@ impl Connection {
     fn inner(&self) -> libsql::Connection {
         self.conn.clone()
     }
+
+    /// Public accessor for modules that need the raw libsql connection
+    /// (e.g. skill commands that call async repos directly).
+    pub fn inner_conn(&self) -> libsql::Connection {
+        self.conn.clone()
+    }
 }
 
 fn block_on<F: std::future::Future>(fut: F) -> F::Output {

@@ -23,6 +23,7 @@ use commands::{
     query,
     ralph::RalphCmd,
     rp::RpCmd,
+    skill::SkillCmd,
     stack::{InvariantsCmd, StackCmd},
     stats::StatsCmd,
     task::TaskCmd,
@@ -215,6 +216,11 @@ enum Commands {
     Ralph {
         #[command(subcommand)]
         cmd: RalphCmd,
+    },
+    /// Skill registry commands (register, match).
+    Skill {
+        #[command(subcommand)]
+        cmd: SkillCmd,
     },
     /// RepoPrompt helpers.
     Rp {
@@ -484,6 +490,7 @@ fn main() {
         Commands::Stack { cmd } => commands::stack::dispatch(&cmd, json),
         Commands::Invariants { cmd } => commands::stack::dispatch_invariants(&cmd, json),
         Commands::Ralph { cmd } => commands::ralph::dispatch(&cmd, json),
+        Commands::Skill { cmd } => commands::skill::dispatch(&cmd, json),
         Commands::Rp { cmd } => commands::rp::dispatch(&cmd, json),
         Commands::Codex { cmd } => commands::codex::dispatch(&cmd, json),
         Commands::Hook { cmd } => commands::hook::dispatch(&cmd),

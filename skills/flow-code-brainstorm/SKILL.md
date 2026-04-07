@@ -2,6 +2,21 @@
 name: flow-code-brainstorm
 description: "Use when exploring requirements before planning. Pressure-tests ideas, generates approaches, and outputs a requirements doc for /flow-code:plan."
 user-invocable: false
+version: 1.0.0
+preamble-tier: 2
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - WebSearch
+voice-triggers:
+  - "brainstorm"
+  - "explore this idea"
+  - "think through this"
 ---
 
 # Flow brainstorm

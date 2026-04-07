@@ -2,6 +2,22 @@
 name: flow-code-work
 description: "Use when implementing a plan or working through a spec. Triggers on /flow-code:work with Flow IDs."
 user-invocable: false
+version: 1.0.0
+preamble-tier: 2
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - Skill
+  - Task
+voice-triggers:
+  - "flow work"
+  - "start working"
+  - "execute the plan"
 ---
 
 # Flow work

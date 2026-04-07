@@ -2,6 +2,21 @@
 name: flow-code-plan
 description: "Use when planning features or designing implementation. Triggers on /flow-code:plan with text descriptions or Flow IDs."
 user-invocable: false
+version: 1.0.0
+preamble-tier: 2
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - Skill
+voice-triggers:
+  - "flow plan"
+  - "make a plan"
+  - "plan this"
 ---
 
 # Flow plan

@@ -15,6 +15,7 @@ pub mod error;
 pub mod frontmatter;
 pub mod id;
 pub mod json_store;
+pub mod lifecycle;
 pub mod outputs;
 pub mod pipeline;
 pub mod review_protocol;
@@ -22,11 +23,12 @@ pub mod state_machine;
 pub mod types;
 
 // Re-export commonly used items at crate root.
-pub use changes::{Changes, Mutation};
+pub use changes::{Changes, ChangesApplier, ApplyResult, Mutation};
 pub use dag::TaskDag;
-pub use error::CoreError;
+pub use error::{CoreError, ServiceError, ServiceResult};
 pub use id::{parse_id, slugify, EpicId, ParsedId, TaskId};
-pub use outputs::OutputEntry;
+pub use outputs::{OutputEntry, OutputsStore};
 pub use pipeline::PipelinePhase;
 pub use state_machine::{Status, Transition, TransitionError};
 pub use types::{Epic, Evidence, Phase, Task, TaskSize};
+pub use approvals::FileApprovalStore;

@@ -149,7 +149,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
 /// Returns the number of mutations applied. Calls `error_exit` on failure.
 pub fn apply_changes(flow_dir: &Path, changes: &flowctl_core::changes::Changes) -> usize {
     use crate::output::error_exit;
-    use flowctl_service::changes::ChangesApplier;
+    use flowctl_core::changes::ChangesApplier;
 
     if changes.is_empty() {
         return 0;

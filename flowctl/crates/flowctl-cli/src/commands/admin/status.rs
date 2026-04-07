@@ -726,8 +726,7 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
 
         // Check 7: stale file locks
         {
-            let store = flowctl_db::FlowStore::new(flow_dir.clone());
-            match store.locks().list() {
+            match flowctl_core::json_store::locks_read(&flow_dir) {
                 Ok(locks) if !locks.is_empty() => {
                     checks.push(json!({"name": "stale_locks", "status": "warn", "message": format!("{} file lock(s) active — verify with 'flowctl lock-check'", locks.len())}));
                 }

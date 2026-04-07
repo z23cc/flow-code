@@ -599,21 +599,21 @@ pub fn cmd_lock(json: bool, task: String, files: String, mode: String) {
         error_exit("No files specified for locking.");
     }
 
-    let store = flowctl_db::FlowStore::new(flow_dir);
-    let lock_store = store.locks();
-
     let mut locked = Vec::new();
     let mut already_locked = Vec::new();
 
     for file in &file_list {
-        match lock_store.acquire(file, &task, &mode) {
-            Ok(()) => locked.push(file.to_string()),
-            Err(flowctl_db::DbError::Constraint(msg)) => {
-                let holder = lock_store.check(file).ok().flatten().unwrap_or_default();
-                already_locked.push(json!({"file": file, "owners": [format!("{}({mode})", holder)], "detail": msg}));
-            }
-            Err(e) => {
-                error_exit(&format!("Failed to lock {}: {}", file, e));
+        // Check for conflict: another task holding the file.
+        let locks = flowctl_core::json_store::locks_read(&flow_dir).unwrap_or_default();
+        let conflict = locks.iter().find(|l| l.file_path == *file && l.task_id != task);
+        if let Some(holder) = conflict {
+            already_locked.push(json!({"file": file, "owners": [format!("{}({mode})", holder.task_id)], "detail": format!("file '{}' already locked by task '{}'", file, holder.task_id)}));
+        } else {
+            match flowctl_core::json_store::lock_acquire(&flow_dir, file, &task, &mode) {
+                Ok(()) => locked.push(file.to_string()),
+                Err(e) => {
+                    error_exit(&format!("Failed to lock {}: {}", file, e));
+                }
             }
         }
     }
@@ -641,11 +641,8 @@ pub fn cmd_lock(json: bool, task: String, files: String, mode: String) {
 
 pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all: bool) {
     let flow_dir = ensure_flow_exists();
-    let store = flowctl_db::FlowStore::new(flow_dir);
-    let lock_store = store.locks();
-
     if all {
-        match lock_store.release_all() {
+        match flowctl_core::json_store::locks_clear(&flow_dir) {
             Ok(count) => {
                 if json {
                     json_output(json!({
@@ -668,7 +665,7 @@ pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all:
         }
     };
 
-    match lock_store.release_for_task(&task_id) {
+    match flowctl_core::json_store::lock_release_task(&flow_dir, &task_id) {
         Ok(count) => {
             if json {
                 json_output(json!({
@@ -686,39 +683,31 @@ pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all:
 
 pub fn cmd_lock_check(json: bool, file: Option<String>) {
     let flow_dir = ensure_flow_exists();
-    let store = flowctl_db::FlowStore::new(flow_dir);
-    let lock_store = store.locks();
-
     match file {
         Some(f) => {
-            match lock_store.check(&f) {
-                Ok(Some(task_id)) => {
-                    if json {
-                        json_output(json!({
-                            "file": f,
-                            "locked": true,
-                            "locks": [{"task_id": task_id, "mode": "write"}],
-                        }));
-                    } else {
-                        println!("{}: locked by {}", f, task_id);
-                    }
+            let locks = flowctl_core::json_store::locks_read(&flow_dir).unwrap_or_default();
+            let holder = locks.iter().find(|l| l.file_path == f).map(|l| l.task_id.clone());
+            if let Some(task_id) = holder {
+                if json {
+                    json_output(json!({
+                        "file": f,
+                        "locked": true,
+                        "locks": [{"task_id": task_id, "mode": "write"}],
+                    }));
+                } else {
+                    println!("{}: locked by {}", f, task_id);
                 }
-                Ok(None) => {
-                    if json {
-                        json_output(json!({
-                            "file": f,
-                            "locked": false,
-                        }));
-                    } else {
-                        println!("{}: not locked", f);
-                    }
-                }
-                Err(e) => error_exit(&format!("Failed to check lock: {}", e)),
+            } else if json {
+                json_output(json!({
+                    "file": f,
+                    "locked": false,
+                }));
+            } else {
+                println!("{}: not locked", f);
             }
         }
         None => {
-            let entries = lock_store
-                .list()
+            let entries = flowctl_core::json_store::locks_read(&flow_dir)
                 .unwrap_or_else(|e| { error_exit(&format!("Query failed: {}", e)); });
             let locks: Vec<serde_json::Value> = entries
                 .into_iter()

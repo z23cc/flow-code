@@ -89,8 +89,7 @@ fn cmd_summary(json_flag: bool) {
         }
     }
 
-    let store = flowctl_db::FlowStore::new(flow_dir);
-    let total_events = store.events().read_all().map(|v| v.len() as i64).unwrap_or(0);
+    let total_events = flowctl_core::json_store::events_read_all(&flow_dir).map(|v| v.len() as i64).unwrap_or(0);
 
     if should_json(json_flag) {
         json_output(json!({

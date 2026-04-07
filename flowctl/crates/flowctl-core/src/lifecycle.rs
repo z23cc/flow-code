@@ -9,13 +9,11 @@ use std::path::Path;
 
 use chrono::Utc;
 
-use flowctl_core::id::{epic_id_from_task, is_task_id};
-use flowctl_core::state_machine::{Status, Transition};
-use flowctl_core::types::{
+use crate::id::{epic_id_from_task, is_task_id};
+use crate::state_machine::{Status, Transition};
+use crate::types::{
     Epic, EpicStatus, Evidence, RuntimeState, Task, REVIEWS_DIR,
 };
-
-use flowctl_db::FlowStore;
 
 use crate::error::{ServiceError, ServiceResult};
 
@@ -112,15 +110,15 @@ fn validate_task_id(id: &str) -> ServiceResult<()> {
 
 /// Load a task from JSON files.
 fn load_task(flow_dir: &Path, task_id: &str) -> Option<Task> {
-    flowctl_core::json_store::task_read(flow_dir, task_id).ok()
+    crate::json_store::task_read(flow_dir, task_id).ok()
 }
 
 fn load_epic(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
-    flowctl_core::json_store::epic_read(flow_dir, epic_id).ok()
+    crate::json_store::epic_read(flow_dir, epic_id).ok()
 }
 
 fn get_runtime(flow_dir: &Path, task_id: &str) -> Option<RuntimeState> {
-    let state = flowctl_core::json_store::state_read(flow_dir, task_id).ok()?;
+    let state = crate::json_store::state_read(flow_dir, task_id).ok()?;
     Some(RuntimeState {
         task_id: task_id.to_string(),
         assignee: state.assignee,
@@ -141,7 +139,7 @@ fn load_tasks_for_epic(
 ) -> std::collections::HashMap<String, Task> {
     use std::collections::HashMap;
 
-    if let Ok(tasks) = flowctl_core::json_store::task_list_by_epic(flow_dir, epic_id) {
+    if let Ok(tasks) = crate::json_store::task_list_by_epic(flow_dir, epic_id) {
         let mut map = HashMap::new();
         for task in tasks {
             map.insert(task.id.clone(), task);
@@ -213,7 +211,7 @@ fn propagate_upstream_failure(
     let tasks = load_tasks_for_epic(flow_dir, &epic_id);
     let task_list: Vec<Task> = tasks.values().cloned().collect();
 
-    let dag = match flowctl_core::TaskDag::from_tasks(&task_list) {
+    let dag = match crate::TaskDag::from_tasks(&task_list) {
         Ok(d) => {
             if d.detect_cycles().is_some() {
                 return Vec::new();
@@ -236,18 +234,18 @@ fn propagate_upstream_failure(
             continue;
         }
 
-        if let Ok(mut state) = flowctl_core::json_store::state_read(flow_dir, tid) {
+        if let Ok(mut state) = crate::json_store::state_read(flow_dir, tid) {
             state.status = Status::UpstreamFailed;
             state.updated_at = Utc::now();
-            if let Err(e) = flowctl_core::json_store::state_write(flow_dir, tid, &state) {
+            if let Err(e) = crate::json_store::state_write(flow_dir, tid, &state) {
                 eprintln!("warning: failed to write upstream_failed state for {tid}: {e}");
             }
         } else {
-            let state = flowctl_core::json_store::TaskState {
+            let state = crate::json_store::TaskState {
                 status: Status::UpstreamFailed,
                 ..Default::default()
             };
-            if let Err(e) = flowctl_core::json_store::state_write(flow_dir, tid, &state) {
+            if let Err(e) = crate::json_store::state_write(flow_dir, tid, &state) {
                 eprintln!("warning: failed to write upstream_failed state for {tid}: {e}");
             }
         }
@@ -271,7 +269,7 @@ fn handle_task_failure(
     if max_retries > 0 && current_retry_count < max_retries {
         let new_retry_count = current_retry_count + 1;
 
-        let task_state = flowctl_core::json_store::TaskState {
+        let task_state = crate::json_store::TaskState {
             status: Status::UpForRetry,
             assignee: runtime.as_ref().and_then(|r| r.assignee.clone()),
             claimed_at: None,
@@ -284,18 +282,18 @@ fn handle_task_failure(
             retry_count: new_retry_count,
             updated_at: Utc::now(),
         };
-        flowctl_core::json_store::state_write(flow_dir, task_id, &task_state)
+        crate::json_store::state_write(flow_dir, task_id, &task_state)
             .map_err(|e| std::io::Error::other(format!("failed to write retry state for {task_id}: {e}")))?;
 
         log_audit_event(flow_dir, task_id, "task_failed");
 
         Ok((Status::UpForRetry, Vec::new()))
     } else {
-        let task_state = flowctl_core::json_store::TaskState {
+        let task_state = crate::json_store::TaskState {
             status: Status::Failed,
             ..Default::default()
         };
-        flowctl_core::json_store::state_write(flow_dir, task_id, &task_state)
+        crate::json_store::state_write(flow_dir, task_id, &task_state)
             .map_err(|e| std::io::Error::other(format!("failed to write failed state for {task_id}: {e}")))?;
 
         log_audit_event(flow_dir, task_id, "task_failed");
@@ -423,7 +421,6 @@ fn log_audit_event(
     event_type: &str,
 ) {
     let epic_id = epic_id_from_task(task_id).unwrap_or_default();
-    let store = FlowStore::new(flow_dir.to_path_buf());
     let event = serde_json::json!({
         "stream_id": format!("task:{task_id}"),
         "type": event_type,
@@ -431,7 +428,7 @@ fn log_audit_event(
         "task_id": task_id,
         "timestamp": chrono::Utc::now().to_rfc3339(),
     });
-    let _ = store.events().append(&event.to_string());
+    let _ = crate::json_store::events_append(flow_dir, &event.to_string());
 }
 
 /// Emit a task event to the event store. Failures are silently ignored.
@@ -441,7 +438,6 @@ fn emit_task_event(
     event_type: &str,
     source_cmd: &str,
 ) {
-    let store = FlowStore::new(flow_dir.to_path_buf());
     let stream_id = format!("task:{task_id}");
     let event = serde_json::json!({
         "stream_id": stream_id,
@@ -450,7 +446,7 @@ fn emit_task_event(
         "actor": "lifecycle",
         "timestamp": chrono::Utc::now().to_rfc3339(),
     });
-    let _ = store.events().append(&event.to_string());
+    let _ = crate::json_store::events_append(flow_dir, &event.to_string());
 }
 
 // ── Service functions ──────────────────────────────────────────────
@@ -548,7 +544,7 @@ pub fn start_task(
         Some(now)
     };
 
-    let task_state = flowctl_core::json_store::TaskState {
+    let task_state = crate::json_store::TaskState {
         status: Status::InProgress,
         assignee: Some(new_assignee),
         claimed_at,
@@ -567,7 +563,7 @@ pub fn start_task(
         updated_at: Utc::now(),
     };
 
-    flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state)
+    crate::json_store::state_write(flow_dir, &req.task_id, &task_state)
         .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
 
     log_audit_event(flow_dir, &req.task_id, "task_started");
@@ -636,7 +632,7 @@ pub fn done_task(
         prs: prs.clone(),
         ..Evidence::default()
     };
-    let task_state = flowctl_core::json_store::TaskState {
+    let task_state = crate::json_store::TaskState {
         status: Status::Done,
         assignee: runtime.as_ref().and_then(|r| r.assignee.clone()),
         claimed_at: runtime.as_ref().and_then(|r| r.claimed_at),
@@ -649,7 +645,7 @@ pub fn done_task(
         retry_count: runtime.as_ref().map(|r| r.retry_count).unwrap_or(0),
         updated_at: now,
     };
-    flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state)
+    crate::json_store::state_write(flow_dir, &req.task_id, &task_state)
         .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
 
     // 7. Archive review receipt
@@ -723,8 +719,8 @@ pub fn block_task(
 
     // Write to JSON state file
     {
-        let existing = flowctl_core::json_store::state_read(flow_dir, &req.task_id).ok();
-        let task_state = flowctl_core::json_store::TaskState {
+        let existing = crate::json_store::state_read(flow_dir, &req.task_id).ok();
+        let task_state = crate::json_store::TaskState {
             status: Status::Blocked,
             assignee: existing.as_ref().and_then(|r| r.assignee.clone()),
             claimed_at: existing.as_ref().and_then(|r| r.claimed_at),
@@ -737,7 +733,7 @@ pub fn block_task(
             retry_count: existing.as_ref().map(|r| r.retry_count).unwrap_or(0),
             updated_at: Utc::now(),
         };
-        flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state)
+        crate::json_store::state_write(flow_dir, &req.task_id, &task_state)
             .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
     }
 
@@ -880,8 +876,8 @@ pub fn restart_task(
     // Execute reset
     let mut reset_ids = Vec::new();
     for tid in &to_reset {
-        let blank = flowctl_core::json_store::TaskState::default();
-        flowctl_core::json_store::state_write(flow_dir, tid, &blank)
+        let blank = crate::json_store::TaskState::default();
+        crate::json_store::state_write(flow_dir, tid, &blank)
             .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
 
         reset_ids.push(tid.clone());
@@ -904,8 +900,8 @@ pub fn restart_task(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flowctl_core::state_machine::Status;
-    use flowctl_core::types::{Domain, RuntimeState, Task};
+    use crate::state_machine::Status;
+    use crate::types::{Domain, RuntimeState, Task};
 
     fn make_task(id: &str, status: Status) -> Task {
         Task {

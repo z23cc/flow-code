@@ -167,8 +167,7 @@ fn migrate_phase_id(id: &str) -> String {
 
 /// Load completed phases from file store, migrating legacy IDs.
 fn load_completed_phases(flow_dir: &std::path::Path, task_id: &str) -> Vec<String> {
-    let store = flowctl_db::FlowStore::new(flow_dir.to_path_buf());
-    store.phases().get_completed(task_id)
+    flowctl_core::json_store::phases_completed(flow_dir, task_id)
         .unwrap_or_default()
         .into_iter()
         .map(|id| migrate_phase_id(&id))
@@ -177,8 +176,7 @@ fn load_completed_phases(flow_dir: &std::path::Path, task_id: &str) -> Vec<Strin
 
 /// Mark a phase as done in file store.
 fn save_phase_done(flow_dir: &std::path::Path, task_id: &str, phase: &str) {
-    let store = flowctl_db::FlowStore::new(flow_dir.to_path_buf());
-    if let Err(e) = store.phases().mark_done(task_id, phase) {
+    if let Err(e) = flowctl_core::json_store::phase_mark_done(flow_dir, task_id, phase) {
         eprintln!("Warning: failed to save phase progress: {}", e);
     }
 }

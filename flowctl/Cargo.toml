@@ -2,8 +2,6 @@
 resolver = "2"
 members = [
     "crates/flowctl-core",
-    "crates/flowctl-db",
-    "crates/flowctl-service",
     "crates/flowctl-cli",
 ]
 
@@ -56,8 +54,6 @@ trycmd = "0.15"
 
 # Internal crate references
 flowctl-core = { path = "crates/flowctl-core" }
-flowctl-db = { path = "crates/flowctl-db" }
-flowctl-service = { path = "crates/flowctl-service" }
 
 # ── Shared lint configuration ────────────────────────────────────────
 [workspace.lints.clippy]

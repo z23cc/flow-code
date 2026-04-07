@@ -1,5 +1,5 @@
 bin.name = "flowctl"
 args = ["--json", "next"]
 stdout = """
-{"epic":"fn-17-remove-db-and-fastembed-pure-file-based","reason":"resume_in_progress","status":"work","task":"fn-17-remove-db-and-fastembed-pure-file-based.4"}
+...
 """

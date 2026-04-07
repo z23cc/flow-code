@@ -8,7 +8,7 @@ use clap::Subcommand;
 use serde_json::Value;
 
 use flowctl_core::approvals::{ApprovalKind, ApprovalStatus, CreateApprovalRequest};
-use flowctl_service::approvals::FileApprovalStore;
+use flowctl_core::approvals::FileApprovalStore;
 
 use crate::output::{error_exit, json_output};
 
@@ -80,8 +80,7 @@ pub fn dispatch(cmd: &ApprovalCmd, json: bool) {
 
 fn open_local_store() -> FileApprovalStore {
     let flow_dir = get_flow_dir();
-    let store = flowctl_db::FlowStore::new(flow_dir);
-    FileApprovalStore::new(store)
+    FileApprovalStore::new(flow_dir)
 }
 
 // ── Payload parsing ─────────────────────────────────────────────────

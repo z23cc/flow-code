@@ -1,6 +1,6 @@
 //! Outputs commands: write, list, show.
 //!
-//! Thin CLI wrapper over `flowctl_service::outputs::OutputsStore`. Provides
+//! Thin CLI wrapper over `flowctl_core::outputs::OutputsStore`. Provides
 //! a lightweight narrative handoff layer at `.flow/outputs/<task-id>.md` that
 //! workers populate in Phase 9 and read during Phase 2 re-anchor.
 
@@ -11,7 +11,7 @@ use clap::Subcommand;
 use serde_json::json;
 
 use flowctl_core::id::is_task_id;
-use flowctl_service::outputs::OutputsStore;
+use flowctl_core::outputs::OutputsStore;
 
 use crate::output::{error_exit, json_output};
 

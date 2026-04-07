@@ -85,8 +85,7 @@ pub fn cmd_init(json: bool) {
     }
 
     // Ensure FlowStore dirs are ready
-    let store = flowctl_db::FlowStore::new(flow_dir.clone());
-    if let Err(e) = store.ensure_dirs() {
+    if let Err(e) = flowctl_core::json_store::ensure_dirs(&flow_dir) {
         eprintln!("warning: failed to ensure store dirs: {e}");
     }
 

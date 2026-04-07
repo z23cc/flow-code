@@ -10,7 +10,7 @@ use serde_json::json;
 use crate::output::{error_exit, json_output, pretty_output};
 use super::helpers::get_flow_dir;
 
-use flowctl_db::FlowStore;
+use flowctl_core::json_store;
 
 #[derive(Subcommand, Debug)]
 pub enum LogCmd {
@@ -65,7 +65,6 @@ fn cmd_log_decision(
     task_id: Option<&str>,
 ) {
     let flow_dir = get_flow_dir();
-    let store = FlowStore::new(flow_dir);
 
     let epic = epic_id.unwrap_or("_global");
 
@@ -80,7 +79,7 @@ fn cmd_log_decision(
         "timestamp": chrono::Utc::now().to_rfc3339(),
     });
 
-    if let Err(e) = store.events().append(&event.to_string()) {
+    if let Err(e) = json_store::events_append(&flow_dir, &event.to_string()) {
         error_exit(&format!("Failed to log decision: {e}"));
     }
 
@@ -100,9 +99,8 @@ fn cmd_log_decision(
 
 fn cmd_log_decisions(json_mode: bool, epic_id: Option<&str>, limit: usize) {
     let flow_dir = get_flow_dir();
-    let store = FlowStore::new(flow_dir);
 
-    let all_lines = store.events().read_all().unwrap_or_else(|e| {
+    let all_lines = json_store::events_read_all(&flow_dir).unwrap_or_else(|e| {
         error_exit(&format!("Failed to query decisions: {e}"));
     });
 

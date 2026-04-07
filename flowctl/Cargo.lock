@@ -450,8 +450,6 @@ dependencies = [
  "clap",
  "clap_complete",
  "flowctl-core",
- "flowctl-db",
- "flowctl-service",
  "miette",
  "regex",
  "serde",
@@ -476,31 +474,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
-]
-
-[[package]]
-name = "flowctl-db"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "flowctl-core",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "flowctl-service"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "flowctl-core",
- "flowctl-db",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tracing",
 ]
 
 [[package]]

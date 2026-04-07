@@ -103,6 +103,156 @@ pub struct ResolveRequest {
     pub reason: Option<String>,
 }
 
+// ── FileApprovalStore ────────────────────────────────────────────────
+
+use std::path::{Path, PathBuf};
+use chrono::Utc;
+use crate::error::{ServiceError, ServiceResult};
+
+/// File-backed approval store.
+pub struct FileApprovalStore {
+    flow_dir: PathBuf,
+}
+
+impl FileApprovalStore {
+    pub fn new(flow_dir: PathBuf) -> Self {
+        Self { flow_dir }
+    }
+
+    /// Return the flow directory path.
+    pub fn flow_dir(&self) -> &Path {
+        &self.flow_dir
+    }
+
+    fn new_id() -> String {
+        let now = Utc::now();
+        let millis = now.timestamp_millis();
+        let nanos = now.timestamp_subsec_nanos();
+        format!("apv-{millis:x}-{nanos:x}")
+    }
+
+    fn load_all(&self) -> ServiceResult<Vec<Approval>> {
+        let raw = crate::json_store::approvals_read(&self.flow_dir)
+            .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
+        let mut out = Vec::new();
+        for val in raw {
+            if let Ok(a) = serde_json::from_value::<Approval>(val) {
+                out.push(a);
+            }
+        }
+        Ok(out)
+    }
+
+    fn save_all(&self, approvals: &[Approval]) -> ServiceResult<()> {
+        let vals: Vec<serde_json::Value> = approvals
+            .iter()
+            .filter_map(|a| serde_json::to_value(a).ok())
+            .collect();
+        crate::json_store::approvals_write(&self.flow_dir, &vals)
+            .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
+        Ok(())
+    }
+
+    pub fn create(&self, req: CreateApprovalRequest) -> ServiceResult<Approval> {
+        // Validate task exists
+        if crate::json_store::task_read(&self.flow_dir, &req.task_id).is_err() {
+            return Err(ServiceError::ValidationError(format!(
+                "task {} does not exist",
+                req.task_id
+            )));
+        }
+
+        let id = Self::new_id();
+        let now = Utc::now().timestamp();
+
+        let approval = Approval {
+            id: id.clone(),
+            task_id: req.task_id,
+            kind: req.kind,
+            payload: req.payload,
+            status: ApprovalStatus::Pending,
+            created_at: now,
+            resolved_at: None,
+            resolver: None,
+            reason: None,
+        };
+
+        let mut all = self.load_all()?;
+        all.push(approval.clone());
+        self.save_all(&all)?;
+
+        Ok(approval)
+    }
+
+    pub fn list(&self, status_filter: Option<ApprovalStatus>) -> ServiceResult<Vec<Approval>> {
+        let all = self.load_all()?;
+        let mut filtered: Vec<Approval> = if let Some(s) = status_filter {
+            all.into_iter().filter(|a| a.status == s).collect()
+        } else {
+            all
+        };
+        filtered.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(filtered)
+    }
+
+    pub fn get(&self, id: &str) -> ServiceResult<Approval> {
+        let all = self.load_all()?;
+        all.into_iter()
+            .find(|a| a.id == id)
+            .ok_or_else(|| ServiceError::TaskNotFound(format!("approval not found: {id}")))
+    }
+
+    pub fn approve(&self, id: &str, resolver: Option<String>) -> ServiceResult<Approval> {
+        let mut all = self.load_all()?;
+        let approval = all.iter_mut()
+            .find(|a| a.id == id)
+            .ok_or_else(|| ServiceError::TaskNotFound(format!("approval not found: {id}")))?;
+
+        if approval.status != ApprovalStatus::Pending {
+            return Err(ServiceError::InvalidTransition(format!(
+                "approval {id} is already {:?}",
+                approval.status
+            )));
+        }
+
+        approval.status = ApprovalStatus::Approved;
+        approval.resolved_at = Some(Utc::now().timestamp());
+        approval.resolver = resolver;
+        let result = approval.clone();
+
+        self.save_all(&all)?;
+        Ok(result)
+    }
+
+    pub fn reject(
+        &self,
+        id: &str,
+        resolver: Option<String>,
+        reason: Option<String>,
+    ) -> ServiceResult<Approval> {
+        let mut all = self.load_all()?;
+        let approval = all.iter_mut()
+            .find(|a| a.id == id)
+            .ok_or_else(|| ServiceError::TaskNotFound(format!("approval not found: {id}")))?;
+
+        if approval.status != ApprovalStatus::Pending {
+            return Err(ServiceError::InvalidTransition(format!(
+                "approval {id} is already {:?}",
+                approval.status
+            )));
+        }
+
+        approval.status = ApprovalStatus::Rejected;
+        approval.resolved_at = Some(Utc::now().timestamp());
+        approval.resolver = resolver;
+        approval.reason = reason;
+        let result = approval.clone();
+
+        self.save_all(&all)?;
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

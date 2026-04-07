@@ -7,8 +7,7 @@ use serde_json::json;
 use crate::output::{error_exit, json_output};
 
 use flowctl_core::state_machine::Status;
-use flowctl_db::FlowStore;
-use flowctl_service::lifecycle::{
+use flowctl_core::lifecycle::{
     BlockTaskRequest, DoneTaskRequest, FailTaskRequest, RestartTaskRequest, StartTaskRequest,
 };
 
@@ -24,7 +23,7 @@ pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>
         actor,
     };
 
-    match flowctl_service::lifecycle::start_task(&flow_dir, req) {
+    match flowctl_core::lifecycle::start_task(&flow_dir, req) {
         Ok(resp) => {
             if json_mode {
                 json_output(json!({
@@ -62,7 +61,7 @@ pub fn cmd_done(
         actor,
     };
 
-    match flowctl_service::lifecycle::done_task(&flow_dir, req) {
+    match flowctl_core::lifecycle::done_task(&flow_dir, req) {
         Ok(resp) => {
             if json_mode {
                 let mut result = json!({
@@ -105,7 +104,7 @@ pub fn cmd_block(json_mode: bool, id: String, reason: String) {
         reason,
     };
 
-    match flowctl_service::lifecycle::block_task(&flow_dir, req) {
+    match flowctl_core::lifecycle::block_task(&flow_dir, req) {
         Ok(resp) => {
             if json_mode {
                 json_output(json!({
@@ -130,7 +129,7 @@ pub fn cmd_fail(json_mode: bool, id: String, reason: Option<String>, force: bool
         force,
     };
 
-    match flowctl_service::lifecycle::fail_task(&flow_dir, req) {
+    match flowctl_core::lifecycle::fail_task(&flow_dir, req) {
         Ok(resp) => {
             if json_mode {
                 let mut result = json!({
@@ -174,7 +173,7 @@ pub fn cmd_restart(json_mode: bool, id: String, dry_run: bool, force: bool) {
         force,
     };
 
-    match flowctl_service::lifecycle::restart_task(&flow_dir, req) {
+    match flowctl_core::lifecycle::restart_task(&flow_dir, req) {
         Ok(resp) => {
             if dry_run {
                 if json_mode {
@@ -232,11 +231,8 @@ pub fn cmd_restart(json_mode: bool, id: String, dry_run: bool, force: bool) {
 pub fn cmd_events(json_mode: bool, epic_id: String) {
     let flow_dir = ensure_flow_exists();
 
-    let store = FlowStore::new(flow_dir.to_path_buf());
-    let events_store = store.events();
-
     // Read all events and filter by epic prefix
-    match events_store.read_all() {
+    match flowctl_core::json_store::events_read_all(&flow_dir) {
         Ok(lines) => {
             // Parse events and filter by epic
             let mut matching: Vec<serde_json::Value> = Vec::new();

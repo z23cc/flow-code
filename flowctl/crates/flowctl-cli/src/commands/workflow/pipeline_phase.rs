@@ -7,7 +7,7 @@ use clap::Subcommand;
 use serde_json::json;
 
 use flowctl_core::pipeline::PipelinePhase;
-use flowctl_db::FlowStore;
+use flowctl_core::json_store;
 
 use crate::output::{error_exit, json_output};
 
@@ -43,12 +43,11 @@ pub fn dispatch_pipeline_phase(cmd: &PipelinePhaseCmd, json: bool) {
 
 /// Read current pipeline phase from file. If no entry exists, initialize to Plan.
 fn get_or_init_phase(flow_dir: &std::path::Path, epic_id: &str) -> PipelinePhase {
-    let store = FlowStore::new(flow_dir.to_path_buf());
-    match store.pipeline().read(epic_id) {
+    match json_store::pipeline_read(flow_dir, epic_id) {
         Ok(Some(phase_str)) => PipelinePhase::parse(&phase_str).unwrap_or(PipelinePhase::Plan),
         _ => {
             // No entry — initialize with Plan phase.
-            let _ = store.pipeline().write(epic_id, "plan");
+            let _ = json_store::pipeline_write(flow_dir, epic_id, "plan");
             PipelinePhase::Plan
         }
     }
@@ -56,8 +55,7 @@ fn get_or_init_phase(flow_dir: &std::path::Path, epic_id: &str) -> PipelinePhase
 
 /// Update pipeline phase in file store.
 fn update_phase(flow_dir: &std::path::Path, epic_id: &str, new_phase: &PipelinePhase) {
-    let store = FlowStore::new(flow_dir.to_path_buf());
-    if let Err(e) = store.pipeline().write(epic_id, new_phase.as_str()) {
+    if let Err(e) = json_store::pipeline_write(flow_dir, epic_id, new_phase.as_str()) {
         error_exit(&format!("Failed to update pipeline phase: {e}"));
     }
 }
@@ -90,7 +88,7 @@ fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str) {
     let requested = match PipelinePhase::parse(phase_name) {
         Some(p) => p,
         None => {
-            let valid: Vec<&str> = PipelinePhase::all().iter().map(|p| p.as_str()).collect();
+            let valid: Vec<&str> = PipelinePhase::all().iter().map(PipelinePhase::as_str).collect();
             error_exit(&format!(
                 "Unknown phase '{}'. Valid phases: {}",
                 phase_name,

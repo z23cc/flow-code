@@ -10,7 +10,7 @@ use serde_json::json;
 use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::id::is_epic_id;
-use flowctl_db::{FlowStore, GapEntry};
+use flowctl_core::json_store::{self, GapEntry};
 
 use super::helpers::get_flow_dir;
 
@@ -112,8 +112,8 @@ fn validate_epic(_json: bool, epic_id: &str) {
     error_exit(&format!("Epic not found: {}", epic_id));
 }
 
-fn gap_store() -> FlowStore {
-    FlowStore::new(get_flow_dir())
+fn gap_flow_dir() -> std::path::PathBuf {
+    get_flow_dir()
 }
 
 // ── Commands ───────────────────────────────────────────────────────
@@ -126,10 +126,9 @@ fn cmd_gap_add(
     source: &str,
 ) {
     validate_epic(json_mode, epic_id);
-    let store = gap_store();
-    let gap_store = store.gaps();
+    let flow_dir = gap_flow_dir();
 
-    let mut gaps = gap_store.read(epic_id).unwrap_or_default();
+    let mut gaps = json_store::gaps_read(&flow_dir, epic_id).unwrap_or_default();
 
     // Check for existing gap with same capability (idempotent)
     let cap_lower = capability.trim().to_lowercase();
@@ -166,7 +165,7 @@ fn cmd_gap_add(
         resolved: false,
     });
 
-    if let Err(e) = gap_store.write(epic_id, &gaps) {
+    if let Err(e) = json_store::gaps_write(&flow_dir, epic_id, &gaps) {
         error_exit(&format!("Failed to add gap: {e}"));
     }
 
@@ -190,8 +189,8 @@ fn cmd_gap_add(
 
 fn cmd_gap_list(json_mode: bool, epic_id: &str, status_filter: Option<&str>) {
     validate_epic(json_mode, epic_id);
-    let store = gap_store();
-    let gaps = store.gaps().read(epic_id).unwrap_or_default();
+    let flow_dir = gap_flow_dir();
+    let gaps = json_store::gaps_read(&flow_dir, epic_id).unwrap_or_default();
 
     let filtered: Vec<&GapEntry> = gaps.iter().filter(|g| {
         match status_filter {
@@ -244,9 +243,8 @@ fn cmd_gap_resolve(
     _evidence: &str,
 ) {
     validate_epic(json_mode, epic_id);
-    let store = gap_store();
-    let gap_st = store.gaps();
-    let mut gaps = gap_st.read(epic_id).unwrap_or_default();
+    let flow_dir = gap_flow_dir();
+    let mut gaps = json_store::gaps_read(&flow_dir, epic_id).unwrap_or_default();
 
     if let Some(direct_id) = gap_id_direct {
         let gap_id: u32 = direct_id
@@ -259,7 +257,7 @@ fn cmd_gap_resolve(
             error_exit(&format!("Gap {} not found", gap_id));
         }
 
-        gap_st.write(epic_id, &gaps).unwrap_or_else(|e| {
+        json_store::gaps_write(&flow_dir, epic_id, &gaps).unwrap_or_else(|e| {
             error_exit(&format!("Failed to resolve gap: {e}"));
         });
 
@@ -281,7 +279,7 @@ fn cmd_gap_resolve(
             error_exit(&format!("Gap for capability '{}' not found", cap));
         }
 
-        gap_st.write(epic_id, &gaps).unwrap_or_else(|e| {
+        json_store::gaps_write(&flow_dir, epic_id, &gaps).unwrap_or_else(|e| {
             error_exit(&format!("Failed to resolve gap: {e}"));
         });
 
@@ -301,8 +299,8 @@ fn cmd_gap_resolve(
 
 fn cmd_gap_check(json_mode: bool, epic_id: &str) {
     validate_epic(json_mode, epic_id);
-    let store = gap_store();
-    let all_gaps = store.gaps().read(epic_id).unwrap_or_default();
+    let flow_dir = gap_flow_dir();
+    let all_gaps = json_store::gaps_read(&flow_dir, epic_id).unwrap_or_default();
 
     let open_blocking: Vec<&GapEntry> = all_gaps
         .iter()

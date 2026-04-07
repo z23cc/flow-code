@@ -20,12 +20,40 @@ $FLOWCTL status --interrupted --json
 If interrupted tasks exist, notify the user before proceeding.
 
 ## Step 3: Load relevant memory
+
+Run memory injection to surface relevant learnings, pitfalls, and conventions:
+
 ```bash
+# Inject entries matching skill domain (replace SKILL_TAGS with skill-specific tags)
 $FLOWCTL memory inject --tags "{{SKILL_TAGS}}" --json 2>/dev/null || true
+
+# If working on a specific epic, also search for related memories
+$FLOWCTL memory search "{{EPIC_CONTEXT}}" --type pitfall 2>/dev/null || true
 ```
-Load memory entries relevant to the current skill context. Replace `{{SKILL_TAGS}}` with skill-specific tags.
+
+Memory levels:
+- **L1 (headlines)**: Default — shows entry titles for quick scan
+- **L2 (summaries)**: Use `--full` for entries matching current context
+- **L3 (full content)**: Only when debugging a specific known pitfall
+
+If memory returns critical-severity pitfalls, **pause and review them** before proceeding.
 
 ## Step 4: Session context
 - Current branch: `git branch --show-current`
 - Active epic: check `.flow/` for in-progress epics
 - Plugin version: read from plugin.json
+
+## Skill Tag Reference
+
+| Skill | Recommended Tags |
+|-------|-----------------|
+| flow-code-run | workflow,pipeline,planning |
+| flow-code-debug | debugging,testing,errors |
+| flow-code-auto-improve | performance,quality,security |
+| flow-code-api-design | api,architecture,contracts |
+| flow-code-cicd | ci,deployment,automation |
+| flow-code-django | django,python,backend |
+| flow-code-performance | performance,optimization,benchmarks |
+| flow-code-qa | testing,qa,browser,visual |
+| flow-code-design-review | design,css,visual,ui |
+| (default) | (use skill name as tag) |

@@ -7,6 +7,7 @@ tier: 4
 # Flow-Code Task Management
 
 > **Startup:** Follow [Startup Sequence](../_shared/preamble.md) before proceeding.
+<!-- SKILL_TAGS: tasks,epics,workflow -->
 
 Quick task operations in `.flow/`. For planning features use `/flow-code:plan`, for executing use `/flow-code:work`.
 

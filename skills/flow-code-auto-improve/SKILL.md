@@ -9,6 +9,7 @@ context: fork
 # Auto-Improve
 
 > **Startup:** Follow [Startup Sequence](../_shared/preamble.md) before proceeding.
+<!-- SKILL_TAGS: performance,quality,security -->
 
 One command to start autonomous code improvement. Auto-detects everything, starts immediately.
 

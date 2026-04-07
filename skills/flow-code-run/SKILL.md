@@ -8,6 +8,7 @@ user-invocable: true
 # Flow Code Run
 
 > **Startup:** Follow [Startup Sequence](../_shared/preamble.md) before proceeding.
+<!-- SKILL_TAGS: workflow,pipeline,planning -->
 
 Unified pipeline entry point. Drives the entire development lifecycle through flowctl phase next/done.
 

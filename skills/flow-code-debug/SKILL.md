@@ -7,6 +7,7 @@ tier: 2
 # Systematic Debugging
 
 > **Startup:** Follow [Startup Sequence](../_shared/preamble.md) before proceeding.
+<!-- SKILL_TAGS: debugging,testing,errors -->
 
 ## The Iron Law
 

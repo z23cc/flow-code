@@ -18,4 +18,5 @@ pub mod rp;
 pub mod stack;
 pub mod stats;
 pub mod task;
+pub mod skill;
 pub mod workflow;

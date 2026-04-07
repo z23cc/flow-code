@@ -280,6 +280,27 @@ scripts/auto-improve/auto-improve.sh
 
 If `--watch` was passed, add `--watch` flag.
 
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "I know what to improve without analysis" | Intuition-driven improvements miss the highest-impact targets. Analysis finds the hotspots you don't see. |
+| "All improvements are equally valuable" | Impact varies by orders of magnitude. Rank by measured impact, not gut feeling. |
+| "Experiments are overhead" | Unverified improvements are guesses. A 2-minute before/after measurement proves the change actually helped. |
+| "Guard passes, so the change is safe" | Guards catch regressions, not quality improvements. Passing guards means you didn't break anything — not that you improved anything. |
+| "Let's improve everything at once" | Batch changes can't be isolated. One improvement per commit lets you revert the one that caused a regression. |
+| "The codebase is too messy to measure" | That's exactly why you need baselines. Measurement reveals which mess matters most. |
+| "This refactor is obviously better" | "Obviously better" without metrics is opinion. Measure readability, performance, or maintainability to confirm. |
+
+## Red Flags
+
+- Improvement commits with no before/after metrics in the message
+- Multiple unrelated improvements in a single commit
+- Auto-improve loop running without guard command configured (no safety net)
+- program.md unchanged across many iterations (stale focus, diminishing returns)
+- Improvements that increase code complexity without measured benefit
+- Reverting to fix regressions introduced by "improvements"
+
 ## Notes
 
 - First run auto-scaffolds `scripts/auto-improve/`. Subsequent runs reuse existing program.md (preserves user edits).

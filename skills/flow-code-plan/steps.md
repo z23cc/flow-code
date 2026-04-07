@@ -59,6 +59,29 @@ $FLOWCTL init --json
 3. Pick best by: blast radius, value/effort, codebase alignment
 4. Output: `Clarified: "<original>" → "<specific target>" | Approach: <A|B|C> — <why>`
 
+## Step 0.6: Skill routing (auto — non-blocking)
+
+After clarity check, match the request against registered engineering discipline skills to auto-inject relevant guidance into task specs.
+
+1. Translate the request to English keywords (if not already English). This costs zero tokens — you're already processing the request.
+2. Run:
+   ```bash
+   $FLOWCTL skill match "<english keywords>" --threshold 0.70 --limit 3 --json
+   ```
+3. If matches found (non-empty JSON array): save them for Step 5 (task spec writing). Each matched skill will be referenced in the task's Approach section.
+4. If empty result, error, or embedder unavailable: skip silently. Skill routing is advisory, never blocking.
+
+**Output** (inline, no user prompt):
+```
+Skill routing: flow-code-api-design (0.87), flow-code-performance (0.42 — below threshold)
+```
+
+**Integration in Step 5** (task spec writing): For each skill with score ≥ threshold, add to the task's Approach section:
+```markdown
+- Reference `flow-code-<name>` skill principles when implementing
+```
+Max 3 skill references per task to avoid spec bloat.
+
 ## Step 1: Fast research (parallel)
 
 **If input is a Flow ID** (fn-N-slug or fn-N-slug.M, including legacy fn-N/fn-N-xxx): First fetch it with `$FLOWCTL show <id> --json` and `$FLOWCTL cat <id>` to get the request context.

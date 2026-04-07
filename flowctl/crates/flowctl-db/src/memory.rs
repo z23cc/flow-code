@@ -88,7 +88,7 @@ static EMBEDDER: OnceCell<Result<Mutex<TextEmbedding>, String>> = OnceCell::cons
 /// model (~130MB) via fastembed; subsequent calls return the cached
 /// instance. Initialization runs on a blocking thread because fastembed
 /// performs synchronous file I/O.
-async fn ensure_embedder() -> Result<(), DbError> {
+pub(crate) async fn ensure_embedder() -> Result<(), DbError> {
     let res = EMBEDDER
         .get_or_init(|| async {
             match tokio::task::spawn_blocking(|| {
@@ -109,7 +109,7 @@ async fn ensure_embedder() -> Result<(), DbError> {
 }
 
 /// Embed a single passage into a 384-dim vector.
-async fn embed_one(text: &str) -> Result<Vec<f32>, DbError> {
+pub(crate) async fn embed_one(text: &str) -> Result<Vec<f32>, DbError> {
     ensure_embedder().await?;
     let text = text.to_string();
     let result = tokio::task::spawn_blocking(move || {
@@ -132,7 +132,7 @@ async fn embed_one(text: &str) -> Result<Vec<f32>, DbError> {
 }
 
 /// Convert a `Vec<f32>` into a libSQL `vector32()` literal string.
-fn vec_to_literal(v: &[f32]) -> String {
+pub(crate) fn vec_to_literal(v: &[f32]) -> String {
     let parts: Vec<String> = v.iter().map(std::string::ToString::to_string).collect();
     format!("[{}]", parts.join(","))
 }

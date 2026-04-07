@@ -160,3 +160,24 @@ Requirements written to .flow/specs/<slug>-requirements.md
 
 Next step: Run /flow-code:plan .flow/specs/<slug>-requirements.md
 ```
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "I already know what to build" | Premature certainty is the most expensive mistake. Brainstorming surfaces assumptions you didn't know you had. |
+| "Brainstorming is just talking, not real work" | Brainstorming produces the requirements doc that drives everything downstream. Skip it and you plan against assumptions. |
+| "We don't have time to explore alternatives" | Exploring 3 approaches for 15 minutes is cheaper than rebuilding after choosing wrong on day one. |
+| "The first idea is usually right" | First ideas are anchored on recent experience. Pressure-testing reveals options that outperform the obvious choice. |
+| "Requirements are already in the ticket" | Tickets describe what someone wants, not what should be built. Brainstorming translates desire into actionable constraints. |
+| "Let's just start and iterate" | Iteration without direction is wandering. Brainstorming sets the constraints that make iteration productive. |
+| "This is too small to brainstorm" | Small scope doesn't mean small risk. A 5-minute pressure test on a "simple" feature often reveals hidden complexity. |
+
+## Red Flags
+
+- Jumping straight to /flow-code:plan without exploring requirements
+- Only one approach considered (no alternatives generated or evaluated)
+- Requirements doc has zero constraints or non-goals listed
+- "Open Questions" section is empty (every problem has unknowns)
+- Brainstorm output restates the original request without adding new insight
+- User's actual problem never identified (solution proposed without understanding need)

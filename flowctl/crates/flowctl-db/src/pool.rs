@@ -98,11 +98,18 @@ async fn apply_schema(conn: &Connection) -> Result<(), DbError> {
     .await
     .map_err(|e| DbError::Schema(format!("reverse deps backfill failed: {e}")))?;
 
-    // Try to create the vector index (requires libSQL server extensions).
+    // Try to create vector indexes (requires libSQL server extensions).
     // Gracefully degrade if not available (embedded/core mode).
     let _ = conn
         .execute(
             "CREATE INDEX IF NOT EXISTS memory_emb_idx ON memory(libsql_vector_idx(embedding))",
+            (),
+        )
+        .await;
+
+    let _ = conn
+        .execute(
+            "CREATE INDEX IF NOT EXISTS skills_emb_idx ON skills(libsql_vector_idx(embedding))",
             (),
         )
         .await;
@@ -215,6 +222,7 @@ mod tests {
             "daily_rollup",
             "monthly_rollup",
             "memory",
+            "skills",
         ] {
             assert!(
                 tables.contains(&expected.to_string()),

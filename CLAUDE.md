@@ -13,7 +13,7 @@ commands/flow-code/*.md  → Slash command definitions (user-invocable entry poi
 skills/*/SKILL.md        → Skill implementations (loaded by Skill tool, never Read directly)
 agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
 bin/flowctl               → Rust binary (built from flowctl/ workspace)
-flowctl/                  → Rust Cargo workspace (4 crates: core, db, service, cli)
+flowctl/                  → Rust Cargo workspace (2 crates: core, cli)
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
@@ -52,7 +52,7 @@ bash scripts/ralph_e2e_short_rp_test.sh
 
 All tests create temp directories and clean up after themselves. They must NOT be run from the plugin repo root (safety check enforced).
 
-**Storage runtime**: State is stored in JSON/JSONL files in the `.flow/` directory, readable by any tool. The `flowctl-db` crate provides synchronous file-based storage with no external database dependencies.
+**Storage runtime**: All state is JSON/JSONL files in `.flow/`, readable by any tool (MCP, Read, Grep). No database, no async runtime. The `json_store` module in `flowctl-core` handles all file I/O.
 
 ## Code Quality
 

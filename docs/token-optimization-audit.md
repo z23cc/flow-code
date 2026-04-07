@@ -200,7 +200,7 @@ Per-spec waste: ~250 chars of pure duplication. 8-task epic → ~2KB redundancy.
 
 | # | Optimization | File | Priority |
 |---|---|---|:---:|
-| 21 | Remove `file_path` YAML field (derivable from file's own path) | `flowctl-db/spec_writer.rs` | P0 |
+| 21 | Remove `file_path` YAML field (derivable from file's own path) | `flowctl-core/json_store.rs` | P0 |
 | 22 | Remove `schema_version: 1` from every spec (only needed during migration) | spec_writer | P0 |
 | 23 | Timestamps: drop microsecond precision (`…313450Z` → `…Z`) | spec_writer | P0 |
 | 24 | H1 heading should not repeat full ID (`# Title` not `# fn-15-….3 Title`) | spec_writer | P0 |
@@ -521,7 +521,7 @@ TaskCompleted:  task-completed
 - `OutputOpts` global flags: `flowctl/crates/flowctl-cli/src/output.rs`
 - `is_terminal()` detection: `flowctl/crates/flowctl-cli/src/output.rs:37`
 - `init_compact()` called once: `flowctl/crates/flowctl-cli/src/main.rs:451`
-- Spec frontmatter schema: `flowctl/crates/flowctl-db/src/spec_writer.rs`
+- Spec frontmatter schema: `flowctl/crates/flowctl-core/src/json_store.rs`
 - ID format: `flowctl/crates/flowctl-core/src/` (no dedicated resolver yet)
 
 ### E. Epic Stub

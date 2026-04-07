@@ -112,27 +112,33 @@ impl SkillRepo {
         };
         let lit = vec_to_literal(&vec);
 
+        // Use vector_distance_cos() instead of vector_top_k() — works without
+        // a vector index (no ANN index required in embedded mode). Exact search
+        // via full table scan; perfectly fast for <10,000 rows (~30 skills).
         let rows_result = self
             .conn
             .query(
-                "SELECT s.name, s.description, top.distance
-                   FROM vector_top_k('skills_emb_idx', vector32(?1), ?2) AS top
-                   JOIN skills s ON s.rowid = top.id",
+                "SELECT s.name, s.description,
+                        vector_distance_cos(s.embedding, vector32(?1)) AS distance
+                   FROM skills s
+                  WHERE s.embedding IS NOT NULL
+                  ORDER BY distance ASC
+                  LIMIT ?2",
                 params![lit, limit as i64],
             )
             .await;
 
         let mut rows = match rows_result {
             Ok(r) => r,
-            Err(_) => return Ok(vec![]), // vector index unavailable
+            Err(_) => return Ok(vec![]), // vector functions unavailable
         };
 
         let mut out = Vec::new();
         while let Some(row) = rows.next().await? {
             let dist: f64 = row.get(2)?;
-            // Convert L2 distance to cosine similarity.
-            // For unit-norm vectors: cos_sim = 1 - (L2^2 / 2).
-            let score = 1.0 - (dist * dist / 2.0);
+            // Cosine distance → cosine similarity: sim = 1 - dist
+            // (0 = identical, 1 = orthogonal, 2 = opposite)
+            let score = 1.0 - dist;
             if score >= threshold {
                 out.push(SkillMatch {
                     name: row.get::<String>(0)?,
@@ -231,8 +237,9 @@ mod tests {
         assert!(matches.len() <= 5);
     }
 
-    /// Semantic match end-to-end. Gated behind `#[ignore]` because the
-    /// first run downloads the BGE-small model (~130MB).
+    /// Semantic match end-to-end using vector_distance_cos (no index needed).
+    /// Gated behind `#[ignore]` because the first run downloads the
+    /// BGE-small model (~130MB).
     #[tokio::test]
     #[ignore = "requires fastembed model (~130MB); run with --ignored"]
     async fn test_match_skills_semantic() {
@@ -248,13 +255,19 @@ mod tests {
             .expect("upsert");
 
         let matches = repo
-            .match_skills("architecture design", 2, 0.3)
+            .match_skills("architecture design", 3, 0.3)
             .await
             .expect("match_skills");
         assert!(!matches.is_empty(), "expected at least one match");
+        // "plan" (Design and architect...) should be the best match
         assert_eq!(
             matches[0].name, "plan",
-            "expected 'plan' as best match for architecture query"
+            "expected 'plan' as best match for architecture query, got '{}'",
+            matches[0].name
         );
+        // Scores should be between 0 and 1
+        for m in &matches {
+            assert!(m.score > 0.0 && m.score <= 1.0, "score out of range: {}", m.score);
+        }
     }
 }

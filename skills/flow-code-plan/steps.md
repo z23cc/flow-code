@@ -66,7 +66,7 @@ After clarity check, match the request against registered engineering discipline
 1. Translate the request to English keywords (if not already English). This costs zero tokens — you're already processing the request.
 2. Run:
    ```bash
-   $FLOWCTL skill match "<english keywords>" --threshold 0.75 --limit 3 --json
+   $FLOWCTL skill match "<english keywords>" --threshold 0.70 --limit 3 --json
    ```
 3. If matches found (non-empty JSON array): save them for Step 5 (task spec writing). Each matched skill will be referenced in the task's Approach section.
 4. If empty result, error, or embedder unavailable: skip silently. Skill routing is advisory, never blocking.

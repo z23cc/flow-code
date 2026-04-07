@@ -33,7 +33,7 @@ pub enum SkillCmd {
         #[arg(long, default_value = "5")]
         limit: usize,
         /// Minimum cosine similarity threshold.
-        #[arg(long, default_value = "0.75")]
+        #[arg(long, default_value = "0.70")]
         threshold: f64,
     },
 }

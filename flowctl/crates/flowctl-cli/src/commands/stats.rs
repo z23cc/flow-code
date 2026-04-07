@@ -353,7 +353,12 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
     };
 
     let dag = match flowctl_core::TaskDag::from_tasks(&tasks) {
-        Ok(d) => d,
+        Ok(d) => {
+            if let Some(cycle) = d.detect_cycles() {
+                error_exit(&format!("Cycle detected in DAG: {}", cycle.join(" -> ")));
+            }
+            d
+        }
         Err(e) => error_exit(&format!("Failed to build DAG: {}", e)),
     };
 

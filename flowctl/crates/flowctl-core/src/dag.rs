@@ -67,15 +67,7 @@ impl TaskDag {
             }
         }
 
-        let dag = TaskDag { graph, index };
-
-        // Phase 3: cycle detection.
-        if let Some(cycle) = dag.detect_cycles() {
-            let cycle_str = cycle.join(" -> ");
-            return Err(CoreError::CycleDetected(cycle_str));
-        }
-
-        Ok(dag)
+        Ok(TaskDag { graph, index })
     }
 
     /// Return task IDs whose dependencies are all satisfied.
@@ -552,8 +544,9 @@ mod tests {
             make_task("b", &["a"]),
             make_task("c", &["b"]),
         ];
-        let err = TaskDag::from_tasks(&tasks).unwrap_err();
-        assert!(matches!(err, CoreError::CycleDetected(_)));
+        // from_tasks no longer detects cycles — callers must use detect_cycles()
+        let dag = TaskDag::from_tasks(&tasks).unwrap();
+        assert!(dag.detect_cycles().is_some());
     }
 
     // ── ready_tasks ─────────────────────────────────────────────────

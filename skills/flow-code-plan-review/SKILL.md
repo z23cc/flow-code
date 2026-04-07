@@ -164,12 +164,40 @@ The workflow covers:
 
 **CRITICAL: Do NOT ask user for confirmation. Automatically fix ALL valid issues and re-review — our goal is production-grade world-class software and architecture. Never use AskUserQuestion in this loop.**
 
-**MAX ITERATIONS**: Limit fix+re-review cycles to **${MAX_REVIEW_ITERATIONS:-3}** iterations (default 3, consistent with impl-review and shared protocol). If still NEEDS_WORK after max rounds, stop the fix loop and log: "Plan review: MAX_REVIEW_ITERATIONS reached. Proceeding with remaining concerns as gaps."
+**MAX ITERATIONS** (severity-based limits):
+- **P0/P1 findings** (critical/major): max **3** fix iterations
+- **P2/P3 findings** (minor/trivial): max **2** fix iterations
+- **Subjective findings** (naming, style, architecture opinion): max **1** iteration, then defer
 
-If verdict is NEEDS_WORK, loop internally until SHIP or max iterations:
+Default fallback: **${MAX_REVIEW_ITERATIONS:-3}** iterations (consistent with impl-review and shared protocol). If still NEEDS_WORK after max rounds, stop the fix loop and log: "Plan review: MAX_REVIEW_ITERATIONS reached. Proceeding with remaining concerns as gaps."
+
+### Finding Classification
+
+Classify each finding as **deterministic** or **subjective**:
+- **Deterministic**: missing acceptance criteria, spec contradiction, feasibility gap, security concern, missing dependency — objectively verifiable
+- **Subjective**: naming preference, architecture opinion, organizational style, scope suggestion — reasonable people disagree
+
+If all remaining unresolved findings are **subjective**, issue **SHIP** verdict with recorded concerns rather than continuing the fix loop. Log: "Review circuit breaker: all remaining findings are subjective. Issuing SHIP with recorded concerns."
+
+### Regression Detection
+
+Track the **finding count per iteration**. If iteration N+1 produces **MORE** findings than iteration N, the fixes are introducing new problems. Break the loop immediately with:
+> "Review circuit breaker: regression detected (findings increased from X to Y). Stopping fix loop."
+
+### Oscillation Detection
+
+Compare finding titles/descriptions across iterations. If a finding from iteration N **reappears** in iteration N+2 (was fixed then reintroduced), break immediately with:
+> "Review circuit breaker: oscillation detected (finding 'X' reappeared). Stopping fix loop."
+
+### Fix Loop Steps
+
+If verdict is NEEDS_WORK, loop internally until SHIP or circuit breaker triggers:
 
 1. **Parse issues** from reviewer feedback
-2. **Fix epic spec** (stdin preferred, temp file if content has single quotes):
+2. **Classify findings** as deterministic or subjective (see above)
+3. **Check regression**: compare finding count against previous iteration — break if increased
+4. **Check oscillation**: compare finding descriptions against all prior iterations — break if any reappeared
+5. **Fix epic spec** (stdin preferred, temp file if content has single quotes):
    ```bash
    # Preferred: stdin heredoc
    $FLOWCTL epic plan <EPIC_ID> --file - --json <<'EOF'
@@ -179,7 +207,7 @@ If verdict is NEEDS_WORK, loop internally until SHIP or max iterations:
    # Or temp file
    $FLOWCTL epic plan <EPIC_ID> --file /tmp/updated-plan.md --json
    ```
-3. **Sync affected task specs** - If epic changes affect task specs, update them:
+6. **Sync affected task specs** - If epic changes affect task specs, update them:
    ```bash
    $FLOWCTL task spec <TASK_ID> --file - --json <<'EOF'
    <updated task spec content>
@@ -191,10 +219,10 @@ If verdict is NEEDS_WORK, loop internally until SHIP or max iterations:
    - Approach/design decisions tasks depend on
    - Lock/retry/error handling semantics
    - API signatures or type definitions
-4. **Re-review**:
+7. **Re-review**:
    - **Codex**: Re-run `flowctl codex plan-review` (receipt enables context)
    - **RP**: `$FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/re-review.md` (NO `--new-chat`)
-5. **Repeat** until `<verdict>SHIP</verdict>`
+8. **Repeat** until `<verdict>SHIP</verdict>` or circuit breaker triggers
 
 **Recovery**: If context compaction occurred during review, restore from checkpoint:
 ```bash

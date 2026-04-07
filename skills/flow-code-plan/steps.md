@@ -22,480 +22,133 @@
 
 ## Task Sizing Rule
 
-Use **T-shirt sizes** based on observable metrics — not token estimates (models can't reliably estimate tokens).
-
 | Size | Files | Acceptance Criteria | Pattern | Action |
 |------|-------|---------------------|---------|--------|
 | **S** | 1-2 | 1-3 | Follows existing | Combine with related work |
-| **M** | 3-5 | 3-5 | Adapts existing | ✅ **Sweet spot** |
-| **L** | 5+ | 5+ | New/novel | ⚠️ Split into M tasks |
+| **M** | 3-5 | 3-5 | Adapts existing | **Sweet spot** |
+| **L** | 5+ | 5+ | New/novel | Split into M tasks |
 
-**M is the target size** — fits one context window (~80-100k tokens), makes meaningful progress.
-
-**Rules**: Combine sequential S tasks into one M. Split L tasks into M tasks. If 7+ tasks, look for over-splitting. Minimize file overlap between tasks for parallel work — list expected files in `**Files (write):**` and `**Files (read):**`, use `flowctl dep add` when tasks must share files. Read-only files can be shared across parallel tasks without conflicts.
+**M is the target size.** Combine sequential S tasks. Split L tasks. If 7+ tasks, look for over-splitting. Minimize file overlap — list expected files in `**Files (write/read):**`, use `flowctl dep add` when tasks must share files.
 
 ## Step 1: Initialize .flow
 
-**CRITICAL: flowctl is BUNDLED — NOT installed globally.** `which flowctl` will fail (expected). Always use:
-
 ```bash
-# Get flowctl path
 FLOWCTL="$HOME/.flow/bin/flowctl"
-
-# Ensure .flow exists
 $FLOWCTL init --json
 ```
 
-> **Note — opt-in interactive refinement:** If the user passed `--interactive`, BEFORE running Step 1 (Context Analysis in SKILL.md), invoke `/flow-code:interview` with the raw request text. The interview returns refined-spec markdown with Problem / Scope / Acceptance / Open Questions sections; use that refined text as the effective request for Context Analysis and all subsequent steps. Without the flag, skip this entirely — Step 2 below remains an automated internal brainstorm and is **not** interactive. Do not add any auto-trigger heuristic (length, punctuation, verb detection); interview must be opt-in only to preserve the zero-interaction contract (CLAUDE.md:99).
-
 ### Adaptive depth
 
-After init, classify the request to determine which steps to run:
+Classify the request: `$FLOWCTL plan-depth --request "<text>" --json`
 
-```bash
-$FLOWCTL plan-depth --request "<text>" --json
-```
+- `"quick"`: execute only Steps 1, 4, 10, 12. Skip all others.
+- `"standard"`: skip Steps 2, 6, 7, 9, 11. Execute rest.
+- `"deep"`: execute all steps.
 
-- If depth is `"quick"`: execute only Steps 1, 4, 10, 12. Skip all others.
-- If depth is `"standard"`: skip Steps 2, 6, 7, 9, 11. Execute rest.
-- If depth is `"deep"`: execute all steps.
+> **Opt-in interactive refinement:** If `--interactive`, invoke `/flow-code:interview` first. Without the flag, skip entirely.
 
 ## Step 2: Clarity Check (auto — no human input)
 
-**Skip if brainstorm already ran:** Check if `.flow/specs/` contains a `*-requirements.md` file matching the current request (from a prior `/flow-code:brainstorm` run). If found, log: `Skipping clarity check: requirements doc found from /brainstorm` and proceed to Step 4. The brainstorm already performed pressure testing and approach selection.
+**Skip if brainstorm already ran** (check `.flow/specs/` for `*-requirements.md`).
 
-**Clear?** (specific behavior, bug with repro, existing pattern, has acceptance criteria) → skip to Step 4.
+**Clear?** (specific behavior, bug, existing pattern, has acceptance criteria) → skip to Step 4.
 
-**Ambiguous?** (vague goal, multiple valid approaches, missing who/what/why, unclear scope) → mini brainstorm:
-
-1. Pressure test: What user problem? What if we do nothing? Simpler 80% framing?
+**Ambiguous?** → mini brainstorm:
+1. Pressure test: What user problem? Simpler 80% framing?
 2. Generate 2-3 approaches (minimal / balanced / comprehensive)
 3. Pick best by: blast radius, value/effort, codebase alignment
-4. Output: `Clarified: "<original>" → "<specific target>" | Approach: <A|B|C> — <why>`
+4. Output: `Clarified: "<original>" → "<specific target>" | Approach: <choice> — <why>`
 
 ## Step 3: Skill routing (auto — non-blocking)
 
-After clarity check, match the request against registered engineering discipline skills to auto-inject relevant guidance into task specs.
-
-1. Translate the request to English keywords (if not already English). This costs zero tokens — you're already processing the request.
-2. Run:
-   ```bash
-   $FLOWCTL skill match "<english keywords>" --threshold 0.70 --limit 3 --json
-   ```
-3. If matches found (non-empty JSON array): save them for Step 10 (task spec writing). Each matched skill will be referenced in the task's Approach section.
-4. If empty result, error, or embedder unavailable: skip silently. Skill routing is advisory, never blocking.
-
-**Output** (inline, no user prompt):
-```
-Skill routing: flow-code-api-design (0.87), flow-code-performance (0.42 — below threshold)
-```
-
-**Integration in Step 10** (task spec writing): For each skill with score ≥ threshold, add to the task's Approach section:
-```markdown
-- Reference `flow-code-<name>` skill principles when implementing
-```
-Max 3 skill references per task to avoid spec bloat.
+Match request against engineering discipline skills: `$FLOWCTL skill match "<keywords>" --threshold 0.70 --limit 3 --json`. Save matches for Step 10 task spec writing (max 3 skill references per task).
 
 ## Step 4: Fast research (parallel)
 
-**If input is a Flow ID** (fn-N-slug or fn-N-slug.M, including legacy fn-N/fn-N-xxx): First fetch it with `$FLOWCTL show <id> --json` and `$FLOWCTL cat <id>` to get the request context.
+**If input is a Flow ID**: fetch with `$FLOWCTL show/cat` first.
 
-**Check config flags and stack profile:**
-```bash
-$FLOWCTL config get memory.enabled --json
-$FLOWCTL config get scouts.github --json
-$FLOWCTL stack show --json
-```
+**Check config and stack:** `$FLOWCTL config get memory.enabled`, `scouts.github`, `stack show`, `invariants show`.
 
-**Check architecture invariants:**
-```bash
-$FLOWCTL invariants show --json
-```
-If invariants exist, ensure all planned tasks respect them. If a task would violate an invariant, note the conflict in the task spec and flag it.
-
-Stack is auto-detected on `init`. If present, use it throughout planning:
-- Include framework/language in scout prompts (e.g., "Django DRF patterns", "Next.js App Router")
-- Use `stack.*.conventions` to guide task spec writing
-- Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
-- Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
-
-**Scout cache check (before spawning scouts):**
-
-Before launching any scout, check the cache for existing results at the current commit:
-```bash
-# Get current commit hash (fallback to "no-git" if not in a git repo)
-COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "no-git")
-
-# Check cache for each scout type that would be spawned
-$FLOWCTL scout-cache get --scout-type repo-scout --commit "$COMMIT" --json
-```
-
-If `hit: true`, use the cached `result` instead of spawning that scout. Only spawn scouts that have cache misses. After each scout completes, cache its result:
-```bash
-$FLOWCTL scout-cache set --scout-type repo-scout --commit "$COMMIT" --result '@/tmp/scout-result.json' --json
-```
-
-Cache entries expire after 24h (1h for no-git fallback). Use `$FLOWCTL scout-cache clear` to force re-run all scouts.
-
-**Scout selection: 3 profiles, auto-selected from depth.**
+**Scout cache:** Check cache at current commit before spawning. Only spawn scouts with cache misses. Cache results after completion.
 
 ### Scout profiles
 
 | Profile | Scouts | When |
 |---------|--------|------|
-| **quick** | `repo-scout` only | S-size tasks, clear bug fixes, `--research=quick` |
-| **standard** | `repo-scout` + `capability-scout` + deep context (Tier 1/2/3) + `memory-scout` (if enabled) | Default for most features, `--research=standard` |
-| **deep** | All of standard + `practice-scout` + `docs-scout` + `github-scout` (if scouts.github) + `epic-scout` (if 2+ open epics) + `docs-gap-scout` (if user-facing) | Architecture changes, security work, `--research=deep` |
+| **quick** | `repo-scout` only | S-size, clear bugs |
+| **standard** | `repo-scout` + `capability-scout` + deep context + `memory-scout` | Default |
+| **deep** | All standard + `practice-scout` + `docs-scout` + `github-scout` + `epic-scout` + `docs-gap-scout` | Architecture, security |
 
-**Auto-selection** (from Context Analysis depth decision): `short` → quick, `standard` → standard, `deep` → deep.
-**Override**: `--research=quick|standard|deep` flag.
+Auto-selected from depth. Override: `--research=quick|standard|deep`. Min 1, max 7 scouts. Run ALL in one parallel call.
 
-### Deep context tiers (used in standard and deep profiles)
-
-Exactly one deep context call per plan (not multiple):
-- **Tier 1** (MCP available): direct `context_builder(response_type:"plan")` call — best quality, automatic workspace binding
-- **Tier 2** (rp-cli available, no MCP): `rp-cli -e 'builder "<request + repo-scout findings>" --response-type plan'` (timeout: 300s)
-- **Tier 3** (neither available): `context-scout` subagent (existing behavior, unchanged)
-
-Deep context runs AFTER repo-scout returns — it uses repo-scout findings as input.
-
-### Constraints
-
-- `capability-scout` skipped if `--no-capability-scan` passed (non-blocking; fails open — planning continues if it errors)
-- Min 1 (repo-scout required), max 7. Run ALL selected scouts in ONE parallel Agent/Task call.
-
-Must capture:
-- File paths + line refs
-- Existing centralized code to reuse
-- Similar patterns / prior work
-- External docs links
-- Project conventions (CLAUDE.md, CONTRIBUTING, etc)
-- Architecture patterns and data flow
-- Epic dependencies (from epic-scout)
-- Doc updates needed (from docs-gap-scout) - add to task acceptance criteria
-- Capability gaps (from capability-scout) - persist in Step 10 (see below)
+Must capture: file paths + line refs, reusable code, patterns, conventions, architecture, epic dependencies, doc updates needed, capability gaps.
 
 ### Step 5: Deep context via RP (after repo-scout)
 
-After repo-scout returns, gather deep codebase context using the best available RP tier. **Exactly one RP-powered call per plan run** — do not call both context_builder and context-scout.
+Exactly one RP-powered call per plan:
+- **Tier 1 (MCP):** `context_builder(response_type: "plan")`
+- **Tier 2 (CLI):** `rp-cli -e 'builder ... --response-type plan'` (timeout 300s)
+- **Tier 3:** `context-scout` subagent (fallback)
 
-**Tier 1 — RP MCP (preferred):**
-```
-context_builder(
-  instructions: "<request summary> + <repo-scout key findings>",
-  response_type: "plan"
-)
-```
-
-**Tier 2 — rp-cli (fallback when MCP unavailable):**
-```bash
-rp-cli -e 'builder "<request summary> + <repo-scout key findings>" --response-type plan'
-# Timeout: 300s (builder can take minutes)
-```
-
-**Tier 3 — context-scout subagent (fallback when neither MCP nor CLI available):**
-Run `context-scout` as a subagent (existing behavior, unchanged). This is the pre-existing path.
-
-**Skip condition:** If the request is trivial (clear bug fix, single-file change, S-size task), skip deep context — repo-scout alone is sufficient.
-
-Feed RP/context-scout findings into the epic spec alongside repo-scout findings.
+Skip for trivial requests (S-size, single-file).
 
 ## Step 6: Apply memory lessons (if memory.enabled)
 
-**Skip if memory.enabled is false.**
+Scan L1 index for relevant entries. Apply to plan:
+- **Pitfalls** → warnings in task specs
+- **Conventions** → ensure tasks follow patterns
+- **Decisions** → respect past choices (note if superseding)
 
-After scouts complete, check if memory-scout found relevant entries. If so, directly inject them:
-
-```bash
-# Quick scan — L1 index (~50 tokens/entry)
-$FLOWCTL memory inject --json
-```
-
-Scan the L1 index for entries relevant to this plan's domain. If relevant entries exist, fetch full content:
-
-```bash
-# Fetch details for relevant entries
-$FLOWCTL memory search "<keyword matching this plan's domain>"
-```
-
-**Apply lessons to plan design:**
-- **Pitfalls** → add as explicit warnings in task specs or acceptance criteria ("Verify X does not regress Y")
-- **Conventions** → ensure tasks follow discovered patterns, reference them in spec
-- **Decisions** → respect past architectural choices unless the plan explicitly supersedes them
-
-**Rules:**
-- Don't bloat tasks with every memory entry — only apply entries clearly relevant to this plan
-- If a past decision conflicts with the current plan, note it as an explicit "supersedes decision #N" in the epic spec
-- 0-3 applied entries per plan is normal
+0-3 applied entries per plan is normal.
 
 ## Step 7: Stakeholder & scope check
 
-Before diving into gaps, identify who's affected:
-- **End users** — What changes for them? New UI, changed behavior?
-- **Developers** — New APIs, changed interfaces, migration needed?
-- **Operations** — New config, monitoring, deployment changes?
-
-This shapes what the plan needs to cover.
+Identify who's affected: end users, developers, operations. This shapes what the plan covers.
 
 ## Step 8: Flow gap check
 
-Run gap analyst subagent: `flow-code:flow-gap-analyst(<request>, research_findings)`. Fold gaps into the plan.
-
-**After epic is created (Step 10):** Register gaps via `$FLOWCTL gap add --epic <id> --capability "<desc>" --priority required|important|nice-to-have --source flow-gap-analyst --json`. Priority mapping: "MUST answer" → required, high-impact edge cases → important, deferrable → nice-to-have.
+Run `flow-code:flow-gap-analyst`. After epic creation, register gaps via `$FLOWCTL gap add`. Priority mapping: "MUST answer" → required, high-impact → important, deferrable → nice-to-have.
 
 ## Step 9: Pick depth
 
-Default to standard unless complexity demands more or less.
-
-**SHORT** (bugs, small changes)
-- Problem or goal
-- Acceptance checks
-- Key context
-
-**STANDARD** (most features)
-- Overview + scope
-- Approach
-- Risks / dependencies
-- Acceptance checks
-- Test notes
-- References
-- Mermaid diagram if data model changes
-
-**DEEP** (large/critical)
-- Detailed phases
-- Alternatives considered
-- Non-functional targets
-- Architecture/data flow diagram (mermaid)
-- Rollout/rollback
-- Docs + metrics
-- Risks + mitigations
+- **SHORT** (bugs, small): Problem, acceptance, key context
+- **STANDARD** (most features): Overview, scope, approach, risks, acceptance, tests, references, diagram if data model changes
+- **DEEP** (large/critical): Detailed phases, alternatives, non-functional targets, architecture diagram, rollout/rollback, docs, metrics, risks + mitigations
 
 ## Step 10: Write to .flow
 
-**Efficiency note**: Use stdin (`--file -`) with heredocs to avoid temp files. Use `task spec` to set description + acceptance in one call.
+**Route A — Existing Flow ID**: Update epic plan or task spec via `$FLOWCTL epic plan` / `$FLOWCTL task spec`.
 
-**Route A - Input was an existing Flow ID**:
+**Route B — New idea**:
+1. Create epic: `$FLOWCTL epic create --title "<title>" --json`
+2. Set branch: `$FLOWCTL epic branch <id> "<id>" --json`
+3. Write epic spec via stdin heredoc (`$FLOWCTL epic plan <id> --file -`). Include: Overview, Scope, Approach, Quick commands (REQUIRED), Acceptance, References.
+4. Set epic dependencies from epic-scout findings
+5. Create tasks with `--deps`, `--domain`, `--files` flags as appropriate. Create in dependency order.
+6. Write task specs via `$FLOWCTL task spec <id> --desc --accept`
 
-1. If epic ID (fn-N-slug or legacy fn-N/fn-N-xxx):
-   ```bash
-   # Use stdin heredoc (no temp file needed)
-   $FLOWCTL epic plan <id> --file - --json <<'EOF'
-   <plan content here>
-   EOF
-   ```
-   - Create/update child tasks as needed
+**Task spec template** (NO implementation code): Description (what, not how) + Size (S/M) + Layer + Files (write/read) + Approach (patterns to follow, code to reuse) + Investigation targets (Required: read before coding; Optional: reference. Max 5-7, exact paths with line ranges, from scouts) + Key context (gotchas only) + Acceptance (`- [ ]` criteria).
 
-2. If task ID (fn-N-slug.M or legacy fn-N.M/fn-N-xxx.M):
-   ```bash
-   # Combined set-spec: description + acceptance in one call
-   # Write to temp files only if content has single quotes
-   $FLOWCTL task spec <id> --desc /tmp/desc.md --accept /tmp/acc.md --json
-   ```
+## Step 11: Capability gaps (if capability-scout ran)
 
-**Route B - Input was text (new idea)**:
-
-1. Create epic:
-   ```bash
-   $FLOWCTL epic create --title "<Short title>" --json
-   ```
-   This returns the epic ID (e.g., fn-1-add-oauth).
-
-2. Set epic branch_name (deterministic):
-   - Default: use epic ID (e.g., fn-1-add-oauth)
-   ```bash
-   $FLOWCTL epic branch <epic-id> "<epic-id>" --json
-   ```
-   - If user specified a branch, use that instead.
-
-3. Write epic spec (use stdin heredoc):
-   ```bash
-   # Include: Overview, Scope, Approach, Quick commands (REQUIRED), Acceptance, References
-   # Add mermaid diagram if data model or architecture changes
-   $FLOWCTL epic plan <epic-id> --file - --json <<'EOF'
-   # Epic Title
-
-   ## Overview
-   ...
-
-   ## Quick commands
-   ```bash
-   # At least one smoke test command
-   ```
-
-   ## Acceptance
-   ...
-   EOF
-   ```
-
-4. Set epic dependencies (from epic-scout findings):
-
-   If epic-scout found dependencies, set them automatically:
-   ```bash
-   # For each dependency found by epic-scout:
-   $FLOWCTL epic add-dep <new-epic-id> <dependency-epic-id> --json
-   ```
-
-   Report findings at end of planning (no user prompt needed):
-   ```
-   Epic dependencies set:
-   - fn-N-slug → fn-2-add-auth (Auth): Uses authService from fn-2-add-auth.1
-   - fn-N-slug → fn-5-user-model (DB): Extends User model
-   ```
-
-5. Create child tasks:
-   ```bash
-   # Task with no dependencies:
-   $FLOWCTL task create --epic <epic-id> --title "<Task title>" --json
-
-   # Task with dependencies:
-   $FLOWCTL task create --epic <epic-id> --title "<Task title>" --deps <dep1>,<dep2> --json
-
-   # Task with domain tag (optional — helps worker adjust strategy):
-   $FLOWCTL task create --epic <epic-id> --title "<Task title>" --domain <domain> --json
-   # Valid domains: frontend, backend, architecture, testing, docs, ops, general
-
-   # Task with file ownership (recommended for parallel execution):
-   $FLOWCTL task create --epic <epic-id> --title "<Task title>" --files "src/auth.ts,src/routes.ts" --json
-   # Enables flowctl files --epic <id> to detect conflicts before parallel execution
-   ```
-
-   **TIP**: Use `--deps` to declare dependencies inline when creating tasks. Tasks must exist before being referenced, so create in dependency order. Use `--domain` when the task clearly belongs to a specific area. Use `--files` to declare file ownership for teams/parallel conflict prevention.
-
-6. Write task specs (use combined set-spec):
-   ```bash
-   # For each task - single call sets both sections
-   # Write description and acceptance to temp files, then:
-   $FLOWCTL task spec <task-id> --desc /tmp/desc.md --accept /tmp/acc.md --json
-   ```
-
-   **Task spec content** (remember: NO implementation code):
-   ```markdown
-   ## Description
-   [What to build, not how to build it]
-
-   **Size:** S/M (L tasks should be split)
-   **Layer:** backend | frontend | infra | full-stack
-   **Files (write):** list files to create/modify
-   **Files (read):** list files needed for reference only
-
-   ## Approach
-   - Follow pattern at `src/example.ts:42`
-   - Reuse `existingHelper()` from `lib/utils.ts`
-
-   ## Investigation targets
-   **Required** (read before coding):
-   - `src/auth/oauth.ts` — existing OAuth flow to extend
-   - `src/middleware/session.ts:23-45` — session validation pattern
-
-   **Optional** (reference as needed):
-   - `src/auth/*.test.ts` — existing test patterns
-
-   ## Key context
-   [Only for recent API changes, surprising patterns, or non-obvious gotchas]
-   [If stack config exists, include relevant framework conventions here]
-
-   ## Acceptance
-   - [ ] Criterion 1
-   - [ ] Criterion 2
-   ```
-
-   **Investigation targets rules:**
-   - Max 5-7 targets per task — enough to ground the worker, not so many it wastes context
-   - Use exact file paths with optional line ranges (e.g., `src/auth.ts:23-45`)
-   - **Required** = must read before implementing. **Optional** = helpful reference
-   - Auto-populated from repo-scout/context-scout findings in Step 4 research
-   - If no relevant files found by scouts, leave the section empty (worker skips Phase 1.5)
-
-   **Layer field**: If stack config is set, tag each task with its primary layer. This helps the worker select the right guard commands (e.g., `pytest` for backend, `pnpm test` for frontend). Full-stack tasks run all guards.
-
-7. Add task dependencies (if not already set via `--deps`):
-
-   **Preferred**: Use `--deps` flag during task creation (step 5). This saves tool calls.
-
-   **Alternative**: Use `dep add` to add dependencies after task creation:
-   ```bash
-   # Syntax: dep add <dependent-task> <dependency-task>
-   # "task B depends on task A" → dep add B A
-   $FLOWCTL dep add fn-N.2 fn-N.1 --json
-   ```
-
-   Use `dep add` when you need to add dependencies to existing tasks or fix missed dependencies.
-
-8. Output current state:
-   ```bash
-   $FLOWCTL show <epic-id> --json
-   $FLOWCTL cat <epic-id>
-   ```
-
-## Step 11: Write capability-gaps.md (if capability-scout ran)
-
-**Skip if `--no-capability-scan` was passed, or capability-scout was not run, or scout errored (fails open).**
-
-After epic creation, persist capability-scout findings to `.flow/epics/<epic-id>/capability-gaps.md` (human-readable markdown, NOT JSON — plan-review scans this file).
-
-```bash
-mkdir -p .flow/epics/<epic-id>
-cat > .flow/epics/<epic-id>/capability-gaps.md <<'EOF'
-# Capability Gaps — <epic-id>
-
-Source: capability-scout (plan-time)
-
-<human summary table + references from capability-scout output>
-EOF
-```
-
-For each `priority: required` gap in the scout's JSON output, persist in the gap registry:
-
-```bash
-$FLOWCTL gap add --epic <epic-id> \
-  --capability "<capability>: <details>" \
-  --priority required \
-  --source capability-scout --json
-```
-
-`important` and `nice-to-have` gaps are recorded in the markdown file only — not in the gap registry (don't over-fill with noise).
+Persist to `.flow/epics/<epic-id>/capability-gaps.md`. Register `required` gaps via `$FLOWCTL gap add`.
 
 ## Step 12: Validate
 
-```bash
-$FLOWCTL validate --epic <epic-id> --json
-```
-
-Fix any errors before proceeding.
+`$FLOWCTL validate --epic <id> --json` — fix any errors.
 
 ### Step 13: Auto-Extract Acceptance Checklist
 
-After validation, generate `.flow/checklists/<epic-id>.json` by parsing `## Acceptance` sections from epic + task specs. Each `- [ ]` line becomes a checklist item with `source` (epic or task ID) and `status: "pending"`. Skip if no acceptance criteria found. Commit with the plan (`git add .flow/checklists/`). Consumed by `/flow-code:epic-review`.
+Parse `## Acceptance` sections from specs into `.flow/checklists/<epic-id>.json`. Each `- [ ]` becomes a checklist item. Consumed by `/flow-code:epic-review`.
 
 ## Step 14: Review (if chosen at start)
 
-If review was decided in Context Analysis:
 1. Initialize `PLAN_REVIEW_ITERATIONS=0`
-2. Invoke `/flow-code:plan-review` with the epic ID
-3. If review returns "Needs Work" or "Major Rethink":
-   - Increment `PLAN_REVIEW_ITERATIONS`
-   - **If `PLAN_REVIEW_ITERATIONS >= 3`**: stop the loop. Log: "Plan review: 3 iterations completed (MAX_REVIEW_ITERATIONS reached). Proceeding." Go to Step 15.
-   - **Re-anchor EVERY iteration** (do not skip):
-     ```bash
-     $FLOWCTL show <epic-id> --json
-     $FLOWCTL cat <epic-id>
-     ```
-   - **Immediately fix the issues** (do NOT ask for confirmation — user already consented)
-   - Re-run `/flow-code:plan-review`
-4. Repeat until review returns "Ship" or iteration limit reached.
-
-**No human gates here** — the review-fix-review loop is fully automated. Max 3 iterations (MAX_REVIEW_ITERATIONS) prevents infinite loops. This matches the shared review protocol and impl-review.
-
-**Why re-anchor every iteration?** Per Anthropic's long-running agent guidance: context compresses, you forget details. Re-read before each fix pass.
+2. Invoke `/flow-code:plan-review`
+3. If "Needs Work": increment iterations, re-anchor (`$FLOWCTL show/cat`), fix, re-run review
+4. Max 3 iterations (MAX_REVIEW_ITERATIONS). Fully automated — no human gates.
 
 ## Step 15: Execute or Offer next steps
 
-**If `--plan-only`**: print `Plan created: <epic-id> (N tasks) | Next: /flow-code:work <epic-id>` and stop.
-
-**Otherwise (default — auto-execute immediately, no menu):**
-
-```bash
-$FLOWCTL epic auto-exec <epic-id> --pending --json
-```
-
-Invoke `/flow-code:work <epic-id> --no-review` directly (Teams mode handles parallelism regardless of task count).
+- **`--plan-only`**: print plan summary and stop.
+- **Default**: mark auto-exec pending, invoke `/flow-code:work <epic-id> --no-review` directly.

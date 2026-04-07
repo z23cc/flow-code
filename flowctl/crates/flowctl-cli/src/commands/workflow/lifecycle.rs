@@ -7,6 +7,7 @@ use serde_json::json;
 use crate::output::{error_exit, json_output};
 
 use flowctl_core::state_machine::Status;
+use flowctl_db::EventStoreRepo;
 use flowctl_service::lifecycle::{
     BlockTaskRequest, DoneTaskRequest, FailTaskRequest, RestartTaskRequest, StartTaskRequest,
 };
@@ -232,5 +233,52 @@ pub fn cmd_restart(json_mode: bool, id: String, dry_run: bool, force: bool) {
             }
         }
         Err(e) => error_exit(&e.to_string()),
+    }
+}
+
+pub fn cmd_events(json_mode: bool, epic_id: String) {
+    let _flow_dir = ensure_flow_exists();
+    let conn = try_open_lsql_conn();
+
+    let conn = match conn {
+        Some(c) => c,
+        None => {
+            error_exit("Cannot open database for event store query");
+        }
+    };
+
+    let repo = EventStoreRepo::new(conn);
+
+    // Query both the epic stream and all task streams for this epic
+    let prefixes = vec![
+        format!("epic:{epic_id}"),
+        format!("task:{epic_id}."),
+    ];
+
+    match block_on(repo.query_by_stream_prefixes(&prefixes)) {
+        Ok(events) => {
+            if json_mode {
+                let items: Vec<serde_json::Value> = events
+                    .iter()
+                    .map(|e| serde_json::to_value(e).unwrap_or_default())
+                    .collect();
+                json_output(json!({
+                    "epic": epic_id,
+                    "count": events.len(),
+                    "events": items,
+                }));
+            } else if events.is_empty() {
+                println!("No events found for epic {epic_id}");
+            } else {
+                println!("Events for epic {} ({} total):\n", epic_id, events.len());
+                for e in &events {
+                    println!(
+                        "  [{}] {} v{} — {} ({})",
+                        e.event_id, e.stream_id, e.version, e.event_type, e.created_at,
+                    );
+                }
+            }
+        }
+        Err(e) => error_exit(&format!("Failed to query events: {e}")),
     }
 }

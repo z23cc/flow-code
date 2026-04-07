@@ -29,7 +29,7 @@ use commands::{
     stack::{InvariantsCmd, StackCmd},
     stats::StatsCmd,
     task::TaskCmd,
-    workflow::{self, WorkerPhaseCmd},
+    workflow::{self, PipelinePhaseCmd, WorkerPhaseCmd},
 };
 use output::OutputOpts;
 
@@ -266,6 +266,11 @@ enum Commands {
         #[command(subcommand)]
         cmd: WorkerPhaseCmd,
     },
+    /// Epic-level pipeline phase progression.
+    Phase {
+        #[command(subcommand)]
+        cmd: PipelinePhaseCmd,
+    },
     /// Classify request depth for adaptive plan step selection.
     PlanDepth {
         /// Request text to classify.
@@ -429,6 +434,13 @@ enum Commands {
         force: bool,
     },
 
+    /// Show event store history for an epic (all streams).
+    Events {
+        /// Epic ID.
+        #[arg(long)]
+        epic: String,
+    },
+
     // ── Data exchange ────────────────────────────────────────────────
     /// Export epics/tasks from DB to Markdown files.
     Export {
@@ -534,6 +546,7 @@ fn main() {
         Commands::Hook { cmd } => commands::hook::dispatch(&cmd),
         Commands::Stats { cmd } => commands::stats::dispatch(&cmd, json),
         Commands::WorkerPhase { cmd } => workflow::dispatch_worker_phase(&cmd, json),
+        Commands::Phase { cmd } => workflow::dispatch_pipeline_phase(&cmd, json),
         Commands::PlanDepth { request } => commands::plan_depth::cmd_plan_depth(json, &request),
 
         // Query
@@ -596,6 +609,7 @@ fn main() {
             workflow::cmd_block(json, id, reason_text)
         }
         Commands::Fail { id, reason, force } => workflow::cmd_fail(json, id, reason, force),
+        Commands::Events { epic } => workflow::cmd_events(json, epic),
 
         // Data exchange
         Commands::Export { epic, format } => admin::cmd_export(json, epic, format),

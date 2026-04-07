@@ -8,7 +8,7 @@ use libsql::Connection;
 use crate::error::DbError;
 
 /// Current target schema version. Bump this when adding new migrations.
-const TARGET_VERSION: i64 = 4;
+const TARGET_VERSION: i64 = 5;
 
 /// Ensure `_meta` table exists and run any pending migrations.
 pub async fn migrate(conn: &Connection) -> Result<(), DbError> {
@@ -32,6 +32,10 @@ pub async fn migrate(conn: &Connection) -> Result<(), DbError> {
 
     if current < 4 {
         migrate_v4(conn).await?;
+    }
+
+    if current < 5 {
+        migrate_v5(conn).await?;
     }
 
     // Update stored version to target.
@@ -180,6 +184,49 @@ async fn migrate_v4(conn: &Connection) -> Result<(), DbError> {
     )
     .await
     .ok();
+
+    Ok(())
+}
+
+/// Migration v5: Add event_store and pipeline_progress tables for event sourcing.
+///
+/// These tables are created in `schema.sql` for fresh databases; this migration
+/// adds them to databases created before v5.
+async fn migrate_v5(conn: &Connection) -> Result<(), DbError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS event_store (
+            event_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            stream_id   TEXT NOT NULL,
+            version     INTEGER NOT NULL,
+            event_type  TEXT NOT NULL,
+            payload     TEXT NOT NULL,
+            metadata    TEXT,
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        )",
+        (),
+    )
+    .await
+    .map_err(|e| DbError::Schema(format!("event_store creation failed: {e}")))?;
+
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_event_store_stream_version
+            ON event_store(stream_id, version)",
+        (),
+    )
+    .await
+    .ok();
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS pipeline_progress (
+            epic_id     TEXT PRIMARY KEY,
+            phase       TEXT NOT NULL DEFAULT 'plan',
+            started_at  TEXT,
+            updated_at  TEXT
+        )",
+        (),
+    )
+    .await
+    .map_err(|e| DbError::Schema(format!("pipeline_progress creation failed: {e}")))?;
 
     Ok(())
 }

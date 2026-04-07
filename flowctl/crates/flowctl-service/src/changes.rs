@@ -7,8 +7,11 @@
 use std::path::Path;
 
 use flowctl_core::changes::{Changes, Mutation};
+use flowctl_core::events::{
+    EpicEvent, EventMetadata, FlowEvent, TaskEvent, epic_stream_id, task_stream_id,
+};
 use flowctl_core::json_store;
-use flowctl_db::EventRepo;
+use flowctl_db::{EventRepo, EventStoreRepo};
 
 use crate::error::{ServiceError, ServiceResult};
 
@@ -30,6 +33,7 @@ pub struct ApplyResult {
 pub struct ChangesApplier<'a> {
     flow_dir: &'a Path,
     event_repo: &'a EventRepo,
+    event_store: Option<EventStoreRepo>,
     actor: Option<&'a str>,
     session_id: Option<&'a str>,
 }
@@ -39,9 +43,16 @@ impl<'a> ChangesApplier<'a> {
         Self {
             flow_dir,
             event_repo,
+            event_store: None,
             actor: None,
             session_id: None,
         }
+    }
+
+    /// Set an event store for domain event emission alongside audit logging.
+    pub fn with_event_store(mut self, store: EventStoreRepo) -> Self {
+        self.event_store = Some(store);
+        self
     }
 
     /// Set the actor (who is applying the changes) for event logging.
@@ -62,6 +73,9 @@ impl<'a> ChangesApplier<'a> {
         let mut event_ids = Vec::with_capacity(changes.len());
 
         for mutation in &changes.mutations {
+            // Emit domain event to event store (best-effort, before mutation)
+            self.emit_domain_event(mutation).await;
+
             self.apply_one(mutation)?;
 
             let event_id = self.log_event(mutation).await?;
@@ -156,5 +170,35 @@ impl<'a> ChangesApplier<'a> {
             .map_err(ServiceError::DbError)?;
 
         Ok(row_id)
+    }
+
+    /// Emit a domain event to the event store for create mutations.
+    /// Best-effort: failures are silently ignored so they don't block the pipeline.
+    async fn emit_domain_event(&self, mutation: &Mutation) {
+        let store = match self.event_store {
+            Some(ref s) => s,
+            None => return,
+        };
+
+        let (stream, flow_event) = match mutation {
+            Mutation::CreateEpic { epic } => (
+                epic_stream_id(&epic.id),
+                FlowEvent::Epic(EpicEvent::Created),
+            ),
+            Mutation::CreateTask { task } => (
+                task_stream_id(&task.id),
+                FlowEvent::Task(TaskEvent::Created),
+            ),
+            _ => return,
+        };
+
+        let metadata = EventMetadata {
+            actor: self.actor.unwrap_or("system").into(),
+            source_cmd: "changes_applier".into(),
+            session_id: self.session_id.unwrap_or("").into(),
+            timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        };
+
+        let _ = store.append(&stream, &flow_event, &metadata).await.ok();
     }
 }

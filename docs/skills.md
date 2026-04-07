@@ -17,7 +17,7 @@ These skills form the primary plan-execute-review workflow. They ship with the p
 | `flow-code-setup` | `/flow-code:setup` | Install flowctl CLI and configure project |
 | `flow-code-map` | `/flow-code:map` | Generate codebase architecture maps |
 
-## Extension Skills (16)
+## Extension Skills (22)
 
 Optional capabilities that extend the core workflow. Install as needed.
 
@@ -29,6 +29,9 @@ Optional capabilities that extend the core workflow. Install as needed.
 | `flow-code-auto-improve` | `/flow-code:auto-improve` | Autonomous code quality improvement loops |
 | `flow-code-django` | `/flow-code:django` | Django-specific patterns, security, and testing |
 | `flow-code-deps` | `/flow-code:deps` | Dependency graph visualization and execution order |
+| `flow-code-api-design` | `/flow-code:api-design` | API design and module boundary review |
+| `flow-code-brainstorm` | `/flow-code:brainstorm` | Explore and pressure-test ideas before planning |
+| `flow-code-performance` | `/flow-code:performance` | Performance investigation, optimization, and benchmarks |
 
 ### Workflow Extensions
 
@@ -50,6 +53,9 @@ Optional capabilities that extend the core workflow. Install as needed.
 | `flow-code-rp-explorer` | `/flow-code:rp-explorer` | RepoPrompt-powered codebase exploration |
 | `flow-code-skill-create` | `/flow-code:skill-create` | Create new flow-code skills |
 | `flow-code-prompt-eng` | Internal | Prompt engineering guidance for review agents |
+| `flow-code-cicd` | `/flow-code:cicd` | CI/CD pipeline setup, quality gates, and deployment automation |
+| `flow-code-context-eng` | `/flow-code:context-eng` | Context window management and optimization |
+| `flow-code-deprecation` | `/flow-code:deprecation` | Feature, API, and module deprecation workflows |
 | `browser` | `/browser` | Browser automation via agent-browser CLI |
 
 ## Recommended Usage Order

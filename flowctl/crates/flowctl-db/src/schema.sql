@@ -149,6 +149,30 @@ CREATE TABLE IF NOT EXISTS events (
     session_id  TEXT
 );
 
+-- ── Event store (event-sourced pipeline) ──────────────────────────────
+
+CREATE TABLE IF NOT EXISTS event_store (
+    event_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    stream_id   TEXT NOT NULL,
+    version     INTEGER NOT NULL,
+    event_type  TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    metadata    TEXT,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_store_stream_version
+    ON event_store(stream_id, version);
+
+-- ── Pipeline progress ─────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS pipeline_progress (
+    epic_id     TEXT PRIMARY KEY,
+    phase       TEXT NOT NULL DEFAULT 'plan',
+    started_at  TEXT,
+    updated_at  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS token_usage (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),

@@ -7,6 +7,7 @@
 mod deps;
 mod epic;
 mod event;
+mod event_store;
 mod evidence;
 mod file_lock;
 mod file_ownership;
@@ -20,6 +21,7 @@ mod task;
 pub use deps::DepRepo;
 pub use epic::EpicRepo;
 pub use event::{EventRepo, EventRow};
+pub use event_store::{EventStoreRepo, StoredEvent};
 pub use evidence::EvidenceRepo;
 pub use file_lock::{FileLockRepo, LockEntry, LockMode};
 pub use file_ownership::FileOwnershipRepo;

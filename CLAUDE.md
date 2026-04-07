@@ -13,12 +13,12 @@ commands/flow-code/*.md  → Slash command definitions (user-invocable entry poi
 skills/*/SKILL.md        → Skill implementations (loaded by Skill tool, never Read directly)
 agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
 bin/flowctl               → Rust binary (built from flowctl/ workspace)
-flowctl/                  → Rust Cargo workspace (3 crates: core, db, cli)
+flowctl/                  → Rust Cargo workspace (4 crates: core, db, service, cli)
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
 
-**Skills**: 8 core + 16 extensions. See `docs/skills.md` for the full classification. Core workflow: plan → plan-review → work → impl-review → epic-review.
+**Skills**: 8 core + 22 extensions. See `docs/skills.md` for the full classification. Core workflow: `flow-code-run` (unified phase loop) or individual skills: plan → plan-review → work → impl-review → epic-review.
 
 **Key invariant**: The `bin/flowctl` Rust binary is the single source of truth for `.flow/` state. Always invoke as:
 ```bash
@@ -28,6 +28,9 @@ $FLOWCTL <command>
 
 ## Primary Workflow
 
+**Unified entry point** (preferred): `/flow-code:run "description"` — drives the entire pipeline (plan → plan-review → work → impl-review → close) via `flowctl phase next/done`. One command, zero manual phase transitions.
+
+Individual phase commands (deprecated, still functional):
 1. `/flow-code:plan "description"` → creates epic + tasks in `.flow/`
 2. `/flow-code:plan-review` → Carmack-level review via RepoPrompt or Codex
 3. `/flow-code:work <epic-id>` → executes tasks with Teams mode (auto-parallel with file locking)

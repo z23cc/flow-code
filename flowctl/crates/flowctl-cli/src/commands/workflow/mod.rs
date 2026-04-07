@@ -3,11 +3,13 @@
 
 mod lifecycle;
 mod phase;
+mod pipeline_phase;
 mod scheduling;
 
 // Re-export all public items so callers see the same API.
-pub use lifecycle::{cmd_block, cmd_done, cmd_fail, cmd_restart, cmd_start};
+pub use lifecycle::{cmd_block, cmd_done, cmd_events, cmd_fail, cmd_restart, cmd_start};
 pub use phase::{dispatch_worker_phase, WorkerPhaseCmd};
+pub use pipeline_phase::{dispatch_pipeline_phase, PipelinePhaseCmd};
 pub use scheduling::{cmd_next, cmd_queue, cmd_ready};
 
 use std::collections::HashMap;

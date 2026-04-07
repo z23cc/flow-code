@@ -2,7 +2,10 @@
 name: flow-code-work
 description: "Use when implementing a plan or working through a spec. Triggers on /flow-code:work with Flow IDs."
 user-invocable: false
+deprecated: true
 ---
+
+**Deprecated**: Use `/flow-code:run` instead.
 
 # Flow work
 

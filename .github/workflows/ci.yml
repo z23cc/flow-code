@@ -5,11 +5,15 @@ on:
     branches: [main]
     paths:
       - "flowctl/**"
+      - "scripts/**"
+      - "hooks/**"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "flowctl/**"
+      - "scripts/**"
+      - "hooks/**"
       - ".github/workflows/ci.yml"
 
 env:
@@ -24,6 +28,20 @@ jobs:
         working-directory: flowctl
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        working-directory: .
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        working-directory: .
+        run: shellcheck scripts/*.sh scripts/hooks/*.sh flowctl/install.sh
+
+      - name: Validate JSON configs
+        working-directory: .
+        run: |
+          python3 -c "import json; json.load(open('hooks/hooks.json'))"
+          python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -52,6 +70,40 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
+
+      - name: Audit dependencies
+        run: cargo install cargo-audit && cargo audit
+
+  integration:
+    name: Shell Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            flowctl/target
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('flowctl/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+
+      - name: Build flowctl
+        run: cd flowctl && cargo build --release
+
+      - name: Configure git for tests
+        run: |
+          git config --global user.email "ci@test.local"
+          git config --global user.name "CI Test"
+
+      - name: Run shell integration tests
+        run: bash scripts/tests/run_all.sh
 
   coverage:
     name: Test Coverage

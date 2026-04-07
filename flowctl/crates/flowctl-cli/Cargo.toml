@@ -14,7 +14,6 @@ path = "src/main.rs"
 flowctl-core = { workspace = true }
 flowctl-db = { workspace = true }
 flowctl-service = { workspace = true }
-libsql = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
@@ -23,7 +22,6 @@ clap = { workspace = true }
 clap_complete = { workspace = true }
 miette = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true }
 regex = { workspace = true }
 sha2 = { workspace = true }
 which = { workspace = true }

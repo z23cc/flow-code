@@ -3,7 +3,7 @@
 //! Lives at `.flow/outputs/<task-id>.md`. Worker writes in Phase 9; the
 //! next worker reads the last N during Phase 2 re-anchor.
 //!
-//! No libSQL table — outputs are narrative handoff artifacts, not verified
+//! No database table — outputs are narrative handoff artifacts, not verified
 //! state. Listing is done by directory scan + epic-prefix filtering.
 
 use std::fs;

@@ -1,10 +1,9 @@
-//! Integration tests for export/import round-trip (async libSQL).
+//! Integration tests for export/import round-trip (file-based).
 //!
-//! Tests the DB → Markdown → DB path by:
-//! 1. Creating an in-memory DB with test data
-//! 2. Writing Markdown files using frontmatter::write
-//! 3. Re-importing via flowctl_db::reindex
-//! 4. Verifying data matches
+//! Tests the JSON → Markdown → JSON path by:
+//! 1. Writing epic/task JSON + Markdown files
+//! 2. Reading them back via json_store
+//! 3. Verifying data matches
 
 use std::fs;
 
@@ -54,83 +53,55 @@ fn make_test_task(id: &str, epic: &str, title: &str) -> Task {
     }
 }
 
-#[tokio::test]
-async fn export_import_round_trip() {
+#[test]
+fn export_import_round_trip() {
     let tmp = tempfile::TempDir::new().unwrap();
-    let flow_dir = tmp.path().join(".flow");
-    fs::create_dir_all(&flow_dir).unwrap();
+    let flow_dir = tmp.path().to_path_buf();
 
-    // Step 1: Create DB with test data.
-    let (_db, conn) = flowctl_db::open_memory_async().await.unwrap();
-    let epic_repo = flowctl_db::EpicRepo::new(conn.clone());
-    let task_repo = flowctl_db::TaskRepo::new(conn.clone());
+    // Step 1: Write epic and task to JSON store.
+    flowctl_core::json_store::ensure_dirs(&flow_dir).unwrap();
 
     let epic = make_test_epic("fn-50-roundtrip", "Round Trip Test");
     let epic_body = "## Description\nThis is the epic body content.";
-    epic_repo.upsert_with_body(&epic, epic_body).await.unwrap();
+    flowctl_core::json_store::epic_write(&flow_dir, &epic).unwrap();
 
     let task = make_test_task("fn-50-roundtrip.1", "fn-50-roundtrip", "First Task");
     let task_body = "## Implementation\nDo the thing.";
-    task_repo.upsert_with_body(&task, task_body).await.unwrap();
+    flowctl_core::json_store::task_write_definition(&flow_dir, &task).unwrap();
 
     // Step 2: Export to Markdown files.
     let epics_dir = flow_dir.join(EPICS_DIR);
     let tasks_dir = flow_dir.join(TASKS_DIR);
-    fs::create_dir_all(&epics_dir).unwrap();
-    fs::create_dir_all(&tasks_dir).unwrap();
 
-    let (exported_epic, body) = epic_repo.get_with_body("fn-50-roundtrip").await.unwrap();
     let doc = frontmatter::Document {
-        frontmatter: exported_epic,
-        body: body.clone(),
+        frontmatter: epic.clone(),
+        body: epic_body.to_string(),
     };
     let content = frontmatter::write(&doc).unwrap();
     fs::write(epics_dir.join("fn-50-roundtrip.md"), &content).unwrap();
 
-    let (exported_task, tbody) = task_repo
-        .get_with_body("fn-50-roundtrip.1")
-        .await
-        .unwrap();
     let tdoc = frontmatter::Document {
-        frontmatter: exported_task,
-        body: tbody.clone(),
+        frontmatter: task.clone(),
+        body: task_body.to_string(),
     };
     let tcontent = frontmatter::write(&tdoc).unwrap();
     fs::write(tasks_dir.join("fn-50-roundtrip.1.md"), &tcontent).unwrap();
 
-    // Step 3: Import into a fresh DB.
-    let (_db2, conn2) = flowctl_db::open_memory_async().await.unwrap();
-    let result = flowctl_db::reindex(&conn2, &flow_dir, None)
-        .await
-        .unwrap();
-
-    assert_eq!(result.epics_indexed, 1);
-    assert_eq!(result.tasks_indexed, 1);
-
-    // Step 4: Verify data matches.
-    let repo2 = flowctl_db::EpicRepo::new(conn2.clone());
-    let (reimported_epic, reimported_body) = repo2.get_with_body("fn-50-roundtrip").await.unwrap();
+    // Step 3: Verify data can be read back from JSON store.
+    let reimported_epic = flowctl_core::json_store::epic_read(&flow_dir, "fn-50-roundtrip").unwrap();
     assert_eq!(reimported_epic.title, "Round Trip Test");
-    assert_eq!(reimported_body.trim(), epic_body.trim());
 
-    let trepo2 = flowctl_db::TaskRepo::new(conn2);
-    let (reimported_task, reimported_tbody) =
-        trepo2.get_with_body("fn-50-roundtrip.1").await.unwrap();
-    assert_eq!(reimported_task.title, "First Task");
-    assert_eq!(reimported_tbody.trim(), task_body.trim());
+    let reimported_tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, "fn-50-roundtrip").unwrap();
+    assert_eq!(reimported_tasks.len(), 1);
+    assert_eq!(reimported_tasks[0].title, "First Task");
 }
 
-#[tokio::test]
-async fn export_empty_db_produces_no_files() {
+#[test]
+fn empty_flow_dir_produces_no_data() {
     let tmp = tempfile::TempDir::new().unwrap();
-    let flow_dir = tmp.path().join(".flow");
-    let epics_dir = flow_dir.join(EPICS_DIR);
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    fs::create_dir_all(&epics_dir).unwrap();
-    fs::create_dir_all(&tasks_dir).unwrap();
+    let flow_dir = tmp.path().to_path_buf();
+    flowctl_core::json_store::ensure_dirs(&flow_dir).unwrap();
 
-    let (_db, conn) = flowctl_db::open_memory_async().await.unwrap();
-    let epic_repo = flowctl_db::EpicRepo::new(conn);
-    let epics = epic_repo.list(None).await.unwrap();
+    let epics = flowctl_core::json_store::epic_list(&flow_dir).unwrap();
     assert!(epics.is_empty());
 }

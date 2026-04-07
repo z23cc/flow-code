@@ -1,15 +1,16 @@
 //! Decision logging commands: log decision, log decisions.
 //!
-//! Records workflow auto-decisions in the events table (event_type = "decision")
-//! for post-hoc traceability. Skills call `flowctl log decision` at each auto-
-//! decision point; `flowctl log decisions` queries the stored decisions.
+//! Records workflow auto-decisions in the JSONL event log for post-hoc
+//! traceability. Skills call `flowctl log decision` at each auto-decision
+//! point; `flowctl log decisions` queries the stored decisions.
 
 use clap::Subcommand;
 use serde_json::json;
 
 use crate::output::{error_exit, json_output, pretty_output};
-use super::db_shim;
 use super::helpers::get_flow_dir;
+
+use flowctl_db::FlowStore;
 
 #[derive(Subcommand, Debug)]
 pub enum LogCmd {
@@ -64,31 +65,27 @@ fn cmd_log_decision(
     task_id: Option<&str>,
 ) {
     let flow_dir = get_flow_dir();
-    let conn = db_shim::open(&flow_dir).unwrap_or_else(|e| {
-        error_exit(&format!("Cannot open DB: {e}"));
-    });
-
-    let payload = json!({
-        "key": key,
-        "value": value,
-        "reason": reason,
-    })
-    .to_string();
+    let store = FlowStore::new(flow_dir);
 
     let epic = epic_id.unwrap_or("_global");
 
-    let repo = flowctl_db::repo::EventRepo::new(conn.inner_conn());
-    let id = db_shim::block_on_pub(async {
-        repo.insert(epic, task_id, "decision", None, Some(&payload), None)
-            .await
-    })
-    .unwrap_or_else(|e| {
-        error_exit(&format!("Failed to log decision: {e}"));
+    let event = json!({
+        "stream_id": format!("decision:{epic}"),
+        "type": "decision",
+        "epic_id": epic,
+        "task_id": task_id,
+        "key": key,
+        "value": value,
+        "reason": reason,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
     });
+
+    if let Err(e) = store.events().append(&event.to_string()) {
+        error_exit(&format!("Failed to log decision: {e}"));
+    }
 
     if json_mode {
         json_output(json!({
-            "id": id,
             "event_type": "decision",
             "key": key,
             "value": value,
@@ -103,70 +100,66 @@ fn cmd_log_decision(
 
 fn cmd_log_decisions(json_mode: bool, epic_id: Option<&str>, limit: usize) {
     let flow_dir = get_flow_dir();
-    let conn = db_shim::open(&flow_dir).unwrap_or_else(|e| {
-        error_exit(&format!("Cannot open DB: {e}"));
+    let store = FlowStore::new(flow_dir);
+
+    let all_lines = store.events().read_all().unwrap_or_else(|e| {
+        error_exit(&format!("Failed to query decisions: {e}"));
     });
 
-    let repo = flowctl_db::repo::EventRepo::new(conn.inner_conn());
-    let events = if let Some(epic) = epic_id {
-        db_shim::block_on_pub(async { repo.list_by_epic(epic, limit * 2).await })
-            .unwrap_or_else(|e| {
-                error_exit(&format!("Failed to query decisions: {e}"));
-            })
-            .into_iter()
-            .filter(|e| e.event_type == "decision")
-            .take(limit)
-            .collect::<Vec<_>>()
-    } else {
-        db_shim::block_on_pub(async { repo.list_by_type("decision", limit).await })
-            .unwrap_or_else(|e| {
-                error_exit(&format!("Failed to query decisions: {e}"));
-            })
-    };
+    // Filter for decision events, optionally by epic
+    let mut decisions: Vec<serde_json::Value> = Vec::new();
+    for line in all_lines.iter().rev() {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            let event_type = val.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if event_type != "decision" {
+                continue;
+            }
+            if let Some(epic) = epic_id {
+                let eid = val.get("epic_id").and_then(|v| v.as_str()).unwrap_or("");
+                if eid != epic {
+                    continue;
+                }
+            }
+            decisions.push(val);
+            if decisions.len() >= limit {
+                break;
+            }
+        }
+    }
 
     if json_mode {
-        let items: Vec<_> = events
+        let items: Vec<serde_json::Value> = decisions
             .iter()
             .map(|e| {
-                let payload: serde_json::Value = e
-                    .payload
-                    .as_deref()
-                    .and_then(|p| serde_json::from_str(p).ok())
-                    .unwrap_or(json!(null));
                 json!({
-                    "id": e.id,
-                    "timestamp": e.timestamp,
-                    "epic_id": e.epic_id,
-                    "task_id": e.task_id,
-                    "key": payload["key"],
-                    "value": payload["value"],
-                    "reason": payload["reason"],
+                    "timestamp": e.get("timestamp").and_then(|v| v.as_str()).unwrap_or(""),
+                    "epic_id": e.get("epic_id").and_then(|v| v.as_str()).unwrap_or(""),
+                    "task_id": e.get("task_id"),
+                    "key": e.get("key").and_then(|v| v.as_str()).unwrap_or(""),
+                    "value": e.get("value").and_then(|v| v.as_str()).unwrap_or(""),
+                    "reason": e.get("reason").and_then(|v| v.as_str()).unwrap_or(""),
                 })
             })
             .collect();
         json_output(json!({ "decisions": items, "count": items.len() }));
     } else {
-        if events.is_empty() {
+        if decisions.is_empty() {
             pretty_output("log", "No decisions recorded.");
             return;
         }
-        pretty_output("log", &format!("Decisions ({}):", events.len()));
-        for e in &events {
-            let payload: serde_json::Value = e
-                .payload
-                .as_deref()
-                .and_then(|p| serde_json::from_str(p).ok())
-                .unwrap_or(json!(null));
+        pretty_output("log", &format!("Decisions ({}):", decisions.len()));
+        for e in &decisions {
+            let ts = e.get("timestamp").and_then(|v| v.as_str()).unwrap_or("?");
+            let key = e.get("key").and_then(|v| v.as_str()).unwrap_or("?");
+            let value = e.get("value").and_then(|v| v.as_str()).unwrap_or("?");
+            let reason = e.get("reason").and_then(|v| v.as_str()).unwrap_or("?");
+            let epic = e.get("epic_id").and_then(|v| v.as_str()).unwrap_or("?");
+            let task = e.get("task_id").and_then(|v| v.as_str()).unwrap_or("-");
             pretty_output(
                 "log",
                 &format!(
                     "  [{}] {}={} — {} (epic: {}, task: {})",
-                    &e.timestamp[..19],
-                    payload["key"].as_str().unwrap_or("?"),
-                    payload["value"].as_str().unwrap_or("?"),
-                    payload["reason"].as_str().unwrap_or("?"),
-                    e.epic_id,
-                    e.task_id.as_deref().unwrap_or("-"),
+                    &ts[..std::cmp::min(19, ts.len())], key, value, reason, epic, task,
                 ),
             );
         }

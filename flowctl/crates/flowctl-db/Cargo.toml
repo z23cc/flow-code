@@ -1,31 +1,19 @@
 [package]
 name = "flowctl-db"
 version = "0.1.0"
-description = "Async libSQL storage layer for flowctl (successor to flowctl-db)"
+description = "Sync file-based storage layer for flowctl"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
 flowctl-core = { workspace = true }
-libsql = { workspace = true }
-tokio = { workspace = true }
-fastembed = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 chrono = { workspace = true }
-nix = { workspace = true }
-tracing = { workspace = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 tempfile = "3"
-criterion = { version = "0.5", features = ["async_tokio"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-
-[[bench]]
-name = "event_store"
-harness = false

@@ -1,17 +1,14 @@
-//! Applies a `Changes` batch against JSON files and the libSQL event log.
+//! Applies a `Changes` batch against JSON files and the JSONL event log.
 //!
 //! `ChangesApplier` is the single execution point for declarative mutations.
 //! It iterates each `Mutation` in order, writes to the `.flow/` JSON store,
-//! and auto-logs an event to the `events` table for auditability.
+//! and auto-logs an event to the JSONL log for auditability.
 
 use std::path::Path;
 
 use flowctl_core::changes::{Changes, Mutation};
-use flowctl_core::events::{
-    EpicEvent, EventMetadata, FlowEvent, TaskEvent, epic_stream_id, task_stream_id,
-};
 use flowctl_core::json_store;
-use flowctl_db::{EventRepo, EventStoreRepo};
+use flowctl_db::FlowStore;
 
 use crate::error::{ServiceError, ServiceResult};
 
@@ -25,34 +22,22 @@ fn store_err(e: json_store::StoreError) -> ServiceError {
 pub struct ApplyResult {
     /// Number of mutations successfully applied.
     pub applied: usize,
-    /// Event IDs for each logged event (one per mutation).
-    pub event_ids: Vec<i64>,
 }
 
 /// Executes a `Changes` batch against JSON file storage and the event log.
 pub struct ChangesApplier<'a> {
     flow_dir: &'a Path,
-    event_repo: &'a EventRepo,
-    event_store: Option<EventStoreRepo>,
     actor: Option<&'a str>,
     session_id: Option<&'a str>,
 }
 
 impl<'a> ChangesApplier<'a> {
-    pub fn new(flow_dir: &'a Path, event_repo: &'a EventRepo) -> Self {
+    pub fn new(flow_dir: &'a Path) -> Self {
         Self {
             flow_dir,
-            event_repo,
-            event_store: None,
             actor: None,
             session_id: None,
         }
-    }
-
-    /// Set an event store for domain event emission alongside audit logging.
-    pub fn with_event_store(mut self, store: EventStoreRepo) -> Self {
-        self.event_store = Some(store);
-        self
     }
 
     /// Set the actor (who is applying the changes) for event logging.
@@ -68,22 +53,16 @@ impl<'a> ChangesApplier<'a> {
     }
 
     /// Apply all mutations in order. Stops on first error.
-    pub async fn apply(&self, changes: &Changes) -> ServiceResult<ApplyResult> {
+    pub fn apply(&self, changes: &Changes) -> ServiceResult<ApplyResult> {
         let mut applied = 0;
-        let mut event_ids = Vec::with_capacity(changes.len());
 
         for mutation in &changes.mutations {
-            // Emit domain event to event store (best-effort, before mutation)
-            self.emit_domain_event(mutation).await;
-
             self.apply_one(mutation)?;
-
-            let event_id = self.log_event(mutation).await?;
-            event_ids.push(event_id);
+            self.log_event(mutation);
             applied += 1;
         }
 
-        Ok(ApplyResult { applied, event_ids })
+        Ok(ApplyResult { applied })
     }
 
     /// Apply a single mutation to the JSON file store.
@@ -132,12 +111,12 @@ impl<'a> ChangesApplier<'a> {
         Ok(())
     }
 
-    /// Log a mutation to the events table.
-    async fn log_event(&self, mutation: &Mutation) -> ServiceResult<i64> {
+    /// Log a mutation to the JSONL event log. Best-effort: failures are ignored.
+    fn log_event(&self, mutation: &Mutation) {
+        let store = FlowStore::new(self.flow_dir.to_path_buf());
         let event_type = mutation.event_type();
         let entity_id = mutation.entity_id();
 
-        // Derive epic_id and task_id for the event row.
         let epic_id = mutation
             .epic_id()
             .unwrap_or(entity_id);
@@ -153,52 +132,17 @@ impl<'a> ChangesApplier<'a> {
             _ => None,
         };
 
-        // Payload: JSON of the entity ID for traceability.
-        let payload = serde_json::json!({ "entity_id": entity_id }).to_string();
+        let event = serde_json::json!({
+            "stream_id": format!("mutation:{epic_id}"),
+            "type": event_type,
+            "entity_id": entity_id,
+            "epic_id": epic_id,
+            "task_id": task_id,
+            "actor": self.actor.unwrap_or("system"),
+            "session_id": self.session_id.unwrap_or(""),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
 
-        let row_id = self
-            .event_repo
-            .insert(
-                epic_id,
-                task_id,
-                event_type,
-                self.actor,
-                Some(&payload),
-                self.session_id,
-            )
-            .await
-            .map_err(ServiceError::DbError)?;
-
-        Ok(row_id)
-    }
-
-    /// Emit a domain event to the event store for create mutations.
-    /// Best-effort: failures are silently ignored so they don't block the pipeline.
-    async fn emit_domain_event(&self, mutation: &Mutation) {
-        let store = match self.event_store {
-            Some(ref s) => s,
-            None => return,
-        };
-
-        let (stream, flow_event) = match mutation {
-            Mutation::CreateEpic { epic } => (
-                epic_stream_id(&epic.id),
-                FlowEvent::Epic(EpicEvent::Created),
-            ),
-            Mutation::CreateTask { task } => (
-                task_stream_id(&task.id),
-                FlowEvent::Task(TaskEvent::Created),
-            ),
-            _ => return,
-        };
-
-        let metadata = EventMetadata {
-            actor: self.actor.unwrap_or("system").into(),
-            source_cmd: "changes_applier".into(),
-            session_id: self.session_id.unwrap_or("").into(),
-            timestamp: Some(chrono::Utc::now().to_rfc3339()),
-        };
-
-        let _ = store.append(&stream, &flow_event, &metadata).await.ok();
+        let _ = store.events().append(&event.to_string());
     }
 }

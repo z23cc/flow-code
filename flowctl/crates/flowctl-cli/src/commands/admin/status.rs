@@ -1,6 +1,6 @@
 //! Status, doctor, and validate commands.
 
-use std::env;
+
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -594,27 +594,21 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     }
 
     // Check 2: State-dir accessibility
-    let cwd = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    match crate::commands::db_shim::resolve_state_dir(&cwd) {
-        Ok(state_dir) => {
-            if let Err(e) = fs::create_dir_all(&state_dir) {
-                checks.push(json!({"name": "state_dir_access", "status": "fail", "message": format!("State dir not accessible: {}", e)}));
-            } else {
-                // Test write access
-                let test_file = state_dir.join(".doctor-probe");
-                match fs::write(&test_file, "probe") {
-                    Ok(_) => {
-                        let _ = fs::remove_file(&test_file);
-                        checks.push(json!({"name": "state_dir_access", "status": "pass", "message": format!("State dir accessible: {}", state_dir.display())}));
-                    }
-                    Err(e) => {
-                        checks.push(json!({"name": "state_dir_access", "status": "fail", "message": format!("State dir not writable: {}", e)}));
-                    }
+    {
+        let state_dir = flow_dir.join(".state");
+        if let Err(e) = fs::create_dir_all(&state_dir) {
+            checks.push(json!({"name": "state_dir_access", "status": "fail", "message": format!("State dir not accessible: {}", e)}));
+        } else {
+            let test_file = state_dir.join(".doctor-probe");
+            match fs::write(&test_file, "probe") {
+                Ok(_) => {
+                    let _ = fs::remove_file(&test_file);
+                    checks.push(json!({"name": "state_dir_access", "status": "pass", "message": format!("State dir accessible: {}", state_dir.display())}));
+                }
+                Err(e) => {
+                    checks.push(json!({"name": "state_dir_access", "status": "fail", "message": format!("State dir not writable: {}", e)}));
                 }
             }
-        }
-        Err(e) => {
-            checks.push(json!({"name": "state_dir_access", "status": "fail", "message": format!("Could not resolve state dir: {}", e)}));
         }
     }
 
@@ -730,23 +724,12 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
             }
         }
 
-        // Check 7: stale file locks (count via SQL)
-        let cwd = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        if let Ok(conn) = crate::commands::db_shim::open(&cwd) {
-            let lock_count = crate::commands::db_shim::block_on_pub(async {
-                let mut rows = conn.inner_conn()
-                    .query("SELECT COUNT(*) FROM file_locks", ())
-                    .await
-                    .map_err(flowctl_db::DbError::LibSql)?;
-                if let Some(row) = rows.next().await.map_err(flowctl_db::DbError::LibSql)? {
-                    Ok::<i64, flowctl_db::DbError>(row.get::<i64>(0).unwrap_or(0))
-                } else {
-                    Ok(0)
-                }
-            });
-            match lock_count {
-                Ok(n) if n > 0 => {
-                    checks.push(json!({"name": "stale_locks", "status": "warn", "message": format!("{} file lock(s) active — verify with 'flowctl lock-check'", n)}));
+        // Check 7: stale file locks
+        {
+            let store = flowctl_db::FlowStore::new(flow_dir.clone());
+            match store.locks().list() {
+                Ok(locks) if !locks.is_empty() => {
+                    checks.push(json!({"name": "stale_locks", "status": "warn", "message": format!("{} file lock(s) active — verify with 'flowctl lock-check'", locks.len())}));
                 }
                 Ok(_) => {
                     checks.push(json!({"name": "stale_locks", "status": "pass", "message": "No active file locks"}));

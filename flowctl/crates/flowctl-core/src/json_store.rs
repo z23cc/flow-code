@@ -1,4 +1,4 @@
-//! JSON file store for epics and tasks.
+//! JSON file store for epics, tasks, and runtime state.
 //!
 //! Provides file-based I/O following the `.flow/` directory layout:
 //! - `epics/<id>.json` — epic definitions
@@ -6,15 +6,22 @@
 //! - `tasks/<id>.json` — task definitions (no runtime fields)
 //! - `tasks/<id>.md` — task spec markdown
 //! - `.state/tasks/<id>.state.json` — runtime state (status, assignee, evidence)
+//! - `.state/events.jsonl` — append-only event log
+//! - `.state/pipeline.json` — epic pipeline progress
+//! - `.state/phases.json` — task phase progress
+//! - `.state/locks.json` — file locks
+//! - `.state/approvals.json` — approval records
+//! - `memory/entries.jsonl` — append-only memory entries
 
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::state_machine::Status;
-use crate::types::{Epic, Evidence, Task, EPICS_DIR, SPECS_DIR, STATE_DIR, TASKS_DIR};
+use crate::types::{Epic, Evidence, Task, EPICS_DIR, MEMORY_DIR, SPECS_DIR, STATE_DIR, TASKS_DIR};
 
 // ── Error ───────────────────────────────────────────────────────────
 
@@ -130,6 +137,8 @@ pub fn ensure_dirs(flow_dir: &Path) -> Result<()> {
     ensure_dir(&specs_dir(flow_dir))?;
     ensure_dir(&tasks_dir(flow_dir))?;
     ensure_dir(&state_tasks_dir(flow_dir))?;
+    ensure_dir(&flow_dir.join(STATE_DIR))?;
+    ensure_dir(&flow_dir.join(MEMORY_DIR))?;
     Ok(())
 }
 
@@ -439,6 +448,276 @@ pub fn gaps_write(flow_dir: &Path, epic_id: &str, gaps: &[GapEntry]) -> Result<(
     Ok(())
 }
 
+// ── Atomic write helper ────────────────────────────────────────────
+
+/// Write content atomically: write to `.tmp`, then rename over target.
+fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, content)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+// ── Events (.flow/.state/events.jsonl) ─────────────────────────────
+
+fn events_path(flow_dir: &Path) -> PathBuf {
+    flow_dir.join(STATE_DIR).join("events.jsonl")
+}
+
+/// Append a JSON event line to the events log.
+pub fn events_append(flow_dir: &Path, event_json: &str) -> Result<()> {
+    ensure_dir(&flow_dir.join(STATE_DIR))?;
+    let path = events_path(flow_dir);
+    let mut f = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    writeln!(f, "{}", event_json.trim_end()).map_err(StoreError::Io)?;
+    Ok(())
+}
+
+/// Read all event lines from the events log.
+pub fn events_read_all(flow_dir: &Path) -> Result<Vec<String>> {
+    let path = events_path(flow_dir);
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let content = fs::read_to_string(&path)?;
+    Ok(content.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+}
+
+/// Read events filtered by stream_id (substring match on each line).
+pub fn events_read_by_stream(flow_dir: &Path, stream_id: &str) -> Result<Vec<String>> {
+    let needle = format!("\"stream_id\":\"{}\"", stream_id);
+    let all = events_read_all(flow_dir)?;
+    Ok(all.into_iter().filter(|line| line.contains(&needle)).collect())
+}
+
+// ── Pipeline progress (.flow/.state/pipeline.json) ─────────────────
+
+fn pipeline_path(flow_dir: &Path) -> PathBuf {
+    flow_dir.join(STATE_DIR).join("pipeline.json")
+}
+
+/// Read the current pipeline phase for an epic.
+pub fn pipeline_read(flow_dir: &Path, epic_id: &str) -> Result<Option<String>> {
+    let path = pipeline_path(flow_dir);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&path)?;
+    let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)?;
+    Ok(map.get(epic_id).and_then(|v| v.as_str()).map(String::from))
+}
+
+/// Set the pipeline phase for an epic (read-modify-write with atomic rename).
+pub fn pipeline_write(flow_dir: &Path, epic_id: &str, phase: &str) -> Result<()> {
+    ensure_dir(&flow_dir.join(STATE_DIR))?;
+    let path = pipeline_path(flow_dir);
+    let mut map: serde_json::Map<String, serde_json::Value> = if path.exists() {
+        let content = fs::read_to_string(&path)?;
+        serde_json::from_str(&content)?
+    } else {
+        serde_json::Map::new()
+    };
+    map.insert(epic_id.to_string(), serde_json::Value::String(phase.to_string()));
+    let content = serde_json::to_string_pretty(&map)?;
+    atomic_write(&path, content.as_bytes())?;
+    Ok(())
+}
+
+// ── Phase progress (.flow/.state/phases.json) ──────────────────────
+
+fn phases_path(flow_dir: &Path) -> PathBuf {
+    flow_dir.join(STATE_DIR).join("phases.json")
+}
+
+/// Get completed phases for a task.
+pub fn phases_completed(flow_dir: &Path, task_id: &str) -> Result<Vec<String>> {
+    let path = phases_path(flow_dir);
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let content = fs::read_to_string(&path)?;
+    let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)?;
+    match map.get(task_id) {
+        Some(serde_json::Value::Array(arr)) => {
+            Ok(arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        }
+        _ => Ok(vec![]),
+    }
+}
+
+/// Mark a phase as done for a task.
+pub fn phase_mark_done(flow_dir: &Path, task_id: &str, phase: &str) -> Result<()> {
+    ensure_dir(&flow_dir.join(STATE_DIR))?;
+    let path = phases_path(flow_dir);
+    let mut map: serde_json::Map<String, serde_json::Value> = if path.exists() {
+        let content = fs::read_to_string(&path)?;
+        serde_json::from_str(&content)?
+    } else {
+        serde_json::Map::new()
+    };
+    let phases = map
+        .entry(task_id.to_string())
+        .or_insert_with(|| serde_json::Value::Array(vec![]));
+    if let serde_json::Value::Array(arr) = phases {
+        let phase_val = serde_json::Value::String(phase.to_string());
+        if !arr.contains(&phase_val) {
+            arr.push(phase_val);
+        }
+    }
+    let content = serde_json::to_string_pretty(&map)?;
+    atomic_write(&path, content.as_bytes())?;
+    Ok(())
+}
+
+/// Reset all phase progress for a task.
+pub fn phases_reset(flow_dir: &Path, task_id: &str) -> Result<()> {
+    let path = phases_path(flow_dir);
+    if !path.exists() {
+        return Ok(());
+    }
+    let content = fs::read_to_string(&path)?;
+    let mut map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)?;
+    map.remove(task_id);
+    let content = serde_json::to_string_pretty(&map)?;
+    atomic_write(&path, content.as_bytes())?;
+    Ok(())
+}
+
+// ── File locks (.flow/.state/locks.json) ───────────────────────────
+
+fn locks_path(flow_dir: &Path) -> PathBuf {
+    flow_dir.join(STATE_DIR).join("locks.json")
+}
+
+/// A file lock entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockEntry {
+    pub file_path: String,
+    pub task_id: String,
+    pub mode: String,
+    pub locked_at: String,
+}
+
+/// Read all current locks.
+pub fn locks_read(flow_dir: &Path) -> Result<Vec<LockEntry>> {
+    let path = locks_path(flow_dir);
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let content = fs::read_to_string(&path)?;
+    let locks: Vec<LockEntry> = serde_json::from_str(&content)?;
+    Ok(locks)
+}
+
+/// Acquire a lock on a file for a task.
+pub fn lock_acquire(flow_dir: &Path, file_path: &str, task_id: &str, mode: &str) -> Result<()> {
+    ensure_dir(&flow_dir.join(STATE_DIR))?;
+    let path = locks_path(flow_dir);
+    let mut locks = locks_read(flow_dir)?;
+    // Remove existing lock by same task on same file (idempotent)
+    locks.retain(|l| !(l.file_path == file_path && l.task_id == task_id));
+    locks.push(LockEntry {
+        file_path: file_path.to_string(),
+        task_id: task_id.to_string(),
+        mode: mode.to_string(),
+        locked_at: Utc::now().to_rfc3339(),
+    });
+    let content = serde_json::to_string_pretty(&locks)?;
+    atomic_write(&path, content.as_bytes())?;
+    Ok(())
+}
+
+/// Release all locks held by a task. Returns number released.
+pub fn lock_release_task(flow_dir: &Path, task_id: &str) -> Result<u32> {
+    let path = locks_path(flow_dir);
+    if !path.exists() {
+        return Ok(0);
+    }
+    let mut locks = locks_read(flow_dir)?;
+    let before = locks.len();
+    locks.retain(|l| l.task_id != task_id);
+    let removed = (before - locks.len()) as u32;
+    let content = serde_json::to_string_pretty(&locks)?;
+    atomic_write(&path, content.as_bytes())?;
+    Ok(removed)
+}
+
+/// Clear all locks. Returns number cleared.
+pub fn locks_clear(flow_dir: &Path) -> Result<u32> {
+    let path = locks_path(flow_dir);
+    if !path.exists() {
+        return Ok(0);
+    }
+    let locks = locks_read(flow_dir)?;
+    let count = locks.len() as u32;
+    atomic_write(&path, b"[]")?;
+    Ok(count)
+}
+
+// ── Memory (.flow/memory/entries.jsonl) ────────────────────────────
+
+fn memory_entries_path(flow_dir: &Path) -> PathBuf {
+    flow_dir.join(MEMORY_DIR).join("entries.jsonl")
+}
+
+/// Append a JSON memory entry.
+pub fn memory_append(flow_dir: &Path, entry_json: &str) -> Result<()> {
+    ensure_dir(&flow_dir.join(MEMORY_DIR))?;
+    let path = memory_entries_path(flow_dir);
+    let mut f = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    writeln!(f, "{}", entry_json.trim_end()).map_err(StoreError::Io)?;
+    Ok(())
+}
+
+/// Read all memory entries.
+pub fn memory_read_all(flow_dir: &Path) -> Result<Vec<String>> {
+    let path = memory_entries_path(flow_dir);
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let content = fs::read_to_string(&path)?;
+    Ok(content.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+}
+
+/// Search memory entries by case-insensitive substring match.
+pub fn memory_search_text(flow_dir: &Path, query: &str) -> Result<Vec<String>> {
+    let query_lower = query.to_lowercase();
+    let all = memory_read_all(flow_dir)?;
+    Ok(all.into_iter().filter(|line| line.to_lowercase().contains(&query_lower)).collect())
+}
+
+// ── Approvals (.flow/.state/approvals.json) ────────────────────────
+
+fn approvals_path(flow_dir: &Path) -> PathBuf {
+    flow_dir.join(STATE_DIR).join("approvals.json")
+}
+
+/// Read all approvals.
+pub fn approvals_read(flow_dir: &Path) -> Result<Vec<serde_json::Value>> {
+    let path = approvals_path(flow_dir);
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let content = fs::read_to_string(&path)?;
+    let approvals: Vec<serde_json::Value> = serde_json::from_str(&content)?;
+    Ok(approvals)
+}
+
+/// Write approvals (atomic).
+pub fn approvals_write(flow_dir: &Path, approvals: &[serde_json::Value]) -> Result<()> {
+    ensure_dir(&flow_dir.join(STATE_DIR))?;
+    let path = approvals_path(flow_dir);
+    let content = serde_json::to_string_pretty(approvals)?;
+    atomic_write(&path, content.as_bytes())?;
+    Ok(())
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -688,5 +967,182 @@ mod tests {
         assert!(specs_dir(flow_dir).exists());
         assert!(tasks_dir(flow_dir).exists());
         assert!(state_tasks_dir(flow_dir).exists());
+        assert!(flow_dir.join(STATE_DIR).exists());
+        assert!(flow_dir.join(MEMORY_DIR).exists());
+    }
+
+    // ── Events tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_events_append_and_read() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        events_append(flow_dir, r#"{"stream_id":"s1","type":"created"}"#).unwrap();
+        events_append(flow_dir, r#"{"stream_id":"s2","type":"updated"}"#).unwrap();
+        events_append(flow_dir, r#"{"stream_id":"s1","type":"done"}"#).unwrap();
+
+        let all = events_read_all(flow_dir).unwrap();
+        assert_eq!(all.len(), 3);
+
+        let s1 = events_read_by_stream(flow_dir, "s1").unwrap();
+        assert_eq!(s1.len(), 2);
+        assert!(s1[0].contains("created"));
+        assert!(s1[1].contains("done"));
+
+        let s2 = events_read_by_stream(flow_dir, "s2").unwrap();
+        assert_eq!(s2.len(), 1);
+    }
+
+    #[test]
+    fn test_events_empty() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        assert!(events_read_all(flow_dir).unwrap().is_empty());
+        assert!(events_read_by_stream(flow_dir, "nope").unwrap().is_empty());
+    }
+
+    // ── Pipeline tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_pipeline_read_write() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        assert_eq!(pipeline_read(flow_dir, "fn-1").unwrap(), None);
+
+        pipeline_write(flow_dir, "fn-1", "plan").unwrap();
+        assert_eq!(pipeline_read(flow_dir, "fn-1").unwrap().as_deref(), Some("plan"));
+
+        pipeline_write(flow_dir, "fn-1", "work").unwrap();
+        assert_eq!(pipeline_read(flow_dir, "fn-1").unwrap().as_deref(), Some("work"));
+
+        pipeline_write(flow_dir, "fn-2", "plan").unwrap();
+        assert_eq!(pipeline_read(flow_dir, "fn-2").unwrap().as_deref(), Some("plan"));
+        assert_eq!(pipeline_read(flow_dir, "fn-1").unwrap().as_deref(), Some("work"));
+    }
+
+    // ── Phases tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_phases_mark_and_read() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        assert!(phases_completed(flow_dir, "t1").unwrap().is_empty());
+
+        phase_mark_done(flow_dir, "t1", "1").unwrap();
+        phase_mark_done(flow_dir, "t1", "2").unwrap();
+        phase_mark_done(flow_dir, "t1", "2").unwrap(); // duplicate — no-op
+
+        let completed = phases_completed(flow_dir, "t1").unwrap();
+        assert_eq!(completed, vec!["1", "2"]);
+    }
+
+    #[test]
+    fn test_phases_reset() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        phase_mark_done(flow_dir, "t1", "1").unwrap();
+        phase_mark_done(flow_dir, "t1", "5").unwrap();
+        phase_mark_done(flow_dir, "t2", "1").unwrap();
+
+        phases_reset(flow_dir, "t1").unwrap();
+        assert!(phases_completed(flow_dir, "t1").unwrap().is_empty());
+        assert_eq!(phases_completed(flow_dir, "t2").unwrap(), vec!["1"]);
+    }
+
+    // ── Locks tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_locks_acquire_read_release() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        assert!(locks_read(flow_dir).unwrap().is_empty());
+
+        lock_acquire(flow_dir, "src/a.rs", "t1", "write").unwrap();
+        lock_acquire(flow_dir, "src/b.rs", "t1", "read").unwrap();
+        lock_acquire(flow_dir, "src/c.rs", "t2", "write").unwrap();
+
+        let all = locks_read(flow_dir).unwrap();
+        assert_eq!(all.len(), 3);
+
+        let released = lock_release_task(flow_dir, "t1").unwrap();
+        assert_eq!(released, 2);
+
+        let remaining = locks_read(flow_dir).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].task_id, "t2");
+    }
+
+    #[test]
+    fn test_locks_clear() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        lock_acquire(flow_dir, "a", "t1", "write").unwrap();
+        lock_acquire(flow_dir, "b", "t2", "read").unwrap();
+
+        let cleared = locks_clear(flow_dir).unwrap();
+        assert_eq!(cleared, 2);
+        assert!(locks_read(flow_dir).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_lock_acquire_idempotent() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        lock_acquire(flow_dir, "a", "t1", "write").unwrap();
+        lock_acquire(flow_dir, "a", "t1", "read").unwrap(); // re-lock same file+task
+
+        let locks = locks_read(flow_dir).unwrap();
+        assert_eq!(locks.len(), 1);
+        assert_eq!(locks[0].mode, "read");
+    }
+
+    // ── Memory tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_memory_append_and_search() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        memory_append(flow_dir, r#"{"text":"Rust is great"}"#).unwrap();
+        memory_append(flow_dir, r#"{"text":"Python is also nice"}"#).unwrap();
+        memory_append(flow_dir, r#"{"text":"rust patterns"}"#).unwrap();
+
+        let all = memory_read_all(flow_dir).unwrap();
+        assert_eq!(all.len(), 3);
+
+        let found = memory_search_text(flow_dir, "rust").unwrap();
+        assert_eq!(found.len(), 2);
+
+        let none = memory_search_text(flow_dir, "javascript").unwrap();
+        assert!(none.is_empty());
+    }
+
+    // ── Approvals tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_approvals_round_trip() {
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        assert!(approvals_read(flow_dir).unwrap().is_empty());
+
+        let approvals = vec![
+            serde_json::json!({"reviewer": "alice", "status": "approved"}),
+            serde_json::json!({"reviewer": "bob", "status": "needs_work"}),
+        ];
+        approvals_write(flow_dir, &approvals).unwrap();
+
+        let read_back = approvals_read(flow_dir).unwrap();
+        assert_eq!(read_back.len(), 2);
+        assert_eq!(read_back[0]["reviewer"], "alice");
+        assert_eq!(read_back[1]["status"], "needs_work");
     }
 }

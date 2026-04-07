@@ -1,16 +1,17 @@
 //! Pipeline phase commands: `flowctl phase next` and `flowctl phase done`.
 //!
-//! These commands manage the epic-level pipeline progression stored in the
-//! `pipeline_progress` table. Distinct from worker-phase (task-level phases).
+//! These commands manage the epic-level pipeline progression stored in
+//! `.state/pipeline.json`. Distinct from worker-phase (task-level phases).
 
 use clap::Subcommand;
 use serde_json::json;
 
 use flowctl_core::pipeline::PipelinePhase;
+use flowctl_db::FlowStore;
 
 use crate::output::{error_exit, json_output};
 
-use super::require_db;
+use super::ensure_flow_exists;
 
 /// Pipeline phase subcommands.
 #[derive(Subcommand, Debug)]
@@ -40,70 +41,31 @@ pub fn dispatch_pipeline_phase(cmd: &PipelinePhaseCmd, json: bool) {
     }
 }
 
-/// Read current pipeline phase from DB. If no row exists, initialize to Plan.
-fn get_or_init_phase(epic_id: &str) -> PipelinePhase {
-    let conn = require_db();
-    let raw = conn.inner_conn();
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("tokio runtime");
-
-    rt.block_on(async {
-        let mut rows = raw
-            .query(
-                "SELECT phase FROM pipeline_progress WHERE epic_id = ?1",
-                libsql::params![epic_id],
-            )
-            .await
-            .unwrap_or_else(|e| {
-                error_exit(&format!("DB query failed: {e}"));
-            });
-
-        if let Some(row) = rows.next().await.unwrap_or(None) {
-            let phase_str: String = row.get(0).unwrap_or_else(|_| "plan".to_string());
-            PipelinePhase::parse(&phase_str).unwrap_or(PipelinePhase::Plan)
-        } else {
-            // No row — initialize with Plan phase.
-            let now = chrono::Utc::now().to_rfc3339();
-            raw.execute(
-                "INSERT INTO pipeline_progress (epic_id, phase, started_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
-                libsql::params![epic_id, "plan", now.clone(), now],
-            )
-            .await
-            .unwrap_or_else(|e| {
-                error_exit(&format!("DB insert failed: {e}"));
-            });
+/// Read current pipeline phase from file. If no entry exists, initialize to Plan.
+fn get_or_init_phase(flow_dir: &std::path::Path, epic_id: &str) -> PipelinePhase {
+    let store = FlowStore::new(flow_dir.to_path_buf());
+    match store.pipeline().read(epic_id) {
+        Ok(Some(phase_str)) => PipelinePhase::parse(&phase_str).unwrap_or(PipelinePhase::Plan),
+        _ => {
+            // No entry — initialize with Plan phase.
+            let _ = store.pipeline().write(epic_id, "plan");
             PipelinePhase::Plan
         }
-    })
+    }
 }
 
-/// Update pipeline phase in DB.
-fn update_phase(epic_id: &str, new_phase: &PipelinePhase) {
-    let conn = require_db();
-    let raw = conn.inner_conn();
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("tokio runtime");
-
-    rt.block_on(async {
-        let now = chrono::Utc::now().to_rfc3339();
-        raw.execute(
-            "UPDATE pipeline_progress SET phase = ?1, updated_at = ?2 WHERE epic_id = ?3",
-            libsql::params![new_phase.as_str(), now, epic_id],
-        )
-        .await
-        .unwrap_or_else(|e| {
-            error_exit(&format!("DB update failed: {e}"));
-        });
-    });
+/// Update pipeline phase in file store.
+fn update_phase(flow_dir: &std::path::Path, epic_id: &str, new_phase: &PipelinePhase) {
+    let store = FlowStore::new(flow_dir.to_path_buf());
+    if let Err(e) = store.pipeline().write(epic_id, new_phase.as_str()) {
+        error_exit(&format!("Failed to update pipeline phase: {e}"));
+    }
 }
 
 /// `flowctl phase next --epic <id> --json`
 fn cmd_phase_next(json: bool, epic_id: &str) {
-    let current = get_or_init_phase(epic_id);
+    let flow_dir = ensure_flow_exists();
+    let current = get_or_init_phase(&flow_dir, epic_id);
     let all_done = current.is_terminal();
 
     if json {
@@ -123,6 +85,8 @@ fn cmd_phase_next(json: bool, epic_id: &str) {
 
 /// `flowctl phase done --epic <id> --phase <name> --json`
 fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str) {
+    let flow_dir = ensure_flow_exists();
+
     let requested = match PipelinePhase::parse(phase_name) {
         Some(p) => p,
         None => {
@@ -135,7 +99,7 @@ fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str) {
         }
     };
 
-    let current = get_or_init_phase(epic_id);
+    let current = get_or_init_phase(&flow_dir, epic_id);
 
     if requested != current {
         error_exit(&format!(
@@ -150,7 +114,7 @@ fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str) {
     }
 
     let next_phase = current.next().expect("non-terminal phase has a next");
-    update_phase(epic_id, &next_phase);
+    update_phase(&flow_dir, epic_id, &next_phase);
 
     if json {
         json_output(json!({

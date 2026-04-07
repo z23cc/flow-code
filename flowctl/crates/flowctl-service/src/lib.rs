@@ -8,23 +8,18 @@
 //!
 //! ```text
 //!   CLI commands ─┐
-//!   MCP server ───┴─► flowctl-service ──► flowctl-db ──► SQLite
+//!   MCP server ───┴─► flowctl-service ──► flowctl-db ──► JSON files
 //!                            │
 //!                     flowctl-core (types, DAG, state machine)
 //! ```
 //!
-//! # Connection management
-//!
-//! `libsql::Connection` is `Send + Sync` and cheap to `Clone`. All service
-//! functions are async and accept the connection by reference.
+//! All operations are synchronous, using file-based storage.
 
 pub mod approvals;
 pub mod changes;
-pub mod connection;
 pub mod error;
 pub mod lifecycle;
 pub mod outputs;
 
 // Re-export key types at crate root.
-pub use connection::{open_async, FileConnectionProvider};
 pub use error::{ServiceError, ServiceResult};

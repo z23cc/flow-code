@@ -1,7 +1,6 @@
 //! Command modules — one file per command group.
 
 pub mod helpers;
-pub mod db_shim;
 pub mod admin;
 pub mod approval;
 pub mod checkpoint;

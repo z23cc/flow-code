@@ -2,13 +2,12 @@
 //!
 //! These functions contain the business logic extracted from the CLI
 //! lifecycle commands. Each accepts a request struct and returns
-//! `ServiceResult<Response>`, using SQLite as the sole source of truth.
+//! `ServiceResult<Response>`, using JSON file store as the sole source of truth.
 
 use std::fs;
 use std::path::Path;
 
 use chrono::Utc;
-use libsql::Connection;
 
 use flowctl_core::id::{epic_id_from_task, is_task_id};
 use flowctl_core::state_machine::{Status, Transition};
@@ -16,8 +15,7 @@ use flowctl_core::types::{
     Epic, EpicStatus, Evidence, RuntimeState, Task, REVIEWS_DIR,
 };
 
-use flowctl_core::events::{EventMetadata, FlowEvent, TaskEvent, task_stream_id};
-use flowctl_db::EventStoreRepo;
+use flowctl_db::FlowStore;
 
 use crate::error::{ServiceError, ServiceResult};
 
@@ -113,16 +111,15 @@ fn validate_task_id(id: &str) -> ServiceResult<()> {
 }
 
 /// Load a task from JSON files.
-async fn load_task(_conn: Option<&Connection>, flow_dir: &Path, task_id: &str) -> Option<Task> {
+fn load_task(flow_dir: &Path, task_id: &str) -> Option<Task> {
     flowctl_core::json_store::task_read(flow_dir, task_id).ok()
 }
 
-async fn load_epic(_conn: Option<&Connection>, flow_dir: &Path, epic_id: &str) -> Option<Epic> {
+fn load_epic(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
     flowctl_core::json_store::epic_read(flow_dir, epic_id).ok()
 }
 
-async fn get_runtime(_conn: Option<&Connection>, flow_dir: &Path, task_id: &str) -> Option<RuntimeState> {
-    // Read from JSON state and convert to RuntimeState for compatibility
+fn get_runtime(flow_dir: &Path, task_id: &str) -> Option<RuntimeState> {
     let state = flowctl_core::json_store::state_read(flow_dir, task_id).ok()?;
     Some(RuntimeState {
         task_id: task_id.to_string(),
@@ -138,8 +135,7 @@ async fn get_runtime(_conn: Option<&Connection>, flow_dir: &Path, task_id: &str)
 }
 
 /// Load all tasks for an epic from JSON files.
-async fn load_tasks_for_epic(
-    _conn: Option<&Connection>,
+fn load_tasks_for_epic(
     flow_dir: &Path,
     epic_id: &str,
 ) -> std::collections::HashMap<String, Task> {
@@ -157,8 +153,7 @@ async fn load_tasks_for_epic(
 }
 
 /// Find all downstream dependents of a task within the same epic.
-async fn find_dependents(
-    conn: Option<&Connection>,
+fn find_dependents(
     flow_dir: &Path,
     task_id: &str,
 ) -> Vec<String> {
@@ -167,7 +162,7 @@ async fn find_dependents(
         Err(_) => return Vec::new(),
     };
 
-    let tasks = load_tasks_for_epic(conn, flow_dir, &epic_id).await;
+    let tasks = load_tasks_for_epic(flow_dir, &epic_id);
     let mut dependents = Vec::new();
     let mut visited = std::collections::HashSet::new();
     let mut queue = vec![task_id.to_string()];
@@ -206,8 +201,7 @@ fn get_max_retries_from_config(config: Option<&serde_json::Value>) -> u32 {
 }
 
 /// Propagate upstream_failed to all transitive downstream tasks.
-async fn propagate_upstream_failure(
-    conn: Option<&Connection>,
+fn propagate_upstream_failure(
     flow_dir: &Path,
     failed_id: &str,
 ) -> Vec<String> {
@@ -216,7 +210,7 @@ async fn propagate_upstream_failure(
         Err(_) => return Vec::new(),
     };
 
-    let tasks = load_tasks_for_epic(conn, flow_dir, &epic_id).await;
+    let tasks = load_tasks_for_epic(flow_dir, &epic_id);
     let task_list: Vec<Task> = tasks.values().cloned().collect();
 
     let dag = match flowctl_core::TaskDag::from_tasks(&task_list) {
@@ -242,7 +236,6 @@ async fn propagate_upstream_failure(
             continue;
         }
 
-        // Update JSON state
         if let Ok(mut state) = flowctl_core::json_store::state_read(flow_dir, tid) {
             state.status = Status::UpstreamFailed;
             state.updated_at = Utc::now();
@@ -266,8 +259,7 @@ async fn propagate_upstream_failure(
 }
 
 /// Handle task failure: check retries, set up_for_retry or failed + propagate.
-async fn handle_task_failure(
-    conn: Option<&Connection>,
+fn handle_task_failure(
     flow_dir: &Path,
     task_id: &str,
     runtime: &Option<RuntimeState>,
@@ -295,8 +287,7 @@ async fn handle_task_failure(
         flowctl_core::json_store::state_write(flow_dir, task_id, &task_state)
             .map_err(|e| std::io::Error::other(format!("failed to write retry state for {task_id}: {e}")))?;
 
-        // Audit event
-        log_audit_event(conn, task_id, "task_failed").await;
+        log_audit_event(flow_dir, task_id, "task_failed");
 
         Ok((Status::UpForRetry, Vec::new()))
     } else {
@@ -307,10 +298,9 @@ async fn handle_task_failure(
         flowctl_core::json_store::state_write(flow_dir, task_id, &task_state)
             .map_err(|e| std::io::Error::other(format!("failed to write failed state for {task_id}: {e}")))?;
 
-        // Audit event
-        log_audit_event(conn, task_id, "task_failed").await;
+        log_audit_event(flow_dir, task_id, "task_failed");
 
-        let affected = propagate_upstream_failure(conn, flow_dir, task_id).await;
+        let affected = propagate_upstream_failure(flow_dir, task_id);
         Ok((Status::Failed, affected))
     }
 }
@@ -426,62 +416,60 @@ fn archive_review_receipt(
 
 // ── Audit event helper ───────────────────────────────────────────
 
-/// Log an audit event. Failures are silently ignored (audit must not block).
-async fn log_audit_event(
-    conn: Option<&Connection>,
+/// Log an audit event to the JSONL event log. Failures are silently ignored.
+fn log_audit_event(
+    flow_dir: &Path,
     task_id: &str,
     event_type: &str,
 ) {
-    if let Some(c) = conn {
-        let epic_id = epic_id_from_task(task_id).unwrap_or_default();
-        let repo = flowctl_db::EventRepo::new(c.clone());
-        let _ = repo
-            .insert(&epic_id, Some(task_id), event_type, None, None, None)
-            .await
-            .ok();
-    }
+    let epic_id = epic_id_from_task(task_id).unwrap_or_default();
+    let store = FlowStore::new(flow_dir.to_path_buf());
+    let event = serde_json::json!({
+        "stream_id": format!("task:{task_id}"),
+        "type": event_type,
+        "epic_id": epic_id,
+        "task_id": task_id,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+    let _ = store.events().append(&event.to_string());
 }
 
-/// Emit a task event to the event store. Failures are silently ignored
-/// (event emission must not block the lifecycle operation).
-async fn emit_task_event(
-    conn: Option<&Connection>,
+/// Emit a task event to the event store. Failures are silently ignored.
+fn emit_task_event(
+    flow_dir: &Path,
     task_id: &str,
-    event: TaskEvent,
+    event_type: &str,
     source_cmd: &str,
 ) {
-    if let Some(c) = conn {
-        let repo = EventStoreRepo::new(c.clone());
-        let stream = task_stream_id(task_id);
-        let flow_event = FlowEvent::Task(event);
-        let metadata = EventMetadata {
-            actor: "lifecycle".into(),
-            source_cmd: source_cmd.into(),
-            session_id: String::new(),
-            timestamp: Some(chrono::Utc::now().to_rfc3339()),
-        };
-        let _ = repo.append(&stream, &flow_event, &metadata).await.ok();
-    }
+    let store = FlowStore::new(flow_dir.to_path_buf());
+    let stream_id = format!("task:{task_id}");
+    let event = serde_json::json!({
+        "stream_id": stream_id,
+        "type": event_type,
+        "source_cmd": source_cmd,
+        "actor": "lifecycle",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+    let _ = store.events().append(&event.to_string());
 }
 
 // ── Service functions ──────────────────────────────────────────────
 
-/// Start a task: validate deps, state machine, actor, update DB + Markdown.
-pub async fn start_task(
-    conn: Option<&Connection>,
+/// Start a task: validate deps, state machine, actor, update state.
+pub fn start_task(
     flow_dir: &Path,
     req: StartTaskRequest,
 ) -> ServiceResult<StartTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
+    let task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
     // Validate dependencies unless --force
     if !req.force {
         for dep in &task.depends_on {
-            let dep_task = load_task(conn, flow_dir, dep).await.ok_or_else(|| {
+            let dep_task = load_task(flow_dir, dep).ok_or_else(|| {
                 ServiceError::DependencyUnsatisfied {
                     task: req.task_id.clone(),
                     dependency: format!("{} not found", dep),
@@ -496,7 +484,7 @@ pub async fn start_task(
         }
     }
 
-    let existing_rt = get_runtime(conn, flow_dir, &req.task_id).await;
+    let existing_rt = get_runtime(flow_dir, &req.task_id);
     let existing_assignee = existing_rt.as_ref().and_then(|rt| rt.assignee.clone());
 
     // Validate state machine transition (unless --force)
@@ -579,15 +567,11 @@ pub async fn start_task(
         updated_at: Utc::now(),
     };
 
-    // Write to JSON state file
     flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state)
         .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
 
-    // Audit event
-    log_audit_event(conn, &req.task_id, "task_started").await;
-
-    // Event store
-    emit_task_event(conn, &req.task_id, TaskEvent::Started, "flowctl start").await;
+    log_audit_event(flow_dir, &req.task_id, "task_started");
+    emit_task_event(flow_dir, &req.task_id, "started", "flowctl start");
 
     Ok(StartTaskResponse {
         task_id: req.task_id,
@@ -595,19 +579,18 @@ pub async fn start_task(
     })
 }
 
-/// Complete a task: validate status/actor, collect evidence, update DB + Markdown.
-pub async fn done_task(
-    conn: Option<&Connection>,
+/// Complete a task: validate status/actor, collect evidence, update state.
+pub fn done_task(
     flow_dir: &Path,
     req: DoneTaskRequest,
 ) -> ServiceResult<DoneTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
+    let task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
-    let runtime = get_runtime(conn, flow_dir, &req.task_id).await;
+    let runtime = get_runtime(flow_dir, &req.task_id);
 
     // 1. Validate status + actor
     validate_done_request(&task, &runtime, &req)?;
@@ -673,10 +656,8 @@ pub async fn done_task(
     archive_review_receipt(flow_dir, &req.task_id, &evidence_obj);
 
     // 8. Audit event
-    log_audit_event(conn, &req.task_id, "task_completed").await;
-
-    // Event store
-    emit_task_event(conn, &req.task_id, TaskEvent::Completed, "flowctl done").await;
+    log_audit_event(flow_dir, &req.task_id, "task_completed");
+    emit_task_event(flow_dir, &req.task_id, "completed", "flowctl done");
 
     Ok(DoneTaskResponse {
         task_id: req.task_id,
@@ -714,15 +695,14 @@ fn validate_workspace_changes(evidence_obj: &serde_json::Value) -> Option<String
     }
 }
 
-/// Block a task: validate status, read reason, update DB + Markdown.
-pub async fn block_task(
-    conn: Option<&Connection>,
+/// Block a task: validate status, read reason, update state.
+pub fn block_task(
     flow_dir: &Path,
     req: BlockTaskRequest,
 ) -> ServiceResult<BlockTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
+    let task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
@@ -761,8 +741,7 @@ pub async fn block_task(
             .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
     }
 
-    // Event store
-    emit_task_event(conn, &req.task_id, TaskEvent::Blocked, "flowctl block").await;
+    emit_task_event(flow_dir, &req.task_id, "blocked", "flowctl block");
 
     Ok(BlockTaskResponse {
         task_id: req.task_id,
@@ -770,15 +749,14 @@ pub async fn block_task(
     })
 }
 
-/// Fail a task: check retries, propagate upstream failure, update DB + Markdown.
-pub async fn fail_task(
-    conn: Option<&Connection>,
+/// Fail a task: check retries, propagate upstream failure, update state.
+pub fn fail_task(
     flow_dir: &Path,
     req: FailTaskRequest,
 ) -> ServiceResult<FailTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
+    let task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
@@ -789,16 +767,15 @@ pub async fn fail_task(
         )));
     }
 
-    let runtime = get_runtime(conn, flow_dir, &req.task_id).await;
+    let runtime = get_runtime(flow_dir, &req.task_id);
     let reason_text = req.reason.unwrap_or_else(|| "Task failed".to_string());
 
     let config = load_config(flow_dir);
     let (final_status, upstream_failed_ids) =
-        handle_task_failure(conn, flow_dir, &req.task_id, &runtime, config.as_ref()).await
+        handle_task_failure(flow_dir, &req.task_id, &runtime, config.as_ref())
             .map_err(ServiceError::IoError)?;
 
-    // Event store
-    emit_task_event(conn, &req.task_id, TaskEvent::Failed, "flowctl fail").await;
+    emit_task_event(flow_dir, &req.task_id, "failed", "flowctl fail");
 
     let max_retries = get_max_retries_from_config(config.as_ref());
     let retry_count = if final_status == Status::UpForRetry {
@@ -822,20 +799,19 @@ pub async fn fail_task(
 }
 
 /// Restart a task and cascade to all downstream dependents.
-pub async fn restart_task(
-    conn: Option<&Connection>,
+pub fn restart_task(
     flow_dir: &Path,
     req: RestartTaskRequest,
 ) -> ServiceResult<RestartTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let _task = load_task(conn, flow_dir, &req.task_id).await.ok_or_else(|| {
+    let _task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
         ServiceError::TaskNotFound(req.task_id.clone())
     })?;
 
     // Check epic not closed
     if let Ok(epic_id) = epic_id_from_task(&req.task_id) {
-        if let Some(epic) = load_epic(conn, flow_dir, &epic_id).await {
+        if let Some(epic) = load_epic(flow_dir, &epic_id) {
             if epic.status == EpicStatus::Done {
                 return Err(ServiceError::ValidationError(format!(
                     "Cannot restart task in closed epic {}",
@@ -846,7 +822,7 @@ pub async fn restart_task(
     }
 
     // Find all downstream dependents
-    let dependents = find_dependents(conn, flow_dir, &req.task_id).await;
+    let dependents = find_dependents(flow_dir, &req.task_id);
 
     // Check for in_progress tasks
     let mut in_progress_ids = Vec::new();
@@ -854,7 +830,7 @@ pub async fn restart_task(
         in_progress_ids.push(req.task_id.clone());
     }
     for dep_id in &dependents {
-        if let Some(dep_task) = load_task(conn, flow_dir, dep_id).await {
+        if let Some(dep_task) = load_task(flow_dir, dep_id) {
             if dep_task.status == Status::InProgress {
                 in_progress_ids.push(dep_id.clone());
             }
@@ -876,7 +852,7 @@ pub async fn restart_task(
     let mut skipped = Vec::new();
 
     for tid in &all_ids {
-        let t = match load_task(conn, flow_dir, tid).await {
+        let t = match load_task(flow_dir, tid) {
             Some(t) => t,
             None => continue,
         };
@@ -904,7 +880,6 @@ pub async fn restart_task(
     // Execute reset
     let mut reset_ids = Vec::new();
     for tid in &to_reset {
-        // Reset to blank JSON state
         let blank = flowctl_core::json_store::TaskState::default();
         flowctl_core::json_store::state_write(flow_dir, tid, &blank)
             .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
@@ -912,8 +887,7 @@ pub async fn restart_task(
         reset_ids.push(tid.clone());
     }
 
-    // Event store — emit Started for the restarted task
-    emit_task_event(conn, &req.task_id, TaskEvent::Started, "flowctl restart").await;
+    emit_task_event(flow_dir, &req.task_id, "started", "flowctl restart");
 
     Ok(RestartTaskResponse {
         cascade_from: req.task_id,
@@ -964,8 +938,6 @@ mod tests {
             actor: actor.to_string(),
         }
     }
-
-    // ── validate_done_request ──────────────────────────────────────
 
     #[test]
     fn test_validate_done_request_in_progress_ok() {
@@ -1020,8 +992,6 @@ mod tests {
         assert!(validate_done_request(&task, &None, &req).is_ok());
     }
 
-    // ── parse_evidence ─────────────────────────────────────────────
-
     #[test]
     fn test_parse_evidence_default() {
         let req = make_done_req("fn-1.1", "alice");
@@ -1052,8 +1022,6 @@ mod tests {
         assert!(parse_evidence(&req).is_err());
     }
 
-    // ── compute_duration ───────────────────────────────────────────
-
     #[test]
     fn test_compute_duration_none() {
         assert!(compute_duration(&None).is_none());
@@ -1075,8 +1043,6 @@ mod tests {
         let dur = compute_duration(&rt).unwrap();
         assert!(dur >= 119 && dur <= 121);
     }
-
-    // ── validate_workspace_changes ─────────────────────────────────
 
     #[test]
     fn test_validate_workspace_changes_none() {
@@ -1115,8 +1081,6 @@ mod tests {
         assert!(validate_workspace_changes(&ev).is_none());
     }
 
-    // ── archive_review_receipt ─────────────────────────────────────
-
     #[test]
     fn test_archive_review_receipt_writes_file() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1138,11 +1102,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let ev = serde_json::json!({"commits": []});
         archive_review_receipt(tmp.path(), "fn-1.1", &ev);
-        // Should not create reviews dir
         assert!(!tmp.path().join(REVIEWS_DIR).exists());
     }
-
-    // ── config helpers ─────────────────────────────────────────────
 
     #[test]
     fn test_get_max_retries_from_config_none() {

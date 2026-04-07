@@ -7,16 +7,15 @@ use serde_json::json;
 use crate::output::{error_exit, json_output};
 
 use flowctl_core::state_machine::Status;
-use flowctl_db::EventStoreRepo;
+use flowctl_db::FlowStore;
 use flowctl_service::lifecycle::{
     BlockTaskRequest, DoneTaskRequest, FailTaskRequest, RestartTaskRequest, StartTaskRequest,
 };
 
-use super::{block_on, ensure_flow_exists, resolve_actor, try_open_lsql_conn};
+use super::{ensure_flow_exists, resolve_actor};
 
 pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_lsql_conn();
     let actor = resolve_actor();
 
     let req = StartTaskRequest {
@@ -25,7 +24,7 @@ pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>
         actor,
     };
 
-    match block_on(flowctl_service::lifecycle::start_task(conn.as_ref(), &flow_dir, req)) {
+    match flowctl_service::lifecycle::start_task(&flow_dir, req) {
         Ok(resp) => {
             if json_mode {
                 json_output(json!({
@@ -51,7 +50,6 @@ pub fn cmd_done(
     force: bool,
 ) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_lsql_conn();
     let actor = resolve_actor();
 
     let req = DoneTaskRequest {
@@ -64,7 +62,7 @@ pub fn cmd_done(
         actor,
     };
 
-    match block_on(flowctl_service::lifecycle::done_task(conn.as_ref(), &flow_dir, req)) {
+    match flowctl_service::lifecycle::done_task(&flow_dir, req) {
         Ok(resp) => {
             if json_mode {
                 let mut result = json!({
@@ -101,14 +99,13 @@ pub fn cmd_done(
 
 pub fn cmd_block(json_mode: bool, id: String, reason: String) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_lsql_conn();
 
     let req = BlockTaskRequest {
         task_id: id.clone(),
         reason,
     };
 
-    match block_on(flowctl_service::lifecycle::block_task(conn.as_ref(), &flow_dir, req)) {
+    match flowctl_service::lifecycle::block_task(&flow_dir, req) {
         Ok(resp) => {
             if json_mode {
                 json_output(json!({
@@ -126,7 +123,6 @@ pub fn cmd_block(json_mode: bool, id: String, reason: String) {
 
 pub fn cmd_fail(json_mode: bool, id: String, reason: Option<String>, force: bool) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_lsql_conn();
 
     let req = FailTaskRequest {
         task_id: id.clone(),
@@ -134,7 +130,7 @@ pub fn cmd_fail(json_mode: bool, id: String, reason: Option<String>, force: bool
         force,
     };
 
-    match block_on(flowctl_service::lifecycle::fail_task(conn.as_ref(), &flow_dir, req)) {
+    match flowctl_service::lifecycle::fail_task(&flow_dir, req) {
         Ok(resp) => {
             if json_mode {
                 let mut result = json!({
@@ -171,7 +167,6 @@ pub fn cmd_fail(json_mode: bool, id: String, reason: Option<String>, force: bool
 
 pub fn cmd_restart(json_mode: bool, id: String, dry_run: bool, force: bool) {
     let flow_dir = ensure_flow_exists();
-    let conn = try_open_lsql_conn();
 
     let req = RestartTaskRequest {
         task_id: id.clone(),
@@ -179,7 +174,7 @@ pub fn cmd_restart(json_mode: bool, id: String, dry_run: bool, force: bool) {
         force,
     };
 
-    match block_on(flowctl_service::lifecycle::restart_task(conn.as_ref(), &flow_dir, req)) {
+    match flowctl_service::lifecycle::restart_task(&flow_dir, req) {
         Ok(resp) => {
             if dry_run {
                 if json_mode {
@@ -194,8 +189,6 @@ pub fn cmd_restart(json_mode: bool, id: String, dry_run: bool, force: bool) {
                         "Dry run \u{2014} would restart {} task(s):",
                         resp.reset_ids.len()
                     );
-                    // In dry-run mode we don't have per-task status info in the response,
-                    // so just list the IDs
                     for tid in &resp.reset_ids {
                         let marker = if resp.in_progress_overridden.contains(tid) {
                             " (force)"
@@ -237,45 +230,41 @@ pub fn cmd_restart(json_mode: bool, id: String, dry_run: bool, force: bool) {
 }
 
 pub fn cmd_events(json_mode: bool, epic_id: String) {
-    let _flow_dir = ensure_flow_exists();
-    let conn = try_open_lsql_conn();
+    let flow_dir = ensure_flow_exists();
 
-    let conn = match conn {
-        Some(c) => c,
-        None => {
-            error_exit("Cannot open database for event store query");
-        }
-    };
+    let store = FlowStore::new(flow_dir.to_path_buf());
+    let events_store = store.events();
 
-    let repo = EventStoreRepo::new(conn);
+    // Read all events and filter by epic prefix
+    match events_store.read_all() {
+        Ok(lines) => {
+            // Parse events and filter by epic
+            let mut matching: Vec<serde_json::Value> = Vec::new();
+            for line in &lines {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+                    let stream = val.get("stream_id").and_then(|s| s.as_str()).unwrap_or("");
+                    let eid = val.get("epic_id").and_then(|s| s.as_str()).unwrap_or("");
+                    if stream.contains(&epic_id) || eid == epic_id {
+                        matching.push(val);
+                    }
+                }
+            }
 
-    // Query both the epic stream and all task streams for this epic
-    let prefixes = vec![
-        format!("epic:{epic_id}"),
-        format!("task:{epic_id}."),
-    ];
-
-    match block_on(repo.query_by_stream_prefixes(&prefixes)) {
-        Ok(events) => {
             if json_mode {
-                let items: Vec<serde_json::Value> = events
-                    .iter()
-                    .map(|e| serde_json::to_value(e).unwrap_or_default())
-                    .collect();
                 json_output(json!({
                     "epic": epic_id,
-                    "count": events.len(),
-                    "events": items,
+                    "count": matching.len(),
+                    "events": matching,
                 }));
-            } else if events.is_empty() {
+            } else if matching.is_empty() {
                 println!("No events found for epic {epic_id}");
             } else {
-                println!("Events for epic {} ({} total):\n", epic_id, events.len());
-                for e in &events {
-                    println!(
-                        "  [{}] {} v{} — {} ({})",
-                        e.event_id, e.stream_id, e.version, e.event_type, e.created_at,
-                    );
+                println!("Events for epic {} ({} total):\n", epic_id, matching.len());
+                for e in &matching {
+                    let stream = e.get("stream_id").and_then(|s| s.as_str()).unwrap_or("?");
+                    let event_type = e.get("type").and_then(|s| s.as_str()).unwrap_or("?");
+                    let ts = e.get("timestamp").and_then(|s| s.as_str()).unwrap_or("?");
+                    println!("  [{}] {} — {}", stream, event_type, ts);
                 }
             }
         }

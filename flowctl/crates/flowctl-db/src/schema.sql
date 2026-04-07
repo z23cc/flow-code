@@ -217,6 +217,21 @@ CREATE TABLE IF NOT EXISTS memory (
     embedding     BLOB
 );
 
+-- ── Skills with native vector embedding (BGE-small, 384-dim) ───────
+
+CREATE TABLE IF NOT EXISTS skills (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    plugin_path TEXT,
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    embedding   BLOB
+);
+
+-- Native libSQL vector index for semantic skill matching
+-- NOTE: Applied separately in pool.rs with graceful degradation.
+-- CREATE INDEX IF NOT EXISTS skills_emb_idx ON skills(libsql_vector_idx(embedding));
+
 -- ── Indexes ─────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_gaps_epic ON gaps(epic_id);

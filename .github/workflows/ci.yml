@@ -5,11 +5,15 @@ on:
     branches: [main]
     paths:
       - "flowctl/**"
+      - "scripts/**"
+      - "hooks/**"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "flowctl/**"
+      - "scripts/**"
+      - "hooks/**"
       - ".github/workflows/ci.yml"
 
 env:
@@ -24,6 +28,20 @@ jobs:
         working-directory: flowctl
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        working-directory: .
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        working-directory: .
+        run: shellcheck scripts/*.sh scripts/hooks/*.sh flowctl/install.sh
+
+      - name: Validate JSON configs
+        working-directory: .
+        run: |
+          python3 -c "import json; json.load(open('hooks/hooks.json'))"
+          python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -52,6 +70,9 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
+
+      - name: Audit dependencies
+        run: cargo install cargo-audit && cargo audit
 
   coverage:
     name: Test Coverage

@@ -1,6 +1,7 @@
 ---
 name: flow-code-loop-status
 description: "Use when user asks 'how is the run going', 'loop status', 'ralph status', 'what iteration', or /flow-code:loop-status."
+tier: 1
 user-invocable: false
 ---
 

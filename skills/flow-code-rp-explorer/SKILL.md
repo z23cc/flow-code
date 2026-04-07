@@ -1,6 +1,7 @@
 ---
 name: flow-code-rp-explorer
 description: "Use when user says 'use rp to...' or 'use repoprompt to...' followed by explore, find, understand, search, or similar actions."
+tier: 1
 ---
 
 # RP-Explorer

@@ -1,6 +1,7 @@
 ---
 name: flow-code-performance
 description: "Use when investigating performance issues, optimizing hot paths, adding benchmarks, or establishing performance regression guards"
+tier: 2
 ---
 
 # Performance Methodology

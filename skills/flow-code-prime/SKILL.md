@@ -1,6 +1,7 @@
 ---
 name: flow-code-prime
 description: "Use when assessing codebase readiness for agents or production. Triggers on /flow-code:prime, 'assess this codebase', or 'is this repo ready'."
+tier: 2
 user-invocable: false
 context: fork
 ---

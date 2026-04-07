@@ -1,6 +1,7 @@
 ---
 name: flow-code-context-eng
 description: "Use when context window is filling up, agent output quality drops, or starting a new complex task that needs careful context loading"
+tier: 2
 ---
 
 # Context Engineering

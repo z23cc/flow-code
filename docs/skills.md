@@ -63,3 +63,62 @@ For a new project:
 3. `/flow-code:run "description"` — plan, review, execute, and close (all-in-one)
 
 That's it — `/flow-code:run` handles the full plan → review → work → review → close pipeline.
+
+## Tier Classification
+
+Skills are classified into four tiers based on complexity and decision-making authority, inspired by the gstack tiering system. The `tier` field in each skill's YAML frontmatter enables tooling to filter, prioritize, and display skills by capability level.
+
+### Tier 1 — Basic Tools
+
+Simple utilities and wrappers that perform a single focused action.
+
+| Skill | Purpose |
+|-------|---------|
+| `flow-code-setup` | Install flowctl CLI and configure project |
+| `flow-code-worktree-kit` | Git worktree management |
+| `flow-code-export-context` | Export context for external model review |
+| `flow-code-deps` | Dependency graph visualization |
+| `flow-code-loop-status` | Monitor running loops |
+| `browser` | Browser automation via agent-browser CLI |
+| `flow-code-rp-explorer` | RepoPrompt-powered codebase exploration |
+
+### Tier 2 — Observation & Monitoring
+
+Skills that gather information, analyze codebases, or provide monitoring and guidance.
+
+| Skill | Purpose |
+|-------|---------|
+| `flow-code-map` | Generate codebase architecture maps |
+| `flow-code-prime` | Assess codebase readiness for agent work |
+| `flow-code-context-eng` | Context window management and optimization |
+| `flow-code-performance` | Performance investigation and benchmarks |
+| `flow-code-prompt-eng` | Prompt engineering guidance for review agents |
+| `flow-code-debug` | Systematic debugging with root cause investigation |
+
+### Tier 3 — Interactive Decision-Making
+
+Skills that involve planning, design, or interactive multi-step workflows.
+
+| Skill | Purpose |
+|-------|---------|
+| `flow-code-run` | Unified pipeline entry point (plan, review, work, close) |
+| `flow-code-brainstorm` | Explore and pressure-test ideas before planning |
+| `flow-code-interview` | Refine specs through structured Q&A |
+| `flow-code-api-design` | API design and module boundary review |
+| `flow-code-cicd` | CI/CD pipeline setup and deployment automation |
+| `flow-code-django` | Django-specific patterns, security, and testing |
+| `flow-code-skill-create` | Create new flow-code skills |
+| `flow-code-auto-improve` | Autonomous code quality improvement loops |
+| `flow-code-sync` | Sync downstream task specs after implementation drift |
+| `flow-code-ralph-init` | Scaffold autonomous Ralph harness |
+| `flow-code-deprecation` | Feature and API deprecation workflows |
+
+### Tier 4 — Final Decisions & Execution
+
+Skills that make final judgments, complete workflows, or serve as primary management entry points.
+
+| Skill | Purpose |
+|-------|---------|
+| `flow-code` | Task and epic management entry point |
+| `flow-code-retro` | Post-epic retrospective and lessons learned |
+| `flow-code-autoplan` | Multi-perspective auto-review pipeline |

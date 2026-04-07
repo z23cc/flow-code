@@ -1,6 +1,7 @@
 ---
 name: flow-code-prompt-eng
 description: "Internal guidance for composing Codex/GPT review and task prompts. Loaded automatically by worker agents and review skills when building prompts for cross-model review."
+tier: 2
 user-invocable: false
 ---
 

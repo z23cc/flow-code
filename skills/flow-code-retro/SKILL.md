@@ -1,6 +1,7 @@
 ---
 name: flow-code-retro
 description: Use after completing an epic or major feature to capture structured lessons learned, review what worked and what didn't
+tier: 4
 context: fork
 ---
 

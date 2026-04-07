@@ -1,6 +1,7 @@
 ---
 name: flow-code-setup
 description: "Use when user runs /flow-code:setup or asks to install flow-code locally."
+tier: 1
 user-invocable: false
 ---
 

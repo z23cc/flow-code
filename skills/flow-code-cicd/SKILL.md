@@ -1,6 +1,7 @@
 ---
 name: flow-code-cicd
 description: "Use when setting up, modifying, or troubleshooting CI/CD pipelines, quality gates, or deployment automation"
+tier: 3
 ---
 
 # CI/CD Patterns

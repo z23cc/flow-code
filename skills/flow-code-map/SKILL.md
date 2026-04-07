@@ -1,6 +1,7 @@
 ---
 name: flow-code-map
 description: "Use when user says 'map this codebase', 'document the architecture', 'create codebase map', or /flow-code:map."
+tier: 2
 user-invocable: false
 context: fork
 ---

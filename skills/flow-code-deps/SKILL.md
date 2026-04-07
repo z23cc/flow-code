@@ -1,6 +1,7 @@
 ---
 name: flow-code-deps
 description: "Use when asking 'what's blocking what', 'execution order', 'dependency graph', 'what order should epics run', 'critical path', or 'which epics can run in parallel'."
+tier: 1
 ---
 
 # Flow-Code Dependency Graph

@@ -1,6 +1,7 @@
 ---
 name: flow-code-deprecation
 description: "Use when removing, replacing, or sunsetting features, APIs, modules, or dependencies in any codebase"
+tier: 3
 ---
 
 # Deprecation and Migration

@@ -531,7 +531,7 @@ flowctl guard --layer frontend [--json]
 
 Exits non-zero if any guard fails. Output includes per-command pass/fail status.
 
-Workers use this for baseline check (Phase 1) and verification (Phase 5) — one command replaces manual test/lint/typecheck invocations.
+Workers use this for baseline check (Phase 2) and verification (Phase 10) — one command replaces manual test/lint/typecheck invocations.
 
 ### invariants
 
@@ -556,7 +556,7 @@ flowctl invariants check [--json]
 - **Fix:** [how to fix if violated]
 ```
 
-Workers check invariants in Phase 1 (baseline) and Phase 5 (verification). Planners check during Step 1 to ensure tasks don't violate constraints.
+Workers check invariants in Phase 2 (baseline) and Phase 10 (verification). Planners check during Step 4 to ensure tasks don't violate constraints.
 
 ### stack
 
@@ -842,7 +842,7 @@ flowctl worker-prompt --task fn-1.1 --bootstrap [--tdd] [--review rp|codex] [--j
 Options:
 - `--task ID` (required): Task ID for context
 - `--bootstrap`: Output minimal ~200 token prompt that instructs the worker to call `worker-phase next` in a loop
-- `--tdd`: Include TDD Phase 2a in the prompt
+- `--tdd`: Include TDD Phase 4 in the prompt
 - `--review rp|codex`: Include review Phase 4
 - `--team`: Include Teams mode instructions (default in phase-gate)
 - `--json`: JSON output with `prompt` and `estimated_tokens` fields
@@ -859,10 +859,10 @@ flowctl worker-phase next --task fn-1.1 [--tdd] [--review rp|codex] --json
 flowctl worker-phase done --task fn-1.1 --phase <PHASE_ID> [--tdd] [--review rp|codex] --json
 ```
 
-**Default phase sequence**: `0 → 1 → 2 → 2.5 → 3 → 5 → 6`
-- With `--tdd`: adds Phase 2a (test-first)
-- With `--review`: adds Phase 4 (impl-review)
-- Canonical order: `0, 1, 2a, 2, 2.5, 3, 4, 5, 5b, 6`
+**Default phase sequence**: `1 → 2 → 5 → 6 → 7 → 10 → 12`
+- With `--tdd`: adds Phase 4 (test-first)
+- With `--review`: adds Phase 8 (impl-review)
+- Canonical order: `1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12`
 
 Phase progress is stored per-task in runtime state. `next` returns `{"phase": "<id>", "content": "...", "all_done": false}`. When all phases are complete, returns `{"phase": null, "all_done": true}`.
 

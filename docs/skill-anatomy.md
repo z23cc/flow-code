@@ -81,7 +81,7 @@ The heart of the skill. Step-by-step workflow the agent follows. Must be specifi
 **Good:** "Run `cargo test --all` and verify zero failures"
 **Bad:** "Make sure the tests work"
 
-For flow-code skills, phases follow the convention: Phase 1, Phase 2, Phase 2.5 (verify), Phase 3 (commit), etc. Reference `flowctl` commands where applicable:
+For flow-code skills, phases follow the convention: Phase 1, Phase 2, Phase 3, etc. (always integers). Reference `flowctl` commands where applicable:
 ```bash
 $FLOWCTL guard              # Run all guards
 $FLOWCTL invariants check   # Check architecture invariants
@@ -137,13 +137,13 @@ Flow-code workers produce evidence JSON. Skills should specify what evidence the
 ### Phase Naming
 Follow the worker agent convention:
 - Phase 1: Re-anchor (read spec)
-- Phase 2: Implement
-- Phase 2.5: Verify & Fix
-- Phase 3: Commit
-- Phase 4: Review
-- Phase 5: Complete
+- Phase 5: Implement
+- Phase 6: Verify & Fix
+- Phase 7: Commit
+- Phase 8: Review
+- Phase 10: Complete
 
-Skills that define their own phases should use this numbering style (Phase 1, Phase 1.5, Phase 2) for consistency with the worker pipeline.
+Phase IDs are always integers. Skills that define their own phases should use sequential integers (Phase 1, Phase 2, Phase 3) for consistency with the worker pipeline.
 
 ### Cross-Skill References
 Reference other skills by name, don't duplicate:

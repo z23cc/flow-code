@@ -107,14 +107,20 @@ pub fn cmd_create(title: &str, branch: &Option<String>, json_mode: bool, dry_run
     }
 }
 
-pub fn cmd_set_plan(id: &str, file: &str, json_mode: bool) {
+pub fn cmd_set_plan(id: &str, file: Option<&str>, spec: Option<&str>, json_mode: bool) {
     let flow_dir = ensure_flow_exists();
     validate_epic_id(id);
 
     let mut doc = load_epic(id);
 
-    // Read content from file or stdin
-    let content = read_file_or_stdin(file);
+    // Read content from --spec (inline), --file, or error
+    let content = if let Some(text) = spec {
+        text.to_string()
+    } else if let Some(f) = file {
+        read_file_or_stdin(f)
+    } else {
+        error_exit("Either --file or --spec is required");
+    };
 
     // Validate: reject duplicate headings
     let heading_re = regex::Regex::new(r"(?m)^(##\s+.+?)\s*$").expect("valid regex");

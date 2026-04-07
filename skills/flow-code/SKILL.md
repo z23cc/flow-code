@@ -56,7 +56,7 @@ $FLOWCTL show fn-1-add-oauth.2 --json
 $FLOWCTL cat fn-1-add-oauth.2            # Task spec
 
 # What's ready to work on?
-$FLOWCTL ready --epic fn-1-add-oauth --json
+$FLOWCTL ready fn-1-add-oauth --json
 
 # Create task under existing epic
 $FLOWCTL task create --epic fn-1-add-oauth --title "Fix bug X" --json
@@ -129,7 +129,7 @@ $FLOWCTL tasks --json
 $FLOWCTL tasks --epic fn-1-add-oauth --json
 
 # Ready tasks for an epic
-$FLOWCTL ready --epic fn-1-add-oauth --json
+$FLOWCTL ready fn-1-add-oauth --json
 ```
 
 ### "Show me task X"

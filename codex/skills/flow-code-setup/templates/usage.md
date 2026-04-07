@@ -46,7 +46,7 @@ Task tracking for AI agents. All state lives in `.flow/`.
 .flow/bin/flowctl cat fn-1-add-oauth.2          # Task spec (markdown)
 
 # Status
-.flow/bin/flowctl ready --epic fn-1-add-oauth   # What's ready to work on
+.flow/bin/flowctl ready fn-1-add-oauth           # What's ready to work on
 .flow/bin/flowctl validate --all                # Check structure
 .flow/bin/flowctl state-path                    # Show state directory (for worktrees)
 
@@ -67,7 +67,7 @@ Task tracking for AI agents. All state lives in `.flow/`.
 ## Workflow
 
 1. `.flow/bin/flowctl epics` - list all epics
-2. `.flow/bin/flowctl ready --epic fn-N-slug` - find available tasks
+2. `.flow/bin/flowctl ready fn-N-slug` - find available tasks
 3. `.flow/bin/flowctl start fn-N-slug.M` - claim task
 4. Implement the task
 5. `.flow/bin/flowctl done fn-N-slug.M --summary-file ... --evidence-json ...` - complete

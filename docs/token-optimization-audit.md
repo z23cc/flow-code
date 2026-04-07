@@ -257,7 +257,7 @@ The orchestrator context is the **true bottleneck** — it accumulates across th
 | 35 | Worker completion messages: compact format `done: fn-15.3 files=3 build=ok 120s` | `agents/worker.md` Phase 5 | P0 |
 | 36 | Evidence stored to file by default (`.flow/evidence/<task>.json`); orchestrator reads on demand | `agents/worker.md` Phase 4 | P0 |
 | 37 | Orchestrator polling `tasks` defaults to compact output | `skills/flow-code-work/SKILL.md` | P0 |
-| 38 | `flowctl files --epic X` compact (Teams lock-conflict hot path) | Same as #3 | P0 |
+| 38 | `flowctl files X` compact (Teams lock-conflict hot path) | Same as #3 | P0 |
 | 39 | `flowctl lock-check --file X` minimal output (`free` / `held:X`) | `commands/lock.rs` | P0 |
 
 ### 2.8 rtk integration layer

@@ -286,7 +286,7 @@ Default to standard unless complexity demands more or less.
 
    # Task with file ownership (recommended for parallel execution):
    $FLOWCTL task create --epic <epic-id> --title "<Task title>" --files "src/auth.ts,src/routes.ts" --json
-   # Enables flowctl files --epic <id> to detect conflicts before parallel execution
+   # Enables flowctl files <id> to detect conflicts before parallel execution
    ```
 
    **TIP**: Use `--deps` to declare dependencies inline when creating tasks. Tasks must exist before being referenced, so create in dependency order. Use `--domain` when the task clearly belongs to a specific area. Use `--files` to declare file ownership for teams/parallel conflict prevention.

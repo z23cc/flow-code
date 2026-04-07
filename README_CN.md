@@ -187,7 +187,7 @@ export PATH=".flow/bin:$PATH"
 flowctl --help
 flowctl epics                # 列出所有 epic
 flowctl tasks --epic fn-1    # 列出 epic 的任务
-flowctl ready --epic fn-1    # 查看准备就绪的任务
+flowctl ready fn-1           # 查看准备就绪的任务
 ```
 
 ### 3. 使用
@@ -1545,7 +1545,7 @@ flowctl task set-acceptance fn-1.1 --file accept.md
 flowctl dep add fn-1.3 fn-1.2             # fn-1.3 依赖 fn-1.2
 
 # 工作流
-flowctl ready --epic fn-1                 # 显示就绪/进行中/已阻塞
+flowctl ready fn-1                        # 显示就绪/进行中/已阻塞
 flowctl next                              # 选择下一个 plan/work 单元
 flowctl start fn-1.1                      # 认领并开始任务
 flowctl done fn-1.1 --summary-file s.md --evidence-json e.json
@@ -1736,7 +1736,7 @@ flowctl config set review.backend codex
 
 快速命令：
 - `flowctl list` — 列出 epic + 任务
-- `flowctl ready --epic fn-N` — 查看就绪任务
+- `flowctl ready fn-N` — 查看就绪任务
 - `flowctl start fn-N.M` — 认领任务
 - `flowctl done fn-N.M --summary-file s.md --evidence-json e.json`
 

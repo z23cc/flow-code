@@ -144,9 +144,11 @@ enum Commands {
     },
     /// Estimate remaining time for an epic based on historical durations.
     Estimate {
-        /// Epic ID.
-        #[arg(long)]
-        epic: String,
+        /// Epic ID (positional).
+        id: Option<String>,
+        /// Epic ID (flag, kept for compatibility).
+        #[arg(long = "epic")]
+        epic_flag: Option<String>,
     },
     /// Replay an epic: reset all tasks to todo for re-execution.
     Replay {
@@ -307,9 +309,11 @@ enum Commands {
     },
     /// Show file ownership map for epic.
     Files {
-        /// Epic ID.
-        #[arg(long)]
-        epic: String,
+        /// Epic ID (positional).
+        id: Option<String>,
+        /// Epic ID (flag, kept for compatibility).
+        #[arg(long = "epic")]
+        epic_flag: Option<String>,
     },
     /// Lock files for a task (Teams mode).
     Lock {
@@ -351,9 +355,11 @@ enum Commands {
     // ── Workflow commands ─────────────────────────────────────────────
     /// List ready tasks.
     Ready {
-        /// Epic ID.
-        #[arg(long)]
-        epic: String,
+        /// Epic ID (positional).
+        id: Option<String>,
+        /// Epic ID (flag, kept for compatibility).
+        #[arg(long = "epic")]
+        epic_flag: Option<String>,
     },
     /// Select next plan/work unit.
     Next {
@@ -436,9 +442,11 @@ enum Commands {
 
     /// Show event store history for an epic (all streams).
     Events {
-        /// Epic ID.
-        #[arg(long)]
-        epic: String,
+        /// Epic ID (positional).
+        id: Option<String>,
+        /// Epic ID (flag, kept for compatibility).
+        #[arg(long = "epic")]
+        epic_flag: Option<String>,
     },
 
     // ── Data exchange ────────────────────────────────────────────────
@@ -492,6 +500,13 @@ fn main() {
     let json = cli.output.json;
     let dry_run = cli.dry_run;
 
+    /// Resolve dual-mode argument: positional `id` takes precedence over `--epic` flag.
+    fn resolve_epic(id: Option<String>, epic_flag: Option<String>, cmd_name: &str) -> String {
+        id.or(epic_flag).unwrap_or_else(|| {
+            output::error_exit(&format!("{cmd_name} requires an epic ID (positional or --epic)"));
+        })
+    }
+
     match cli.command {
         // Admin / top-level
         Commands::Init => admin::cmd_init(json),
@@ -521,7 +536,10 @@ fn main() {
         }
 
         Commands::Dag { id } => commands::stats::cmd_dag(json, Some(id)),
-        Commands::Estimate { epic } => commands::stats::cmd_estimate(json, &epic),
+        Commands::Estimate { id, epic_flag } => {
+            let epic = resolve_epic(id, epic_flag, "estimate");
+            commands::stats::cmd_estimate(json, &epic);
+        }
         Commands::Replay { epic_id, dry_run, force } => commands::epic::cmd_replay(json, &epic_id, dry_run, force),
         Commands::Diff { epic_id } => commands::epic::cmd_diff(json, &epic_id),
 
@@ -559,14 +577,20 @@ fn main() {
         } => query::cmd_tasks(json, epic, status, domain),
         Commands::List => query::cmd_list(json),
         Commands::Cat { id } => query::cmd_cat(id),
-        Commands::Files { epic } => query::cmd_files(json, epic),
+        Commands::Files { id, epic_flag } => {
+            let epic = resolve_epic(id, epic_flag, "files");
+            query::cmd_files(json, epic);
+        }
         Commands::Lock { task, files, mode } => query::cmd_lock(json, task, files, mode),
         Commands::Unlock { task, files, all } => query::cmd_unlock(json, task, files, all),
         Commands::LockCheck { file } => query::cmd_lock_check(json, file),
         Commands::Heartbeat { task } => query::cmd_heartbeat(json, task),
 
         // Workflow
-        Commands::Ready { epic } => workflow::cmd_ready(json, epic),
+        Commands::Ready { id, epic_flag } => {
+            let epic = resolve_epic(id, epic_flag, "ready");
+            workflow::cmd_ready(json, epic);
+        }
         Commands::Next {
             epics_file,
             require_plan_review,
@@ -609,7 +633,10 @@ fn main() {
             workflow::cmd_block(json, id, reason_text)
         }
         Commands::Fail { id, reason, force } => workflow::cmd_fail(json, id, reason, force),
-        Commands::Events { epic } => workflow::cmd_events(json, epic),
+        Commands::Events { id, epic_flag } => {
+            let epic = resolve_epic(id, epic_flag, "events");
+            workflow::cmd_events(json, epic);
+        }
 
         // Data exchange
         Commands::Export { epic, format } => admin::cmd_export(json, epic, format),

@@ -42,7 +42,7 @@ Detect input type in this order (first match wins):
 - Clear auto-execute marker (confirms work has started): `$FLOWCTL epic auto-exec <id> --done --json`
 - Read epic: `$FLOWCTL show <id> --json`
 - Read spec: `$FLOWCTL cat <id>`
-- Get first ready task: `$FLOWCTL ready --epic <id> --json`
+- Get first ready task: `$FLOWCTL ready <id> --json`
 
 **Spec file start (.md path that exists)**:
 1. Check file exists: `test -f "<path>"` — if not, treat as idea text
@@ -107,7 +107,7 @@ $FLOWCTL restart <stale-task-id> --json
 After restarts, find ready tasks normally:
 
 ```bash
-$FLOWCTL ready --epic <epic-id> --json
+$FLOWCTL ready <epic-id> --json
 ```
 
 Collect ALL ready tasks (no unresolved dependencies). If no ready tasks, check for completion review gate (see Step 10 below).

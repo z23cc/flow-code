@@ -195,7 +195,7 @@ export PATH=".flow/bin:$PATH"
 flowctl --help
 flowctl epics                # List all epics
 flowctl tasks --epic fn-1    # List tasks for epic
-flowctl ready --epic fn-1    # What's ready to work on
+flowctl ready fn-1           # What's ready to work on
 ```
 
 ### 3. Use
@@ -1663,7 +1663,7 @@ flowctl task set-acceptance fn-1.1 --file accept.md
 flowctl dep add fn-1.3 fn-1.2             # fn-1.3 depends on fn-1.2
 
 # Workflow
-flowctl ready --epic fn-1                 # Show ready/in_progress/blocked
+flowctl ready fn-1                        # Show ready/in_progress/blocked
 flowctl next                              # Select next plan/work unit
 flowctl start fn-1.1                      # Claim and start task
 flowctl done fn-1.1 --summary-file s.md --evidence-json e.json
@@ -1862,7 +1862,7 @@ This project uses Flow-Code for task tracking. `flowctl` must be in PATH (`~/.fl
 
 Quick commands:
 - `flowctl list` — list epics + tasks
-- `flowctl ready --epic fn-N` — what's ready
+- `flowctl ready fn-N` — what's ready
 - `flowctl start fn-N.M` — claim task
 - `flowctl done fn-N.M --summary-file s.md --evidence-json e.json`
 

@@ -384,8 +384,10 @@ flowctl cat fn-1.2    # Task spec
 List tasks ready to start, in progress, and blocked.
 
 ```bash
-flowctl ready --epic fn-1 [--json]
+flowctl ready fn-1 [--json]
 ```
+
+> `--epic` flag is still accepted for backwards compatibility.
 
 Output:
 ```json
@@ -929,8 +931,10 @@ Also available via `flowctl status --dag --epic fn-1`.
 Estimate remaining time for an epic based on historical task durations.
 
 ```bash
-flowctl estimate --epic fn-1 [--json]
+flowctl estimate fn-1 [--json]
 ```
+
+> `--epic` flag is still accepted for backwards compatibility.
 
 ### replay
 
@@ -1106,8 +1110,10 @@ flowctl stats cleanup [--json]   # Delete old events/rollups
 Show file ownership map for an epic.
 
 ```bash
-flowctl files --epic fn-1 [--json]
+flowctl files fn-1 [--json]
 ```
+
+> `--epic` flag is still accepted for backwards compatibility.
 
 Shows which tasks own which files and detects ownership conflicts.
 

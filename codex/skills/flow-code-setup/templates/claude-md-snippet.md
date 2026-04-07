@@ -8,7 +8,7 @@ This project uses Flow-Code for task tracking. Use `.flow/bin/flowctl` instead o
 .flow/bin/flowctl list                # List all epics + tasks
 .flow/bin/flowctl epics               # List all epics
 .flow/bin/flowctl tasks --epic fn-N   # List tasks for epic
-.flow/bin/flowctl ready --epic fn-N   # What's ready
+.flow/bin/flowctl ready fn-N          # What's ready
 .flow/bin/flowctl show fn-N.M         # View task
 .flow/bin/flowctl start fn-N.M        # Claim task
 .flow/bin/flowctl done fn-N.M --summary-file s.md --evidence-json e.json

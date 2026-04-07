@@ -59,7 +59,7 @@ Loop until all phases complete:
 4. If backend is none, skip and advance
 
 ### Work (work)
-1. Find ready tasks: $FLOWCTL ready --epic $EPIC_ID --json
+1. Find ready tasks: $FLOWCTL ready $EPIC_ID --json
 2. Start tasks: $FLOWCTL start <task-id> --json
 3. Lock files: $FLOWCTL lock --task <id> --files "<files>"
 4. Spawn ALL ready workers in ONE parallel Agent call with isolation worktree and team_name

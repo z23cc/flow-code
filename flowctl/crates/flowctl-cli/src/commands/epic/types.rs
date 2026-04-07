@@ -13,13 +13,16 @@ pub enum EpicCmd {
         #[arg(long)]
         branch: Option<String>,
     },
-    /// Set epic spec from file (use '-' for stdin).
+    /// Set epic spec from file or inline text.
     Plan {
         /// Epic ID.
         id: String,
         /// Markdown file (use '-' for stdin).
         #[arg(long)]
-        file: String,
+        file: Option<String>,
+        /// Inline spec text (alternative to --file).
+        #[arg(long)]
+        spec: Option<String>,
     },
     /// Set plan review status.
     Review {

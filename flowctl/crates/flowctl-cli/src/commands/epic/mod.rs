@@ -18,7 +18,7 @@ pub use types::EpicCmd;
 pub fn dispatch(cmd: &EpicCmd, json: bool, dry_run: bool) {
     match cmd {
         EpicCmd::Create { title, branch } => crud::cmd_create(title, branch, json, dry_run),
-        EpicCmd::Plan { id, file } => crud::cmd_set_plan(id, file, json),
+        EpicCmd::Plan { id, file, spec } => crud::cmd_set_plan(id, file.as_deref(), spec.as_deref(), json),
         EpicCmd::Review { id, status } => crud::cmd_set_plan_review_status(id, status, json),
         EpicCmd::Completion { id, status } => {
             crud::cmd_set_completion_review_status(id, status, json)

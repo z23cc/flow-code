@@ -110,13 +110,9 @@ flow-code/
 │   ├── setup.md, sync.md, uninstall.md
 ├── skills/                       # 18 skill implementations
 │   ├── flow-code/                # Task CRUD via flowctl
-│   ├── flow-code-plan/           # SKILL.md + steps.md + examples.md
-│   ├── flow-code-work/           # SKILL.md + phases.md
+│   ├── flow-code-run/            # Unified pipeline entry point (phase loop)
 │   ├── flow-code-interview/      # SKILL.md + questions.md
 │   ├── flow-code-prime/          # SKILL.md + workflow.md + pillars.md + remediation.md
-│   ├── flow-code-impl-review/    # SKILL.md + workflow.md + flowctl-reference.md
-│   ├── flow-code-plan-review/    # SKILL.md + workflow.md + flowctl-reference.md
-│   ├── flow-code-epic-review/    # SKILL.md + workflow.md + flowctl-reference.md
 │   ├── flow-code-ralph-init/     # SKILL.md + templates/ (ralph.sh, config.env, prompts)
 │   ├── flow-code-auto-improve/   # SKILL.md + templates/ (auto-improve.sh, programs/)
 │   ├── flow-code-map/            # SKILL.md + scripts/scan-codebase.py
@@ -246,24 +242,21 @@ sequenceDiagram
     Interview->>flowctl: epic set-plan (refined spec)
 
     Note over User,flowctl: Preferred: /flow-code:run fn-N (unified pipeline)
-    Note over User,flowctl: Legacy individual commands (deprecated, still functional):
-    User->>Plan: /flow-code:plan fn-N
-    Plan->>Scouts: 7 scouts in parallel
-    Scouts-->>Plan: patterns, docs, gaps, deps
-    Plan->>flowctl: epic create + task create (with deps)
-
-    User->>Work: /flow-code:work fn-N
-    loop Each ready task
-        Work->>flowctl: start task
-        Work->>Worker: spawn (fresh context)
-        Worker->>flowctl: show + cat (re-anchor)
-        Worker->>Worker: implement + test + commit
-        Worker->>Review: impl-review (if enabled)
-        Review-->>Worker: SHIP / NEEDS_WORK (fix loop)
-        Worker->>flowctl: done (summary + evidence)
+    User->>Run: /flow-code:run "description"
+    loop flowctl phase next/done
+        Run->>flowctl: phase next --epic fn-N --json
+        flowctl-->>Run: {phase, prompt, all_done}
+        alt phase = plan
+            Run->>Scouts: research scouts in parallel
+            Scouts-->>Run: patterns, docs, gaps
+            Run->>flowctl: epic plan + task create
+        else phase = work
+            Run->>Worker: spawn workers (Teams + worktree)
+            Worker->>flowctl: worker-phase next/done loop
+            Worker->>flowctl: done (summary + evidence)
+        end
+        Run->>flowctl: phase done --epic fn-N --phase X
     end
-    Work->>Review: epic-review (completion gate)
-    Review-->>Work: SHIP
 ```
 
 ### Ralph Autonomous Loop
@@ -279,13 +272,13 @@ sequenceDiagram
 
     alt status = plan
         ralph.sh->>Claude: prompt_plan.md (new process)
-        Claude->>Claude: /flow-code:plan-review (deprecated, handled by run pipeline)
+        Claude->>Claude: /flow-code:run (plan phase)
     else status = work
         ralph.sh->>Claude: prompt_work.md (new process)
-        Claude->>Claude: /flow-code:work + impl-review (deprecated, handled by run pipeline)
+        Claude->>Claude: /flow-code:run (work phase)
     else status = completion_review
         ralph.sh->>Claude: prompt_completion.md (new process)
-        Claude->>Claude: /flow-code:epic-review (deprecated, handled by run pipeline)
+        Claude->>Claude: /flow-code:run (close phase)
     end
 
     Claude-->>ralph.sh: exit (verdict in log)
@@ -342,9 +335,9 @@ sequenceDiagram
 
 **To add a new command**: Create `commands/flow-code/<name>.md` (thin stub) + `skills/flow-code-<name>/SKILL.md`
 **To add a new agent**: Create `agents/<name>.md` with frontmatter (name, description, model, disallowedTools)
-**To add a new scout to planning**: Add to the parallel scout list in `skills/flow-code-plan/steps.md` Step 1
+**To add a new scout to planning**: Add to the scout dispatch in `skills/flow-code-run/SKILL.md` plan phase
 **To add a new prime pillar**: Add criteria to `skills/flow-code-prime/pillars.md`, remediation to `remediation.md`
 **To modify Ralph loop**: Edit `skills/flow-code-ralph-init/templates/ralph.sh` (canonical source)
 **To modify auto-improve loop**: Edit `skills/flow-code-auto-improve/templates/auto-improve.sh`
-**To add a review backend**: Add to impl-review, plan-review, and epic-review workflow.md files
-**To change task state machine**: Modify `scripts/flowctl/commands/workflow.py` (state transitions) or `scripts/flowctl/core/state.py` (state storage)
+**To add a review backend**: Add to `flowctl review-backend` and the review phase in `skills/flow-code-run/SKILL.md`
+**To change task state machine**: Modify `flowctl/crates/flowctl-core/src/state_machine.rs`

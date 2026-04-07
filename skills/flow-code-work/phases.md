@@ -203,23 +203,31 @@ $FLOWCTL start <task-id-2> --json
 
 ### Step 6. File Ownership & Locking (Teams mode)
 
-For each ready task, read file ownership from the task spec and lock:
+For each ready task, read file ownership from the task spec and lock with appropriate modes:
 
 ```bash
-# Read owned files from task spec's **Files:** field
 TASK_SPEC=$($FLOWCTL cat <task-id>)
-OWNED_FILES=$(echo "$TASK_SPEC" | grep -A20 '^\*\*Files:\*\*' | grep -oE '[a-zA-Z0-9/_.-]+\.(rs|md|toml|yml|yaml|sh|py|ts|js|json)' | paste -sd,)
 
-# Lock files for this task (if any declared)
-if [[ -n "$OWNED_FILES" ]]; then
-  $FLOWCTL lock --task <task-id> --files $(echo "$OWNED_FILES" | tr ',' ' ')
-  echo "Locked for <task-id>: $OWNED_FILES"
-else
-  echo "Warning: <task-id> has no **Files:** field — worker gets unrestricted access"
+# Parse write files
+WRITE_FILES=$(echo "$TASK_SPEC" | grep '^\*\*Files (write):\*\*' | sed 's/\*\*Files (write):\*\*//' | tr ',' '\n' | xargs)
+# Parse read files
+READ_FILES=$(echo "$TASK_SPEC" | grep '^\*\*Files (read):\*\*' | sed 's/\*\*Files (read):\*\*//' | tr ',' '\n' | xargs)
+# Backward compat: plain **Files:** treated as write
+LEGACY_FILES=$(echo "$TASK_SPEC" | grep '^\*\*Files:\*\*' | sed 's/\*\*Files:\*\*//' | tr ',' '\n' | xargs)
+if [[ -z "$WRITE_FILES" && -n "$LEGACY_FILES" ]]; then
+  WRITE_FILES="$LEGACY_FILES"
+fi
+
+# Lock with appropriate modes
+for f in $WRITE_FILES; do $FLOWCTL lock --task <task-id> --files "$f" --mode write; done
+for f in $READ_FILES; do $FLOWCTL lock --task <task-id> --files "$f" --mode read; done
+
+if [[ -z "$WRITE_FILES" && -z "$READ_FILES" ]]; then
+  echo "Warning: <task-id> has no **Files (write/read):** field — worker gets unrestricted access"
 fi
 ```
 
-If a task spec has no `**Files:**` field, log a warning but still spawn. Worker will have unrestricted access (backward compat).
+If a task spec has no file fields, log a warning but still spawn. Worker will have unrestricted access (backward compat). Read locks are shared — multiple tasks can read the same file concurrently.
 
 **File overlap detection (before locking):**
 
@@ -266,6 +274,11 @@ WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--tdd] [--r
 ```
 
 ### Step 7. Spawn Workers (Worktree + Teams — Default)
+
+```bash
+# Enable git rerere to auto-learn merge conflict resolutions
+git config rerere.enabled true
+```
 
 1. Create team: `TeamCreate({team_name: "flow-<epic-id>"})`
 2. Spawn all workers with BOTH `isolation: "worktree"` AND `team_name`:
@@ -324,10 +337,16 @@ git branch -d <worker-branch> 2>/dev/null || true
 ```
 
 **Conflict handling**: If `merge-back` fails:
-1. The merge is automatically aborted (working tree stays clean)
-2. Log which worker branch conflicted
-3. **Stop the merge sequence** — do NOT merge remaining branches
-4. Report to the user: conflicting branch name + suggestion to resolve manually
+1. Run `git merge --abort` (working tree stays clean)
+2. Classify the conflict:
+   a. Get conflicting files: `git diff --name-only --diff-filter=U`
+   b. Get worker's modified files: `git diff --name-only main..<worker-branch>`
+   c. If conflict files NOT in worker's modified set → try `git rebase main <worker-branch>`
+   d. If rebase succeeds → retry merge
+   e. If rebase fails or conflict is in worker's files → mark task for retry:
+      `$FLOWCTL restart <task-id>`
+3. Continue merging remaining worker branches (don't stop the sequence)
+4. **Retry storm protection**: if >50% of wave tasks need retry, skip inline retry and start a fresh wave
 
 ### Step 9. Wave Cleanup
 

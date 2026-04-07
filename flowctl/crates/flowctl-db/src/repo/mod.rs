@@ -20,7 +20,7 @@ pub use deps::DepRepo;
 pub use epic::EpicRepo;
 pub use event::{EventRepo, EventRow};
 pub use evidence::EvidenceRepo;
-pub use file_lock::FileLockRepo;
+pub use file_lock::{FileLockRepo, LockEntry, LockMode};
 pub use file_ownership::FileOwnershipRepo;
 pub use gap::{GapRepo, GapRow};
 pub use helpers::{max_epic_num, max_task_num};
@@ -454,8 +454,8 @@ mod tests {
         let (_db, conn) = open_memory_async().await.unwrap();
         let repo = FileLockRepo::new(conn.clone());
 
-        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
-        let err = repo.acquire("src/a.rs", "fn-1.2").await.unwrap_err();
+        repo.acquire("src/a.rs", "fn-1.1", &LockMode::Write).await.unwrap();
+        let err = repo.acquire("src/a.rs", "fn-1.2", &LockMode::Write).await.unwrap_err();
         assert!(
             matches!(err, DbError::Constraint(_)),
             "expected Constraint, got {err:?}"
@@ -467,9 +467,9 @@ mod tests {
         let (_db, conn) = open_memory_async().await.unwrap();
         let repo = FileLockRepo::new(conn.clone());
 
-        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
-        repo.acquire("src/b.rs", "fn-1.1").await.unwrap();
-        repo.acquire("src/c.rs", "fn-1.2").await.unwrap();
+        repo.acquire("src/a.rs", "fn-1.1", &LockMode::Write).await.unwrap();
+        repo.acquire("src/b.rs", "fn-1.1", &LockMode::Write).await.unwrap();
+        repo.acquire("src/c.rs", "fn-1.2", &LockMode::Write).await.unwrap();
 
         assert_eq!(
             repo.check("src/a.rs").await.unwrap().as_deref(),
@@ -488,7 +488,7 @@ mod tests {
         );
 
         // Re-acquiring a released file works.
-        repo.acquire("src/a.rs", "fn-1.3").await.unwrap();
+        repo.acquire("src/a.rs", "fn-1.3", &LockMode::Write).await.unwrap();
         assert_eq!(
             repo.check("src/a.rs").await.unwrap().as_deref(),
             Some("fn-1.3")
@@ -507,8 +507,8 @@ mod tests {
         let repo = FileLockRepo::new(conn.clone());
 
         // Acquiring the same file for the same task twice should succeed (idempotent).
-        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
-        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
+        repo.acquire("src/a.rs", "fn-1.1", &LockMode::Write).await.unwrap();
+        repo.acquire("src/a.rs", "fn-1.1", &LockMode::Write).await.unwrap();
         assert_eq!(
             repo.check("src/a.rs").await.unwrap().as_deref(),
             Some("fn-1.1")
@@ -544,8 +544,8 @@ mod tests {
         let (_db, conn) = open_memory_async().await.unwrap();
         let repo = FileLockRepo::new(conn.clone());
 
-        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
-        repo.acquire("src/b.rs", "fn-1.1").await.unwrap();
+        repo.acquire("src/a.rs", "fn-1.1", &LockMode::Write).await.unwrap();
+        repo.acquire("src/b.rs", "fn-1.1", &LockMode::Write).await.unwrap();
 
         let extended = repo.heartbeat("fn-1.1").await.unwrap();
         assert_eq!(extended, 2);
@@ -571,7 +571,7 @@ mod tests {
         .unwrap();
 
         // Acquiring the same file should succeed because the old lock is expired.
-        repo.acquire("src/a.rs", "fn-1.1").await.unwrap();
+        repo.acquire("src/a.rs", "fn-1.1", &LockMode::Write).await.unwrap();
         assert_eq!(
             repo.check("src/a.rs").await.unwrap().as_deref(),
             Some("fn-1.1")

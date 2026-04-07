@@ -302,6 +302,9 @@ enum Commands {
         /// Comma-separated file paths to lock.
         #[arg(long)]
         files: String,
+        /// Lock mode: read, write, or directory_add (default: write).
+        #[arg(long, default_value = "write", value_parser = ["read", "write", "directory_add"])]
+        mode: String,
     },
     /// Unlock files for a task (Teams mode).
     Unlock {
@@ -530,7 +533,7 @@ fn main() {
         Commands::List => query::cmd_list(json),
         Commands::Cat { id } => query::cmd_cat(id),
         Commands::Files { epic } => query::cmd_files(json, epic),
-        Commands::Lock { task, files } => query::cmd_lock(json, task, files),
+        Commands::Lock { task, files, mode } => query::cmd_lock(json, task, files, mode),
         Commands::Unlock { task, files, all } => query::cmd_unlock(json, task, files, all),
         Commands::LockCheck { file } => query::cmd_lock_check(json, file),
         Commands::Heartbeat { task } => query::cmd_heartbeat(json, task),

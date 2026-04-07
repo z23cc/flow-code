@@ -598,13 +598,16 @@ pub fn cmd_files(json_mode: bool, epic: String) {
 // ── Lock commands (Teams mode) ─────────────────────────────────────
 
 
-pub fn cmd_lock(json: bool, task: String, files: String) {
+pub fn cmd_lock(json: bool, task: String, files: String, mode: String) {
     let _flow_dir = ensure_flow_exists();
 
     let file_list: Vec<&str> = files.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     if file_list.is_empty() {
         error_exit("No files specified for locking.");
     }
+
+    let lock_mode = crate::commands::db_shim::LockMode::from_str(&mode)
+        .unwrap_or_else(|e| error_exit(&format!("Invalid lock mode: {}", e)));
 
     let conn = require_db();
     let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
@@ -613,17 +616,13 @@ pub fn cmd_lock(json: bool, task: String, files: String) {
     let mut already_locked = Vec::new();
 
     for file in &file_list {
-        match repo.acquire(file, &task) {
+        match repo.acquire(file, &task, &lock_mode) {
             Ok(()) => locked.push(file.to_string()),
-            Err(crate::commands::db_shim::DbError::Constraint(_)) => {
+            Err(crate::commands::db_shim::DbError::Constraint(msg)) => {
                 // Already locked — find out by whom
-                let owner = repo.check(file).ok().flatten().unwrap_or_else(|| "unknown".to_string());
-                if owner == task {
-                    // Re-locking own file is fine, treat as locked
-                    locked.push(file.to_string());
-                } else {
-                    already_locked.push(json!({"file": file, "owner": owner}));
-                }
+                let entries = repo.check_locks(file).ok().unwrap_or_default();
+                let owners: Vec<String> = entries.iter().map(|e| format!("{}({})", e.task_id, e.lock_mode.as_str())).collect();
+                already_locked.push(json!({"file": file, "owners": owners, "detail": msg}));
             }
             Err(e) => {
                 error_exit(&format!("Failed to lock {}: {}", file, e));
@@ -636,16 +635,17 @@ pub fn cmd_lock(json: bool, task: String, files: String) {
             "locked": locked,
             "already_locked": already_locked,
             "task": task,
+            "mode": mode,
         }));
     } else {
         if !locked.is_empty() {
-            println!("Locked {} file(s) for task {}", locked.len(), task);
+            println!("Locked {} file(s) for task {} (mode: {})", locked.len(), task, mode);
         }
         for al in &already_locked {
             println!(
-                "Already locked: {} (owner: {})",
+                "Already locked: {} (owners: {})",
                 al["file"].as_str().unwrap_or(""),
-                al["owner"].as_str().unwrap_or("")
+                al["owners"],
             );
         }
     }
@@ -703,19 +703,24 @@ pub fn cmd_lock_check(json: bool, file: Option<String>) {
 
     match file {
         Some(f) => {
-            match repo.check(&f) {
-                Ok(Some(owner)) => {
+            match repo.check_locks(&f) {
+                Ok(entries) if !entries.is_empty() => {
+                    let lock_info: Vec<serde_json::Value> = entries.iter().map(|e| json!({
+                        "task_id": e.task_id,
+                        "mode": e.lock_mode.as_str(),
+                    })).collect();
                     if json {
                         json_output(json!({
                             "file": f,
                             "locked": true,
-                            "owner": owner,
+                            "locks": lock_info,
                         }));
                     } else {
-                        println!("{}: locked by {}", f, owner);
+                        let owners: Vec<String> = entries.iter().map(|e| format!("{}({})", e.task_id, e.lock_mode.as_str())).collect();
+                        println!("{}: locked by {}", f, owners.join(", "));
                     }
                 }
-                Ok(None) => {
+                Ok(_) => {
                     if json {
                         json_output(json!({
                             "file": f,
@@ -736,10 +741,11 @@ pub fn cmd_lock_check(json: bool, file: Option<String>) {
                 .unwrap_or_else(|e| { error_exit(&format!("Query failed: {}", e)); });
             let locks: Vec<serde_json::Value> = rows
                 .into_iter()
-                .map(|(file, task_id, locked_at)| json!({
+                .map(|(file, task_id, locked_at, lock_mode)| json!({
                     "file": file,
                     "task_id": task_id,
                     "locked_at": locked_at,
+                    "mode": lock_mode,
                 }))
                 .collect();
 
@@ -754,9 +760,10 @@ pub fn cmd_lock_check(json: bool, file: Option<String>) {
                 println!("Active file locks ({}):\n", locks.len());
                 for l in &locks {
                     println!(
-                        "  {} → {} (since {})",
+                        "  {} → {} [{}] (since {})",
                         l["file"].as_str().unwrap_or(""),
                         l["task_id"].as_str().unwrap_or(""),
+                        l["mode"].as_str().unwrap_or("write"),
                         l["locked_at"].as_str().unwrap_or("")
                     );
                 }

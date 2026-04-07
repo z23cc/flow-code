@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-pub use flowctl_db::{DbError, GapRow, ReindexResult};
+pub use flowctl_db::{DbError, GapRow, LockEntry, LockMode, ReindexResult};
 pub use flowctl_db::metrics::{
     Bottleneck, DoraMetrics, EpicStats, Summary, TokenBreakdown, WeeklyTrend,
 };
@@ -304,9 +304,9 @@ impl FileLockRepo {
         Self(conn.inner())
     }
 
-    pub fn acquire(&self, file_path: &str, task_id: &str) -> Result<(), DbError> {
+    pub fn acquire(&self, file_path: &str, task_id: &str, mode: &LockMode) -> Result<(), DbError> {
         block_on(
-            flowctl_db::FileLockRepo::new(self.0.clone()).acquire(file_path, task_id),
+            flowctl_db::FileLockRepo::new(self.0.clone()).acquire(file_path, task_id, mode),
         )
     }
 
@@ -322,17 +322,21 @@ impl FileLockRepo {
         block_on(flowctl_db::FileLockRepo::new(self.0.clone()).check(file_path))
     }
 
+    pub fn check_locks(&self, file_path: &str) -> Result<Vec<LockEntry>, DbError> {
+        block_on(flowctl_db::FileLockRepo::new(self.0.clone()).check_locks(file_path))
+    }
+
     pub fn heartbeat(&self, task_id: &str) -> Result<u64, DbError> {
         block_on(flowctl_db::FileLockRepo::new(self.0.clone()).heartbeat(task_id))
     }
 
-    /// List all active locks: (file_path, task_id, locked_at).
-    pub fn list_all(&self) -> Result<Vec<(String, String, String)>, DbError> {
+    /// List all active locks: (file_path, task_id, locked_at, lock_mode).
+    pub fn list_all(&self) -> Result<Vec<(String, String, String, String)>, DbError> {
         let inner = self.0.clone();
         block_on(async move {
             let mut rows = inner
                 .query(
-                    "SELECT file_path, task_id, locked_at FROM file_locks ORDER BY file_path",
+                    "SELECT file_path, task_id, locked_at, lock_mode FROM file_locks ORDER BY file_path",
                     (),
                 )
                 .await?;
@@ -342,6 +346,7 @@ impl FileLockRepo {
                     row.get::<String>(0)?,
                     row.get::<String>(1)?,
                     row.get::<String>(2)?,
+                    row.get::<String>(3)?,
                 ));
             }
             Ok(out)

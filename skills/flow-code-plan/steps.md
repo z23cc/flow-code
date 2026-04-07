@@ -32,7 +32,7 @@ Use **T-shirt sizes** based on observable metrics — not token estimates (model
 
 **M is the target size** — fits one context window (~80-100k tokens), makes meaningful progress.
 
-**Rules**: Combine sequential S tasks into one M. Split L tasks into M tasks. If 7+ tasks, look for over-splitting. Minimize file overlap between tasks for parallel work — list expected files in `**Files:**`, use `flowctl dep add` when tasks must share files.
+**Rules**: Combine sequential S tasks into one M. Split L tasks into M tasks. If 7+ tasks, look for over-splitting. Minimize file overlap between tasks for parallel work — list expected files in `**Files (write):**` and `**Files (read):**`, use `flowctl dep add` when tasks must share files. Read-only files can be shared across parallel tasks without conflicts.
 
 ## Step 1: Initialize .flow
 
@@ -345,7 +345,8 @@ Default to standard unless complexity demands more or less.
 
    **Size:** S/M (L tasks should be split)
    **Layer:** backend | frontend | infra | full-stack
-   **Files:** list expected files
+   **Files (write):** list files to create/modify
+   **Files (read):** list files needed for reference only
 
    ## Approach
    - Follow pattern at `src/example.ts:42`

@@ -8,7 +8,7 @@ use libsql::Connection;
 use crate::error::DbError;
 
 /// Current target schema version. Bump this when adding new migrations.
-const TARGET_VERSION: i64 = 2;
+const TARGET_VERSION: i64 = 3;
 
 /// Ensure `_meta` table exists and run any pending migrations.
 pub async fn migrate(conn: &Connection) -> Result<(), DbError> {
@@ -24,6 +24,10 @@ pub async fn migrate(conn: &Connection) -> Result<(), DbError> {
 
     if current < 2 {
         migrate_v2(conn).await?;
+    }
+
+    if current < 3 {
+        migrate_v3(conn).await?;
     }
 
     // Update stored version to target.
@@ -96,6 +100,50 @@ async fn migrate_v2(conn: &Connection) -> Result<(), DbError> {
         )
         .await
         .ok();
+
+    Ok(())
+}
+
+/// Migration v3: Change file_locks PK to composite (file_path, task_id)
+/// and add `lock_mode TEXT DEFAULT 'write'`.
+///
+/// SQLite can't ALTER PRIMARY KEY, so we recreate the table.
+async fn migrate_v3(conn: &Connection) -> Result<(), DbError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS file_locks_new (
+            file_path  TEXT NOT NULL,
+            task_id    TEXT NOT NULL,
+            locked_at  TEXT NOT NULL,
+            holder_pid INTEGER,
+            expires_at TEXT,
+            lock_mode  TEXT NOT NULL DEFAULT 'write',
+            PRIMARY KEY (file_path, task_id)
+        )",
+        (),
+    )
+    .await
+    .map_err(|e| DbError::Schema(format!("file_locks_new creation failed: {e}")))?;
+
+    // Copy existing data (add default lock_mode for old rows).
+    conn.execute(
+        "INSERT OR IGNORE INTO file_locks_new (file_path, task_id, locked_at, holder_pid, expires_at, lock_mode)
+         SELECT file_path, task_id, locked_at, holder_pid, expires_at, COALESCE(lock_mode, 'write')
+         FROM file_locks",
+        (),
+    )
+    .await
+    .ok(); // May fail if file_locks doesn't have lock_mode column yet — that's fine.
+
+    conn.execute("DROP TABLE IF EXISTS file_locks", ())
+        .await
+        .map_err(|e| DbError::Schema(format!("file_locks drop failed: {e}")))?;
+
+    conn.execute(
+        "ALTER TABLE file_locks_new RENAME TO file_locks",
+        (),
+    )
+    .await
+    .map_err(|e| DbError::Schema(format!("file_locks rename failed: {e}")))?;
 
     Ok(())
 }

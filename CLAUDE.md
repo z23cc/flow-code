@@ -18,7 +18,7 @@ hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
 
-**Skills**: 9 core + 22 extensions. See `docs/skills.md` for the full classification. Core workflow: `flow-code-run` (unified phase loop). Legacy individual skills (plan, plan-review, work, impl-review, epic-review) are deprecated but still functional as thin redirects.
+**Skills**: See `docs/skills.md` for the full classification. Core workflow: `flow-code-run` (unified phase loop via `flowctl phase next/done`).
 
 **Key invariant**: The `bin/flowctl` Rust binary is the single source of truth for `.flow/` state. Always invoke as:
 ```bash
@@ -28,14 +28,7 @@ $FLOWCTL <command>
 
 ## Primary Workflow
 
-**Unified entry point** (preferred): `/flow-code:run "description"` — drives the entire pipeline (plan → plan-review → work → impl-review → close) via `flowctl phase next/done`. One command, zero manual phase transitions.
-
-Individual phase commands (deprecated, still functional):
-1. `/flow-code:plan "description"` → creates epic + tasks in `.flow/`
-2. `/flow-code:plan-review` → Carmack-level review via RepoPrompt or Codex
-3. `/flow-code:work <epic-id>` → executes tasks with Teams mode (auto-parallel with file locking)
-4. `/flow-code:impl-review` → post-implementation review
-5. `/flow-code:epic-review` → final review before closing
+`/flow-code:run "description"` — drives the entire pipeline (plan → plan-review → work → impl-review → close) via `flowctl phase next/done`. One command, zero manual phase transitions.
 
 Ralph (`/flow-code:ralph-init`) is the autonomous harness that runs this loop unattended.
 

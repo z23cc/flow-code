@@ -1,6 +1,6 @@
 ---
 name: worker
-description: Task implementation worker. Spawned by flow-code-work to implement a single task with fresh context. Do not invoke directly - use /flow-code:work instead.
+description: Task implementation worker. Spawned by flow-code-run during the work phase. Do not invoke directly - use /flow-code:run instead.
 model: inherit
 disallowedTools: Task
 color: "#3B82F6"

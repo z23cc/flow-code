@@ -2,7 +2,10 @@
 name: flow-code-plan-review
 description: "Use when reviewing Flow epic specs or design docs. Triggers on /flow-code:plan-review."
 user-invocable: false
+deprecated: true
 ---
+
+**Deprecated**: Use `/flow-code:run` instead.
 
 # Plan Review Mode
 

@@ -226,6 +226,8 @@ mod tests {
             "monthly_rollup",
             "memory",
             "skills",
+            "event_store",
+            "pipeline_progress",
             "_meta",
         ] {
             assert!(

@@ -2,7 +2,10 @@
 name: flow-code-plan
 description: "Use when planning features or designing implementation. Triggers on /flow-code:plan with text descriptions or Flow IDs."
 user-invocable: false
+deprecated: true
 ---
+
+**Deprecated**: Use `/flow-code:run` instead.
 
 # Flow plan
 

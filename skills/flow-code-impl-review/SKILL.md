@@ -2,7 +2,10 @@
 name: flow-code-impl-review
 description: "Use when reviewing code changes, PRs, or implementations. Triggers on /flow-code:impl-review."
 user-invocable: false
+deprecated: true
 ---
+
+**Deprecated**: Use `/flow-code:run` instead.
 
 # Implementation Review Mode
 

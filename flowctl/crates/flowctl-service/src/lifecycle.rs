@@ -16,6 +16,9 @@ use flowctl_core::types::{
     Epic, EpicStatus, Evidence, RuntimeState, Task, REVIEWS_DIR,
 };
 
+use flowctl_core::events::{EventMetadata, FlowEvent, TaskEvent, task_stream_id};
+use flowctl_db::EventStoreRepo;
+
 use crate::error::{ServiceError, ServiceResult};
 
 // ── Request / Response types ───────────────────────────────────────
@@ -439,6 +442,28 @@ async fn log_audit_event(
     }
 }
 
+/// Emit a task event to the event store. Failures are silently ignored
+/// (event emission must not block the lifecycle operation).
+async fn emit_task_event(
+    conn: Option<&Connection>,
+    task_id: &str,
+    event: TaskEvent,
+    source_cmd: &str,
+) {
+    if let Some(c) = conn {
+        let repo = EventStoreRepo::new(c.clone());
+        let stream = task_stream_id(task_id);
+        let flow_event = FlowEvent::Task(event);
+        let metadata = EventMetadata {
+            actor: "lifecycle".into(),
+            source_cmd: source_cmd.into(),
+            session_id: String::new(),
+            timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        };
+        let _ = repo.append(&stream, &flow_event, &metadata).await.ok();
+    }
+}
+
 // ── Service functions ──────────────────────────────────────────────
 
 /// Start a task: validate deps, state machine, actor, update DB + Markdown.
@@ -561,6 +586,9 @@ pub async fn start_task(
     // Audit event
     log_audit_event(conn, &req.task_id, "task_started").await;
 
+    // Event store
+    emit_task_event(conn, &req.task_id, TaskEvent::Started, "flowctl start").await;
+
     Ok(StartTaskResponse {
         task_id: req.task_id,
         status: Status::InProgress,
@@ -647,6 +675,9 @@ pub async fn done_task(
     // 8. Audit event
     log_audit_event(conn, &req.task_id, "task_completed").await;
 
+    // Event store
+    emit_task_event(conn, &req.task_id, TaskEvent::Completed, "flowctl done").await;
+
     Ok(DoneTaskResponse {
         task_id: req.task_id,
         status: Status::Done,
@@ -730,6 +761,9 @@ pub async fn block_task(
             .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
     }
 
+    // Event store
+    emit_task_event(conn, &req.task_id, TaskEvent::Blocked, "flowctl block").await;
+
     Ok(BlockTaskResponse {
         task_id: req.task_id,
         status: Status::Blocked,
@@ -762,6 +796,9 @@ pub async fn fail_task(
     let (final_status, upstream_failed_ids) =
         handle_task_failure(conn, flow_dir, &req.task_id, &runtime, config.as_ref()).await
             .map_err(ServiceError::IoError)?;
+
+    // Event store
+    emit_task_event(conn, &req.task_id, TaskEvent::Failed, "flowctl fail").await;
 
     let max_retries = get_max_retries_from_config(config.as_ref());
     let retry_count = if final_status == Status::UpForRetry {
@@ -874,6 +911,9 @@ pub async fn restart_task(
 
         reset_ids.push(tid.clone());
     }
+
+    // Event store — emit Started for the restarted task
+    emit_task_event(conn, &req.task_id, TaskEvent::Started, "flowctl restart").await;
 
     Ok(RestartTaskResponse {
         cascade_from: req.task_id,

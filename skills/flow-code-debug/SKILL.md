@@ -1,9 +1,12 @@
 ---
 name: flow-code-debug
 description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+tier: 2
 ---
 
 # Systematic Debugging
+
+> **Startup:** Follow [Startup Sequence](../_shared/preamble.md) before proceeding.
 
 ## The Iron Law
 

@@ -1,10 +1,13 @@
 ---
 name: flow-code-run
 description: Unified entry point for plan-first development. Manages the entire pipeline (plan, plan-review, work, impl-review, close) via flowctl phase commands.
+tier: 3
 user-invocable: true
 ---
 
 # Flow Code Run
+
+> **Startup:** Follow [Startup Sequence](../_shared/preamble.md) before proceeding.
 
 Unified pipeline entry point. Drives the entire development lifecycle through flowctl phase next/done.
 

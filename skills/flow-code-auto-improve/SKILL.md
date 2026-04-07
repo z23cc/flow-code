@@ -1,11 +1,14 @@
 ---
 name: flow-code-auto-improve
 description: "Use when user wants to autonomously optimize code quality, performance, security, or test coverage. Triggers on /flow-code:auto-improve, 'auto improve', or 'run experiments on'."
+tier: 3
 user-invocable: false
 context: fork
 ---
 
 # Auto-Improve
+
+> **Startup:** Follow [Startup Sequence](../_shared/preamble.md) before proceeding.
 
 One command to start autonomous code improvement. Auto-detects everything, starts immediately.
 

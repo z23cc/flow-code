@@ -104,24 +104,64 @@ fn is_outputs_enabled() -> bool {
     }
 }
 
+/// Read `memory.enabled` from .flow/config.json. Default: false.
+fn is_memory_enabled() -> bool {
+    use flowctl_core::types::{CONFIG_FILE, FLOW_DIR};
+    let cfg_path = std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join(FLOW_DIR)
+        .join(CONFIG_FILE);
+    if !cfg_path.exists() {
+        return false;
+    }
+    match std::fs::read_to_string(&cfg_path) {
+        Ok(content) => {
+            let cfg: serde_json::Value =
+                serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+            cfg.get("memory")
+                .and_then(|m| m.get("enabled"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        }
+        Err(_) => false,
+    }
+}
+
 /// Build the phase sequence based on mode flags.
+/// Skips phases based on config:
+///   - Phase 4 (TDD): only included when --tdd flag is set
+///   - Phase 9 (Outputs): only included when outputs.enabled is true (default)
+///   - Phase 11 (Memory): only included when memory.enabled is true (default: false)
 fn build_phase_sequence(tdd: bool, review: bool) -> Vec<&'static str> {
     let mut phases = HashSet::new();
+    // Start with default sequence (excludes phase 11 — added conditionally below)
     for p in PHASE_SEQ_DEFAULT {
+        if *p == "11" {
+            continue; // handled by is_memory_enabled() below
+        }
         phases.insert(*p);
     }
     if tdd {
         for p in PHASE_SEQ_TDD {
+            if *p == "11" {
+                continue;
+            }
             phases.insert(*p);
         }
     }
     if review {
         for p in PHASE_SEQ_REVIEW {
+            if *p == "11" {
+                continue;
+            }
             phases.insert(*p);
         }
     }
     if is_outputs_enabled() {
         phases.insert("9");
+    }
+    if is_memory_enabled() {
+        phases.insert("11");
     }
     CANONICAL_ORDER.iter().copied().filter(|p| phases.contains(p)).collect()
 }

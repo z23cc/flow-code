@@ -119,7 +119,7 @@ impl std::fmt::Display for ReviewStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Epic {
     /// Schema version for forward compatibility.
-    #[serde(default = "default_schema_version")]
+    #[serde(default = "default_schema_version", skip_serializing)]
     pub schema_version: u32,
 
     /// Unique ID, e.g. `fn-1-add-auth`.
@@ -191,7 +191,7 @@ pub struct Epic {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     /// Schema version for forward compatibility.
-    #[serde(default = "default_schema_version")]
+    #[serde(default = "default_schema_version", skip_serializing)]
     pub schema_version: u32,
 
     /// Unique ID, e.g. `fn-1-add-auth.3`.

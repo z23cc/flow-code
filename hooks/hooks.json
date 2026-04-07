@@ -39,34 +39,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; { [ ! -d .flow ] || [ ! -x \"$F\" ]; } || \"$F\" hook commit-gate",
+            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; C=\"${TMPDIR:-/tmp}/flowctl-commit-gate-ts\"; { [ ! -d .flow ] || [ ! -x \"$F\" ]; } && exit 0; [ -f \"$C\" ] && [ $(( $(date +%s) - $(cat \"$C\" 2>/dev/null || echo 0) )) -lt 60 ] && exit 0; \"$F\" hook commit-gate; echo $(date +%s) > \"$C\"",
             "timeout": 10
           }
         ],
-        "description": "Block git commit when flow task is in_progress but guard has not passed"
-      },
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook ralph-guard || true",
-            "timeout": 5
-          }
-        ]
+        "description": "Block git commit when flow task is in_progress but guard has not passed (cached 60s)"
       }
     ],
     "PostToolUse": [
-      {
-        "matcher": "Bash|Execute",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook ralph-guard || true",
-            "timeout": 5
-          }
-        ]
-      },
       {
         "matcher": "Bash",
         "hooks": [
@@ -100,17 +80,7 @@
         "description": "Auto-capture session memories to .flow/memory/ (requires memory.enabled or memory.auto in config)"
       }
     ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "F=\"${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/bin/flowctl\"; [ -x \"$F\" ] && \"$F\" hook ralph-guard || true",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
+    "SubagentStop": [],
     "SubagentStart": [
       {
         "matcher": "",

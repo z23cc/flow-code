@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
 
-[![Version](https://img.shields.io/badge/Version-0.1.27-green)](../../CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.1.31-green)](https://github.com/z23cc/flow-code/releases)
 
-[![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
+[![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](https://github.com/z23cc/flow-code/releases)
 
 **A production-grade harness for Claude Code. Full-auto development from idea to PR.**
 

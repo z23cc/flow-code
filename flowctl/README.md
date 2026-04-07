@@ -54,15 +54,16 @@ flowctl tasks -e ep-1
 
 ## Architecture
 
-flowctl is split into three crates:
+flowctl is split into four crates:
 
 ```
 flowctl-core        Core types, ID parsing, state machine, DAG, JSON I/O
 flowctl-db          libSQL storage layer (async, native vector search)
+flowctl-service     Business logic service layer — unifies CLI, daemon, and MCP execution paths
 flowctl-cli         CLI entry point (clap) — the `flowctl` binary
 ```
 
-**Data flow**: CLI parses commands via `clap`, calls into `flowctl-db` for storage, which uses `flowctl-core` types. The DAG module computes task dependencies and execution order.
+**Data flow**: CLI parses commands via `clap`, calls into `flowctl-service` for business logic, which uses `flowctl-db` for storage and `flowctl-core` types. The DAG module computes task dependencies and execution order.
 
 ## Release profile
 

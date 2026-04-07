@@ -13,12 +13,12 @@ commands/flow-code/*.md  → Slash command definitions (user-invocable entry poi
 skills/*/SKILL.md        → Skill implementations (loaded by Skill tool, never Read directly)
 agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
 bin/flowctl               → Rust binary (built from flowctl/ workspace)
-flowctl/                  → Rust Cargo workspace (3 crates: core, db, cli)
+flowctl/                  → Rust Cargo workspace (4 crates: core, db, service, cli)
 hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
 
-**Skills**: 8 core + 16 extensions. See `docs/skills.md` for the full classification. Core workflow: plan → plan-review → work → impl-review → epic-review.
+**Skills**: 8 core + 22 extensions. See `docs/skills.md` for the full classification. Core workflow: plan → plan-review → work → impl-review → epic-review.
 
 **Key invariant**: The `bin/flowctl` Rust binary is the single source of truth for `.flow/` state. Always invoke as:
 ```bash

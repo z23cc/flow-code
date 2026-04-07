@@ -19,7 +19,7 @@ Use `docs/decisions/` with sequential numbering:
 
 ```
 docs/decisions/
-  ADR-001-use-libsql-for-storage.md
+  ADR-001-json-file-based-storage.md
   ADR-002-wave-checkpoint-execution-model.md
   ADR-003-teams-file-locking-protocol.md
 ```

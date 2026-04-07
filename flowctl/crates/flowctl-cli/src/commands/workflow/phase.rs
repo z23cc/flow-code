@@ -11,7 +11,7 @@ use flowctl_core::config::read_config_bool;
 use flowctl_core::id::is_task_id;
 use flowctl_core::types::TaskSize;
 
-use super::{ensure_flow_exists, require_db};
+use super::ensure_flow_exists;
 
 /// Worker-phase subcommands.
 #[derive(Subcommand, Debug)]
@@ -165,22 +165,20 @@ fn migrate_phase_id(id: &str) -> String {
     }
 }
 
-/// Load completed phases from SQLite, migrating legacy IDs.
-fn load_completed_phases(task_id: &str) -> Vec<String> {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::PhaseProgressRepo::new(&conn);
-    repo.get_completed(task_id)
+/// Load completed phases from file store, migrating legacy IDs.
+fn load_completed_phases(flow_dir: &std::path::Path, task_id: &str) -> Vec<String> {
+    let store = flowctl_db::FlowStore::new(flow_dir.to_path_buf());
+    store.phases().get_completed(task_id)
         .unwrap_or_default()
         .into_iter()
         .map(|id| migrate_phase_id(&id))
         .collect()
 }
 
-/// Mark a phase as done in SQLite.
-fn save_phase_done(task_id: &str, phase: &str) {
-    let conn = require_db();
-    let repo = crate::commands::db_shim::PhaseProgressRepo::new(&conn);
-    if let Err(e) = repo.mark_done(task_id, phase) {
+/// Mark a phase as done in file store.
+fn save_phase_done(flow_dir: &std::path::Path, task_id: &str, phase: &str) {
+    let store = flowctl_db::FlowStore::new(flow_dir.to_path_buf());
+    if let Err(e) = store.phases().mark_done(task_id, phase) {
         eprintln!("Warning: failed to save phase progress: {}", e);
     }
 }
@@ -206,7 +204,7 @@ pub fn dispatch_worker_phase(cmd: &WorkerPhaseCmd, json_mode: bool) {
 }
 
 fn cmd_worker_phase_next(json_mode: bool, task_id: &str, tdd: bool, review: Option<&str>, size: TaskSize) {
-    let _flow_dir = ensure_flow_exists();
+    let flow_dir = ensure_flow_exists();
 
     if !is_task_id(task_id) {
         error_exit(&format!(
@@ -216,7 +214,7 @@ fn cmd_worker_phase_next(json_mode: bool, task_id: &str, tdd: bool, review: Opti
     }
 
     let seq = build_phase_sequence(tdd, review.is_some(), size);
-    let completed = load_completed_phases(task_id);
+    let completed = load_completed_phases(&flow_dir, task_id);
     let completed_set: HashSet<&str> =
         completed.iter().map(std::string::String::as_str).collect();
 
@@ -277,7 +275,7 @@ fn cmd_worker_phase_done(
     review: Option<&str>,
     size: TaskSize,
 ) {
-    let _flow_dir = ensure_flow_exists();
+    let flow_dir = ensure_flow_exists();
 
     if !is_task_id(task_id) {
         error_exit(&format!(
@@ -298,7 +296,7 @@ fn cmd_worker_phase_done(
         ));
     }
 
-    let completed = load_completed_phases(task_id);
+    let completed = load_completed_phases(&flow_dir, task_id);
     let completed_set: HashSet<&str> =
         completed.iter().map(std::string::String::as_str).collect();
 
@@ -319,10 +317,10 @@ fn cmd_worker_phase_done(
     }
 
     // Mark phase done
-    save_phase_done(task_id, phase);
+    save_phase_done(&flow_dir, task_id, phase);
 
     // Reload to get updated state
-    let updated_completed = load_completed_phases(task_id);
+    let updated_completed = load_completed_phases(&flow_dir, task_id);
     let updated_set: HashSet<&str> =
         updated_completed.iter().map(std::string::String::as_str).collect();
     let next_phase = seq.iter().find(|p| !updated_set.contains(**p)).copied();

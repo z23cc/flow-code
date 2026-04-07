@@ -366,7 +366,7 @@ fn setup_task(prefix: &str) -> (tempfile::TempDir, String) {
     (dir, task_id)
 }
 
-/// Read task status from the DB directly via async libSQL.
+/// Read task status from the JSON store.
 #[allow(dead_code)]
 fn json_task_status(work_dir: &Path, task_id: &str) -> String {
     let flow_dir = work_dir.join(".flow");

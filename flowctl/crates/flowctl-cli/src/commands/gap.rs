@@ -1,7 +1,7 @@
 //! Gap registry commands: gap add, list, resolve, check.
 //!
 //! Gaps track requirement deficiencies in an epic. They are stored in
-//! the DB `gaps` table (sole source of truth). Blocking gaps
+//! JSON files under `gaps/<epic-id>.json`. Blocking gaps
 //! (required/important) prevent epic closure.
 
 use clap::Subcommand;
@@ -10,6 +10,7 @@ use serde_json::json;
 use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::id::is_epic_id;
+use flowctl_db::{FlowStore, GapEntry};
 
 use super::helpers::get_flow_dir;
 
@@ -76,8 +77,8 @@ pub fn dispatch(cmd: &GapCmd, json: bool) {
             capability,
             priority,
             source,
-            task,
-        } => cmd_gap_add(json, epic, capability, priority, source, task.as_deref()),
+            task: _,
+        } => cmd_gap_add(json, epic, capability, priority, source),
         GapCmd::List { epic, status } => cmd_gap_list(json, epic, status.as_deref()),
         GapCmd::Resolve {
             epic,
@@ -91,13 +92,7 @@ pub fn dispatch(cmd: &GapCmd, json: bool) {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-/// Open DB connection (hard error if unavailable).
-fn require_db() -> crate::commands::db_shim::Connection {
-    crate::commands::db_shim::require_db()
-        .unwrap_or_else(|e| error_exit(&format!("DB required: {e}")))
-}
-
-/// Verify .flow/ exists, epic ID is valid, and epic exists (DB or JSON).
+/// Verify .flow/ exists, epic ID is valid, and epic exists.
 fn validate_epic(_json: bool, epic_id: &str) {
     let flow_dir = get_flow_dir();
     if !flow_dir.exists() {
@@ -106,11 +101,8 @@ fn validate_epic(_json: bool, epic_id: &str) {
     if !is_epic_id(epic_id) {
         error_exit(&format!("Invalid epic ID: {}", epic_id));
     }
-    // Check DB first, fall back to JSON file existence.
-    // Epic may exist only in JSON if DB upsert hasn't run yet.
-    let conn = require_db();
-    let repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    if repo.get(epic_id).is_ok() {
+    // Check JSON file existence
+    if flowctl_core::json_store::epic_read(&flow_dir, epic_id).is_ok() {
         return;
     }
     let json_path = flow_dir.join("epics").join(format!("{epic_id}.json"));
@@ -118,6 +110,10 @@ fn validate_epic(_json: bool, epic_id: &str) {
         return;
     }
     error_exit(&format!("Epic not found: {}", epic_id));
+}
+
+fn gap_store() -> FlowStore {
+    FlowStore::new(get_flow_dir())
 }
 
 // ── Commands ───────────────────────────────────────────────────────
@@ -128,96 +124,102 @@ fn cmd_gap_add(
     capability: &str,
     priority: &str,
     source: &str,
-    task: Option<&str>,
 ) {
     validate_epic(json_mode, epic_id);
-    let conn = require_db();
-    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
+    let store = gap_store();
+    let gap_store = store.gaps();
+
+    let mut gaps = gap_store.read(epic_id).unwrap_or_default();
 
     // Check for existing gap with same capability (idempotent)
-    if let Ok(existing) = gap_repo.list(epic_id, None) {
-        let cap_lower = capability.trim().to_lowercase();
-        if let Some(gap) = existing.iter().find(|g| g.capability.trim().to_lowercase() == cap_lower) {
-            if json_mode {
-                json_output(json!({
-                    "id": gap.id,
-                    "created": false,
-                    "gap": {
-                        "id": gap.id,
-                        "capability": gap.capability,
-                        "priority": gap.priority,
-                        "status": gap.status,
-                        "source": gap.source,
-                        "task": gap.task_id,
-                    },
-                    "message": format!("Gap already exists: {}", gap.id),
-                }));
-            } else {
-                println!(
-                    "Gap already exists: {} \u{2014} {}",
-                    gap.id, gap.capability
-                );
-            }
-            return;
+    let cap_lower = capability.trim().to_lowercase();
+    if let Some(existing) = gaps.iter().find(|g| g.capability.trim().to_lowercase() == cap_lower) {
+        let status = if existing.resolved { "resolved" } else { "open" };
+        if json_mode {
+            json_output(json!({
+                "id": existing.id,
+                "created": false,
+                "gap": {
+                    "id": existing.id,
+                    "capability": existing.capability,
+                    "priority": existing.priority,
+                    "status": status,
+                    "source": existing.source,
+                },
+                "message": format!("Gap already exists: {}", existing.id),
+            }));
+        } else {
+            println!(
+                "Gap already exists: {} \u{2014} {}",
+                existing.id, existing.capability
+            );
         }
+        return;
     }
 
-    match gap_repo.add(epic_id, capability.trim(), priority, Some(source), task) {
-        Ok(gap_id) => {
-            if json_mode {
-                json_output(json!({
-                    "id": gap_id,
-                    "created": true,
-                    "gap": {
-                        "id": gap_id,
-                        "capability": capability.trim(),
-                        "priority": priority,
-                        "status": "open",
-                        "source": source,
-                        "task": task,
-                    },
-                    "message": format!("Gap {} added to {}", gap_id, epic_id),
-                }));
-            } else {
-                println!("Gap {} added: [{}] {}", gap_id, priority, capability.trim());
-            }
-        }
-        Err(e) => {
-            error_exit(&format!("Failed to add gap: {e}"));
-        }
+    let next_id = gaps.iter().map(|g| g.id).max().unwrap_or(0) + 1;
+    gaps.push(GapEntry {
+        id: next_id,
+        capability: capability.trim().to_string(),
+        priority: priority.to_string(),
+        source: source.to_string(),
+        resolved: false,
+    });
+
+    if let Err(e) = gap_store.write(epic_id, &gaps) {
+        error_exit(&format!("Failed to add gap: {e}"));
+    }
+
+    if json_mode {
+        json_output(json!({
+            "id": next_id,
+            "created": true,
+            "gap": {
+                "id": next_id,
+                "capability": capability.trim(),
+                "priority": priority,
+                "status": "open",
+                "source": source,
+            },
+            "message": format!("Gap {} added to {}", next_id, epic_id),
+        }));
+    } else {
+        println!("Gap {} added: [{}] {}", next_id, priority, capability.trim());
     }
 }
 
 fn cmd_gap_list(json_mode: bool, epic_id: &str, status_filter: Option<&str>) {
     validate_epic(json_mode, epic_id);
-    let conn = require_db();
-    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
+    let store = gap_store();
+    let gaps = store.gaps().read(epic_id).unwrap_or_default();
 
-    let gaps = gap_repo.list(epic_id, status_filter).unwrap_or_default();
+    let filtered: Vec<&GapEntry> = gaps.iter().filter(|g| {
+        match status_filter {
+            Some("open") => !g.resolved,
+            Some("resolved") => g.resolved,
+            _ => true,
+        }
+    }).collect();
 
     if json_mode {
-        let gap_values: Vec<serde_json::Value> = gaps
+        let gap_values: Vec<serde_json::Value> = filtered
             .iter()
             .map(|g| {
                 json!({
                     "id": g.id,
                     "capability": g.capability,
                     "priority": g.priority,
-                    "status": g.status,
+                    "status": if g.resolved { "resolved" } else { "open" },
                     "source": g.source,
-                    "task": g.task_id,
-                    "added_at": g.created_at,
-                    "resolved_at": g.resolved_at,
-                    "evidence": g.evidence,
                 })
             })
             .collect();
         json_output(json!({
             "epic": epic_id,
-            "count": gaps.len(),
+            "count": filtered.len(),
             "gaps": gap_values,
         }));
-    } else if gaps.is_empty() {
+    } else if filtered.is_empty() {
         let suffix = status_filter
             .map(|s| format!(" (status={})", s))
             .unwrap_or_default();
@@ -226,21 +228,9 @@ fn cmd_gap_list(json_mode: bool, epic_id: &str, status_filter: Option<&str>) {
     } else {
         use std::fmt::Write as _;
         let mut buf = String::new();
-        for g in &gaps {
-            let marker = if g.status == "resolved" {
-                "\u{2713}"
-            } else {
-                "\u{2717}"
-            };
-            writeln!(
-                buf,
-                "  {} {} [{}] {}",
-                marker,
-                g.id,
-                g.priority,
-                g.capability,
-            )
-            .ok();
+        for g in &filtered {
+            let marker = if g.resolved { "\u{2713}" } else { "\u{2717}" };
+            writeln!(buf, "  {} {} [{}] {}", marker, g.id, g.priority, g.capability).ok();
         }
         pretty_output("gap", &buf);
     }
@@ -251,21 +241,27 @@ fn cmd_gap_resolve(
     epic_id: &str,
     capability: Option<&str>,
     gap_id_direct: Option<&str>,
-    evidence: &str,
+    _evidence: &str,
 ) {
     validate_epic(json_mode, epic_id);
-    let conn = require_db();
-    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
+    let store = gap_store();
+    let gap_st = store.gaps();
+    let mut gaps = gap_st.read(epic_id).unwrap_or_default();
 
     if let Some(direct_id) = gap_id_direct {
-        // Resolve by numeric ID
-        let gap_id: i64 = direct_id
+        let gap_id: u32 = direct_id
             .parse()
             .unwrap_or_else(|_| error_exit(&format!("Invalid gap ID: {}", direct_id)));
 
-        if let Err(e) = gap_repo.resolve(gap_id, evidence) {
-            error_exit(&format!("Failed to resolve gap {}: {e}", gap_id));
+        if let Some(g) = gaps.iter_mut().find(|g| g.id == gap_id) {
+            g.resolved = true;
+        } else {
+            error_exit(&format!("Gap {} not found", gap_id));
         }
+
+        gap_st.write(epic_id, &gaps).unwrap_or_else(|e| {
+            error_exit(&format!("Failed to resolve gap: {e}"));
+        });
 
         if json_mode {
             json_output(json!({
@@ -274,13 +270,20 @@ fn cmd_gap_resolve(
                 "message": format!("Gap {} resolved", gap_id),
             }));
         } else {
-            println!("Gap {} resolved: {}", gap_id, evidence);
+            println!("Gap {} resolved", gap_id);
         }
     } else if let Some(cap) = capability {
-        // Resolve by capability name
-        if let Err(e) = gap_repo.resolve_by_capability(epic_id, cap, evidence) {
-            error_exit(&format!("Failed to resolve gap by capability '{}': {e}", cap));
+        let cap_lower = cap.trim().to_lowercase();
+        let found = gaps.iter_mut().find(|g| g.capability.trim().to_lowercase() == cap_lower);
+        if let Some(g) = found {
+            g.resolved = true;
+        } else {
+            error_exit(&format!("Gap for capability '{}' not found", cap));
         }
+
+        gap_st.write(epic_id, &gaps).unwrap_or_else(|e| {
+            error_exit(&format!("Failed to resolve gap: {e}"));
+        });
 
         if json_mode {
             json_output(json!({
@@ -289,7 +292,7 @@ fn cmd_gap_resolve(
                 "message": format!("Gap for '{}' resolved", cap),
             }));
         } else {
-            println!("Gap for '{}' resolved: {}", cap, evidence);
+            println!("Gap for '{}' resolved", cap);
         }
     } else {
         error_exit("Either --capability or --id is required");
@@ -298,24 +301,22 @@ fn cmd_gap_resolve(
 
 fn cmd_gap_check(json_mode: bool, epic_id: &str) {
     validate_epic(json_mode, epic_id);
-    let conn = require_db();
-    let gap_repo = crate::commands::db_shim::GapRepo::new(&conn);
+    let store = gap_store();
+    let all_gaps = store.gaps().read(epic_id).unwrap_or_default();
 
-    let all_gaps = gap_repo.list(epic_id, None).unwrap_or_default();
-
-    let open_blocking: Vec<&crate::commands::db_shim::GapRow> = all_gaps
+    let open_blocking: Vec<&GapEntry> = all_gaps
         .iter()
-        .filter(|g| g.status == "open" && GAP_BLOCKING_PRIORITIES.contains(&g.priority.as_str()))
+        .filter(|g| !g.resolved && GAP_BLOCKING_PRIORITIES.contains(&g.priority.as_str()))
         .collect();
 
-    let open_non_blocking: Vec<&crate::commands::db_shim::GapRow> = all_gaps
+    let open_non_blocking: Vec<&GapEntry> = all_gaps
         .iter()
-        .filter(|g| g.status == "open" && !GAP_BLOCKING_PRIORITIES.contains(&g.priority.as_str()))
+        .filter(|g| !g.resolved && !GAP_BLOCKING_PRIORITIES.contains(&g.priority.as_str()))
         .collect();
 
-    let resolved: Vec<&crate::commands::db_shim::GapRow> = all_gaps
+    let resolved: Vec<&GapEntry> = all_gaps
         .iter()
-        .filter(|g| g.status == "resolved")
+        .filter(|g| g.resolved)
         .collect();
 
     let gate = if open_blocking.is_empty() {
@@ -325,14 +326,14 @@ fn cmd_gap_check(json_mode: bool, epic_id: &str) {
     };
 
     if json_mode {
-        let to_json = |gaps: &[&crate::commands::db_shim::GapRow]| -> Vec<serde_json::Value> {
+        let to_json = |gaps: &[&GapEntry]| -> Vec<serde_json::Value> {
             gaps.iter()
                 .map(|g| {
                     json!({
                         "id": g.id,
                         "capability": g.capability,
                         "priority": g.priority,
-                        "status": g.status,
+                        "status": if g.resolved { "resolved" } else { "open" },
                     })
                 })
                 .collect()
@@ -359,11 +360,7 @@ fn cmd_gap_check(json_mode: bool, epic_id: &str) {
             open_blocking.len()
         );
         for g in &open_blocking {
-            println!(
-                "  \u{2717} [{}] {}",
-                g.priority,
-                g.capability,
-            );
+            println!("  \u{2717} [{}] {}", g.priority, g.capability);
         }
     }
 

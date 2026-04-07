@@ -1,26 +1,15 @@
 //! Stats command: flowctl stats [--epic <id>] [--weekly] [--tokens] [--bottlenecks] [--dora] [--format json]
 //!
 //! TTY-aware: table output for terminals, JSON when piped or --json is passed.
+//! Stats are computed from JSON file store (epics, tasks, state files).
 
-use std::env;
 use std::io::IsTerminal;
-use std::path::PathBuf;
 
 use clap::Subcommand;
 use serde_json::json;
 
 use crate::output::{error_exit, json_output, pretty_output};
-
-/// Open DB or exit with error.
-fn open_db_or_exit() -> crate::commands::db_shim::Connection {
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    match crate::commands::db_shim::open(&cwd) {
-        Ok(conn) => conn,
-        Err(e) => {
-            error_exit(&format!("Cannot open database: {}", e));
-        }
-    }
-}
+use super::helpers::get_flow_dir;
 
 /// Determine if output should be JSON: explicit --json flag, or stdout is not a terminal.
 fn should_json(json_flag: bool) -> bool {
@@ -68,9 +57,9 @@ pub fn dispatch(cmd: &StatsCmd, json_flag: bool) {
     match cmd {
         StatsCmd::Summary => cmd_summary(json_flag),
         StatsCmd::Epic { id } => cmd_epic(json_flag, id.as_deref()),
-        StatsCmd::Weekly { weeks } => cmd_weekly(json_flag, *weeks),
-        StatsCmd::Tokens { epic } => cmd_tokens(json_flag, epic.as_deref()),
-        StatsCmd::Bottlenecks { limit } => cmd_bottlenecks(json_flag, *limit),
+        StatsCmd::Weekly { weeks: _ } => cmd_weekly(json_flag),
+        StatsCmd::Tokens { epic: _ } => cmd_tokens(json_flag),
+        StatsCmd::Bottlenecks { limit: _ } => cmd_bottlenecks(json_flag),
         StatsCmd::Dora => cmd_dora(json_flag),
         StatsCmd::Rollup => cmd_rollup(json_flag),
         StatsCmd::Cleanup => cmd_cleanup(json_flag),
@@ -78,279 +67,173 @@ pub fn dispatch(cmd: &StatsCmd, json_flag: bool) {
 }
 
 fn cmd_summary(json_flag: bool) {
-    let conn = open_db_or_exit();
-    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
+    let flow_dir = get_flow_dir();
+    let epics = flowctl_core::json_store::epic_list(&flow_dir).unwrap_or_default();
+    let open_epics = epics.iter().filter(|e| e.status.to_string() == "open").count();
 
-    let summary = match stats.summary() {
-        Ok(s) => s,
-        Err(e) => error_exit(&format!("Failed to query stats: {}", e)),
-    };
+    let mut total_tasks = 0i64;
+    let mut done_tasks = 0i64;
+    let mut in_progress_tasks = 0i64;
+    let mut blocked_tasks = 0i64;
+
+    for epic in &epics {
+        let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
+        for task in &tasks {
+            total_tasks += 1;
+            match task.status {
+                flowctl_core::state_machine::Status::Done => done_tasks += 1,
+                flowctl_core::state_machine::Status::InProgress => in_progress_tasks += 1,
+                flowctl_core::state_machine::Status::Blocked => blocked_tasks += 1,
+                _ => {}
+            }
+        }
+    }
+
+    let store = flowctl_db::FlowStore::new(flow_dir);
+    let total_events = store.events().read_all().map(|v| v.len() as i64).unwrap_or(0);
 
     if should_json(json_flag) {
         json_output(json!({
-            "total_epics": summary.total_epics,
-            "open_epics": summary.open_epics,
-            "total_tasks": summary.total_tasks,
-            "done_tasks": summary.done_tasks,
-            "in_progress_tasks": summary.in_progress_tasks,
-            "blocked_tasks": summary.blocked_tasks,
-            "total_events": summary.total_events,
-            "total_tokens": summary.total_tokens,
-            "total_cost_usd": summary.total_cost_usd,
+            "total_epics": epics.len(),
+            "open_epics": open_epics,
+            "total_tasks": total_tasks,
+            "done_tasks": done_tasks,
+            "in_progress_tasks": in_progress_tasks,
+            "blocked_tasks": blocked_tasks,
+            "total_events": total_events,
+            "total_tokens": 0,
+            "total_cost_usd": 0.0,
         }));
     } else {
         println!("flowctl Stats Summary");
         println!("{}", "=".repeat(40));
-        println!("Epics:       {} total, {} open", summary.total_epics, summary.open_epics);
+        println!("Epics:       {} total, {} open", epics.len(), open_epics);
         println!(
             "Tasks:       {} total, {} done, {} in progress, {} blocked",
-            summary.total_tasks, summary.done_tasks, summary.in_progress_tasks, summary.blocked_tasks
+            total_tasks, done_tasks, in_progress_tasks, blocked_tasks
         );
-        println!("Events:      {}", summary.total_events);
-        println!("Tokens:      {}", format_tokens(summary.total_tokens));
-        println!("Cost:        ${:.4}", summary.total_cost_usd);
+        println!("Events:      {}", total_events);
     }
 }
 
-fn cmd_epic(json_flag: bool, epic_id: Option<&str>) {
-    let conn = open_db_or_exit();
-    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
-
-    let epics = match stats.per_epic(epic_id) {
-        Ok(e) => e,
-        Err(e) => error_exit(&format!("Failed to query epic stats: {}", e)),
+fn cmd_epic(json_flag: bool, epic_filter: Option<&str>) {
+    let flow_dir = get_flow_dir();
+    let epics = flowctl_core::json_store::epic_list(&flow_dir).unwrap_or_default();
+    let filtered: Vec<_> = if let Some(eid) = epic_filter {
+        epics.into_iter().filter(|e| e.id == eid).collect()
+    } else {
+        epics
     };
 
+    let mut data: Vec<serde_json::Value> = Vec::new();
+    for epic in &filtered {
+        let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
+        let done_count = tasks.iter().filter(|t| t.status == flowctl_core::state_machine::Status::Done).count();
+        data.push(json!({
+            "epic_id": epic.id,
+            "title": epic.title,
+            "status": epic.status.to_string(),
+            "task_count": tasks.len(),
+            "done_count": done_count,
+            "avg_duration_secs": 0,
+            "total_tokens": 0,
+            "total_cost": 0.0,
+        }));
+    }
+
     if should_json(json_flag) {
-        let data: Vec<serde_json::Value> = epics.iter().map(|e| json!({
-            "epic_id": e.epic_id,
-            "title": e.title,
-            "status": e.status,
-            "task_count": e.task_count,
-            "done_count": e.done_count,
-            "avg_duration_secs": e.avg_duration_secs,
-            "total_tokens": e.total_tokens,
-            "total_cost": e.total_cost,
-        })).collect();
         json_output(json!({ "epics": data, "count": data.len() }));
-    } else if epics.is_empty() {
+    } else if data.is_empty() {
         println!("No epic stats found.");
     } else {
-        println!("{:<30} {:>6} {:>5}/{:>5} {:>10} {:>10}", "EPIC", "STATUS", "DONE", "TOTAL", "TOKENS", "COST");
-        println!("{}", "-".repeat(75));
-        for e in &epics {
+        println!("{:<30} {:>6} {:>5}/{:>5}", "EPIC", "STATUS", "DONE", "TOTAL");
+        println!("{}", "-".repeat(55));
+        for e in &data {
             println!(
-                "{:<30} {:>6} {:>5}/{:>5} {:>10} {:>10}",
-                truncate(&e.epic_id, 30),
-                e.status,
-                e.done_count,
-                e.task_count,
-                format_tokens(e.total_tokens),
-                format!("${:.4}", e.total_cost),
+                "{:<30} {:>6} {:>5}/{:>5}",
+                truncate(e["epic_id"].as_str().unwrap_or(""), 30),
+                e["status"].as_str().unwrap_or(""),
+                e["done_count"],
+                e["task_count"],
             );
         }
     }
 }
 
-fn cmd_weekly(json_flag: bool, weeks: u32) {
-    let conn = open_db_or_exit();
-    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
-
-    let trends = match stats.weekly_trends(weeks) {
-        Ok(t) => t,
-        Err(e) => error_exit(&format!("Failed to query weekly trends: {}", e)),
-    };
-
+fn cmd_weekly(json_flag: bool) {
     if should_json(json_flag) {
-        let data: Vec<serde_json::Value> = trends.iter().map(|t| json!({
-            "week": t.week,
-            "tasks_started": t.tasks_started,
-            "tasks_completed": t.tasks_completed,
-            "tasks_failed": t.tasks_failed,
-        })).collect();
-        json_output(json!({ "weekly_trends": data }));
-    } else if trends.is_empty() {
-        println!("No weekly trend data available.");
+        json_output(json!({ "weekly_trends": [], "message": "Weekly trends not available (file-based storage)" }));
     } else {
-        println!("{:<12} {:>8} {:>10} {:>8}", "WEEK", "STARTED", "COMPLETED", "FAILED");
-        println!("{}", "-".repeat(42));
-        for t in &trends {
-            println!("{:<12} {:>8} {:>10} {:>8}", t.week, t.tasks_started, t.tasks_completed, t.tasks_failed);
-        }
+        println!("Weekly trends not available with file-based storage.");
     }
 }
 
-fn cmd_tokens(json_flag: bool, epic_id: Option<&str>) {
-    let conn = open_db_or_exit();
-    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
-
-    let tokens = match stats.token_breakdown(epic_id) {
-        Ok(t) => t,
-        Err(e) => error_exit(&format!("Failed to query token usage: {}", e)),
-    };
-
+fn cmd_tokens(json_flag: bool) {
     if should_json(json_flag) {
-        let data: Vec<serde_json::Value> = tokens.iter().map(|t| json!({
-            "epic_id": t.epic_id,
-            "model": t.model,
-            "input_tokens": t.input_tokens,
-            "output_tokens": t.output_tokens,
-            "cache_read": t.cache_read,
-            "cache_write": t.cache_write,
-            "estimated_cost": t.estimated_cost,
-        })).collect();
-        json_output(json!({ "token_usage": data }));
-    } else if tokens.is_empty() {
-        println!("No token usage data.");
+        json_output(json!({ "token_usage": [], "message": "Token tracking not available (file-based storage)" }));
     } else {
-        println!("{:<25} {:<20} {:>10} {:>10} {:>10}", "EPIC", "MODEL", "INPUT", "OUTPUT", "COST");
-        println!("{}", "-".repeat(80));
-        for t in &tokens {
-            println!(
-                "{:<25} {:<20} {:>10} {:>10} {:>10}",
-                truncate(&t.epic_id, 25),
-                truncate(&t.model, 20),
-                format_tokens(t.input_tokens),
-                format_tokens(t.output_tokens),
-                format!("${:.4}", t.estimated_cost),
-            );
-        }
+        println!("Token usage tracking not available with file-based storage.");
     }
 }
 
-fn cmd_bottlenecks(json_flag: bool, limit: usize) {
-    let conn = open_db_or_exit();
-    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
-
-    let bottlenecks = match stats.bottlenecks(limit) {
-        Ok(b) => b,
-        Err(e) => error_exit(&format!("Failed to query bottlenecks: {}", e)),
-    };
-
+fn cmd_bottlenecks(json_flag: bool) {
     if should_json(json_flag) {
-        let data: Vec<serde_json::Value> = bottlenecks.iter().map(|b| json!({
-            "task_id": b.task_id,
-            "epic_id": b.epic_id,
-            "title": b.title,
-            "duration_secs": b.duration_secs,
-            "status": b.status,
-            "blocked_reason": b.blocked_reason,
-        })).collect();
-        json_output(json!({ "bottlenecks": data }));
-    } else if bottlenecks.is_empty() {
-        println!("No bottleneck data.");
+        json_output(json!({ "bottlenecks": [], "message": "Bottleneck analysis not available (file-based storage)" }));
     } else {
-        println!("{:<25} {:<10} {:>10} TITLE", "TASK", "STATUS", "DURATION");
-        println!("{}", "-".repeat(70));
-        for b in &bottlenecks {
-            let duration = b.duration_secs
-                .map(format_duration)
-                .unwrap_or_else(|| "-".to_string());
-            let suffix = b.blocked_reason.as_ref()
-                .map(|r| format!(" [blocked: {}]", truncate(r, 30)))
-                .unwrap_or_default();
-            println!(
-                "{:<25} {:<10} {:>10} {}{}",
-                truncate(&b.task_id, 25),
-                b.status,
-                duration,
-                truncate(&b.title, 30),
-                suffix,
-            );
-        }
+        println!("Bottleneck analysis not available with file-based storage.");
     }
 }
 
 fn cmd_dora(json_flag: bool) {
-    let conn = open_db_or_exit();
-    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
-
-    let dora = match stats.dora_metrics() {
-        Ok(d) => d,
-        Err(e) => error_exit(&format!("Failed to compute DORA metrics: {}", e)),
-    };
-
     if should_json(json_flag) {
         json_output(json!({
-            "lead_time_hours": dora.lead_time_hours,
-            "throughput_per_week": dora.throughput_per_week,
-            "change_failure_rate": dora.change_failure_rate,
-            "time_to_restore_hours": dora.time_to_restore_hours,
+            "lead_time_hours": null,
+            "throughput_per_week": 0.0,
+            "change_failure_rate": 0.0,
+            "time_to_restore_hours": null,
+            "message": "DORA metrics not available (file-based storage)",
         }));
     } else {
-        println!("DORA Metrics (last 30 days)");
-        println!("{}", "=".repeat(40));
-        println!(
-            "Lead Time:           {}",
-            dora.lead_time_hours
-                .map(|h| format!("{:.1}h", h))
-                .unwrap_or_else(|| "N/A".to_string())
-        );
-        println!("Throughput:          {:.1} tasks/week", dora.throughput_per_week);
-        println!("Change Failure Rate: {:.1}%", dora.change_failure_rate * 100.0);
-        println!(
-            "Time to Restore:     {}",
-            dora.time_to_restore_hours
-                .map(|h| format!("{:.1}h", h))
-                .unwrap_or_else(|| "N/A".to_string())
-        );
+        println!("DORA metrics not available with file-based storage.");
     }
 }
 
 fn cmd_rollup(json_flag: bool) {
-    let conn = open_db_or_exit();
-    let stats = crate::commands::db_shim::StatsQuery::new(&conn);
-
-    match stats.generate_monthly_rollups() {
-        Ok(count) => {
-            if should_json(json_flag) {
-                json_output(json!({ "months_updated": count }));
-            } else {
-                println!("Updated {} monthly rollup(s).", count);
-            }
-        }
-        Err(e) => error_exit(&format!("Failed to generate rollups: {}", e)),
+    if should_json(json_flag) {
+        json_output(json!({ "months_updated": 0, "message": "Rollups not applicable (file-based storage)" }));
+    } else {
+        println!("Rollups not applicable with file-based storage.");
     }
 }
 
 fn cmd_cleanup(json_flag: bool) {
-    let conn = open_db_or_exit();
-
-    match crate::commands::db_shim::cleanup(&conn) {
-        Ok(count) => {
-            if should_json(json_flag) {
-                json_output(json!({ "deleted": count }));
-            } else {
-                println!("Cleaned up {} old record(s).", count);
-            }
-        }
-        Err(e) => error_exit(&format!("Cleanup failed: {}", e)),
+    if should_json(json_flag) {
+        json_output(json!({ "deleted": 0, "message": "Cleanup not applicable (file-based storage)" }));
+    } else {
+        println!("Cleanup not applicable with file-based storage.");
     }
 }
 
 // ── DAG rendering ────────────────────────────────────────────────────
 
 pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
-    let conn = open_db_or_exit();
-    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
+    let flow_dir = get_flow_dir();
 
-    // Find epic: use provided ID or find the first open epic
     let epic_id = match epic_id {
         Some(id) => id,
         None => {
-            let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
-            match epic_repo.list(Some("open")) {
-                Ok(epics) if !epics.is_empty() => epics[0].id.clone(),
-                _ => error_exit("No open epic found. Use --epic <id> to specify."),
+            let epics = flowctl_core::json_store::epic_list(&flow_dir).unwrap_or_default();
+            match epics.iter().find(|e| e.status.to_string() == "open") {
+                Some(e) => e.id.clone(),
+                None => error_exit("No open epic found. Use --epic <id> to specify."),
             }
         }
     };
 
-    let tasks = match task_repo.list_by_epic(&epic_id) {
-        Ok(t) if !t.is_empty() => t,
-        Ok(_) => error_exit(&format!("No tasks found for epic {}", epic_id)),
-        Err(e) => error_exit(&format!("Failed to load tasks: {}", e)),
-    };
+    let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id).unwrap_or_default();
+    if tasks.is_empty() {
+        error_exit(&format!("No tasks found for epic {}", epic_id));
+    }
 
     let dag = match flowctl_core::TaskDag::from_tasks(&tasks) {
         Ok(d) => {
@@ -423,7 +306,6 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
                 flowctl_core::Status::Todo => "todo",
                 _ => " ?? ",
             };
-            // Short ID: take just the task number suffix
             let short_id = task.id.rsplit('.').next().unwrap_or(&task.id);
             let label = format!(".{} [{}]", short_id, status_icon);
             let indent = "  ".repeat(layer);
@@ -433,7 +315,6 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
             writeln!(buf, "{}{}\u{2514}\u{2500}{}\u{2500}\u{2518}", indent, if layer > 0 { "    " } else { "" }, "\u{2500}".repeat(label.len())).ok();
         }
 
-        // Draw arrows between layers
         if layer < max_layer {
             let next_layer_nodes: Vec<&flowctl_core::types::Task> = tasks
                 .iter()
@@ -452,27 +333,20 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
 // ── Estimate command ─────────────────────────────────────────────────
 
 pub fn cmd_estimate(json_flag: bool, epic_id: &str) {
-    let conn = open_db_or_exit();
-    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-    let runtime_repo = crate::commands::db_shim::RuntimeRepo::new(&conn);
-
-    let tasks = match task_repo.list_by_epic(epic_id) {
-        Ok(t) => t,
-        Err(e) => error_exit(&format!("Failed to load tasks: {}", e)),
-    };
+    let flow_dir = get_flow_dir();
+    let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, epic_id).unwrap_or_default();
 
     if tasks.is_empty() {
         error_exit(&format!("No tasks found for epic {}", epic_id));
     }
 
-    // Collect durations from completed tasks
     let mut completed_durations: Vec<u64> = Vec::new();
     let mut incomplete_count = 0u32;
 
     for task in &tasks {
         if task.status == flowctl_core::Status::Done {
-            if let Ok(Some(rt)) = runtime_repo.get(&task.id) {
-                if let Some(dur) = rt.duration_secs {
+            if let Ok(state) = flowctl_core::json_store::state_read(&flow_dir, &task.id) {
+                if let Some(dur) = state.duration_seconds {
                     completed_durations.push(dur);
                 }
             }
@@ -516,26 +390,6 @@ pub fn cmd_estimate(json_flag: bool, epic_id: &str) {
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────
-
-fn format_tokens(n: i64) -> String {
-    if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
-}
-
-fn format_duration(secs: i64) -> String {
-    if secs >= 3600 {
-        format!("{:.1}h", secs as f64 / 3600.0)
-    } else if secs >= 60 {
-        format!("{}m", secs / 60)
-    } else {
-        format!("{}s", secs)
-    }
-}
 
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {

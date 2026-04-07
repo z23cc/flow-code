@@ -1,44 +1,35 @@
-//! flowctl-db: Async libSQL storage layer for flowctl.
+//! flowctl-db: Sync file-based storage layer for flowctl.
 //!
-//! All DB access is async, Tokio-native. Memory table uses libSQL's native
-//! vector column (`F32_BLOB(384)`) for semantic search via `vector_top_k`.
+//! All I/O is synchronous, delegating to `flowctl_core::json_store`.
+//! No async runtime required — pure synchronous file I/O.
 //!
 //! # Architecture
 //!
-//! - **libSQL is the single source of truth.** All reads and writes go
-//!   through async repository methods. Markdown files are an export format.
-//! - **Schema is applied on open** via a single embedded SQL blob, then
-//!   migrations run to upgrade existing databases (see `migration.rs`).
-//! - **Connections are cheap clones.** `libsql::Connection` is `Send + Sync`,
-//!   pass by value. Do not wrap in `Arc<Mutex<_>>`.
-//!
-//! # History
-//!
-//! This crate was rewritten from rusqlite to libsql in fn-19 (April 2026).
-//! The old rusqlite implementation is no longer available.
+//! - `FlowStore` is the main entry point, wrapping a `.flow/` directory path.
+//! - Sub-stores (`EventStore`, `PipelineStore`, etc.) are accessed via methods.
+//! - All data lives as JSON files in the `.flow/` directory tree.
 
+pub mod approvals;
 pub mod error;
 pub mod events;
-pub mod indexer;
+pub mod gaps;
+pub mod locks;
 pub mod memory;
-pub mod metrics;
-pub mod migration;
-pub mod pool;
-pub mod repo;
-pub mod skill;
+pub mod phases;
+pub mod pipeline;
+pub mod store;
 
 pub use error::DbError;
-pub use indexer::{reindex, ReindexResult};
-pub use events::{EventLog, TaskTokenSummary, TokenRecord, TokenUsageRow};
-pub use memory::{MemoryEntry, MemoryFilter, MemoryRepo};
-pub use metrics::StatsQuery;
-pub use skill::{SkillEntry, SkillMatch, SkillRepo};
-pub use pool::{cleanup, open_async, open_memory_async, resolve_db_path, resolve_libsql_path, resolve_state_dir};
-pub use repo::{
-    DepRepo, EpicRepo, EventRepo, EventRow, EventStoreRepo, EvidenceRepo, FileLockRepo,
-    FileOwnershipRepo, GapRepo, GapRow, LockEntry, LockMode, PhaseProgressRepo, RuntimeRepo,
-    ScoutCacheRepo, StoredEvent, TaskRepo, max_epic_num, max_task_num,
-};
+pub use store::FlowStore;
 
-// Re-export libsql types for callers.
-pub use libsql::{Connection, Database};
+// Re-export sub-store types for convenience.
+pub use approvals::ApprovalStore;
+pub use events::EventStore;
+pub use gaps::{GapEntry, GapStore};
+pub use locks::{LockEntry, LockStore};
+pub use memory::MemoryStore;
+pub use phases::PhaseStore;
+pub use pipeline::PipelineStore;
+
+// Re-export json_store types that callers may need.
+pub use flowctl_core::json_store::TaskState;

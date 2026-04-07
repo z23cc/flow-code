@@ -1,71 +1,34 @@
 //! Export and import commands.
-
-use std::env;
-use std::fs;
+//!
+//! With file-based storage, export is a no-op (data is already in files)
+//! and import scans files to rebuild any derived state.
 
 use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
-use flowctl_core::types::{EPICS_DIR, TASKS_DIR};
-
-pub fn cmd_export(json: bool, epic_filter: Option<String>, _format: String) {
+pub fn cmd_export(json: bool, _epic_filter: Option<String>, _format: String) {
     let flow_dir = super::get_flow_dir();
     if !flow_dir.exists() {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
     }
-    let cwd = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let conn = crate::commands::db_shim::open(&cwd)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to open DB: {e}")));
 
-    let epic_repo = crate::commands::db_shim::EpicRepo::new(&conn);
-    let task_repo = crate::commands::db_shim::TaskRepo::new(&conn);
-
-    let epics_dir = flow_dir.join(EPICS_DIR);
-    let _ = fs::create_dir_all(&epics_dir);
-    let epics = match &epic_filter {
-        Some(id) => match epic_repo.get(id) {
-            Ok(e) => vec![e],
-            Err(_) => { error_exit(&format!("Epic {} not found", id)); }
-        },
-        None => epic_repo.list(None).unwrap_or_default(),
-    };
-
-    let mut epics_exported = 0;
+    let epics = flowctl_core::json_store::epic_list(&flow_dir).unwrap_or_default();
+    let mut tasks_count = 0;
     for epic in &epics {
-        let (_, body) = epic_repo.get_with_body(&epic.id).unwrap_or((epic.clone(), String::new()));
-        let doc = flowctl_core::frontmatter::Document { frontmatter: epic.clone(), body };
-        if let Ok(content) = flowctl_core::frontmatter::write(&doc) {
-            let path = epics_dir.join(format!("{}.md", epic.id));
-            let _ = fs::write(&path, content);
-            epics_exported += 1;
-        }
-    }
-
-    let tasks_dir = flow_dir.join(TASKS_DIR);
-    let _ = fs::create_dir_all(&tasks_dir);
-    let mut tasks_exported = 0;
-    for epic in &epics {
-        let tasks = task_repo.list_by_epic(&epic.id).unwrap_or_default();
-        for task in &tasks {
-            let (_, body) = task_repo.get_with_body(&task.id).unwrap_or((task.clone(), String::new()));
-            let doc = flowctl_core::frontmatter::Document { frontmatter: task.clone(), body };
-            if let Ok(content) = flowctl_core::frontmatter::write(&doc) {
-                let path = tasks_dir.join(format!("{}.md", task.id));
-                let _ = fs::write(&path, content);
-                tasks_exported += 1;
-            }
-        }
+        let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
+        tasks_count += tasks.len();
     }
 
     if json {
         json_output(json!({
             "success": true,
-            "epics_exported": epics_exported,
-            "tasks_exported": tasks_exported,
+            "epics_exported": epics.len(),
+            "tasks_exported": tasks_count,
+            "message": "Data is already in JSON files (file-based storage)",
         }));
     } else {
-        println!("Exported {} epics, {} tasks to .flow/", epics_exported, tasks_exported);
+        println!("Data is already in JSON files: {} epics, {} tasks in .flow/", epics.len(), tasks_count);
     }
 }
 
@@ -74,29 +37,26 @@ pub fn cmd_import(json: bool) {
     if !flow_dir.exists() {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
     }
-    let cwd = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let conn = crate::commands::db_shim::open(&cwd)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to open DB: {e}")));
 
-    let state_dir = crate::commands::db_shim::resolve_state_dir(&cwd).ok();
-    let result = crate::commands::db_shim::reindex(&conn, &flow_dir, state_dir.as_deref())
-        .unwrap_or_else(|e| error_exit(&format!("Import failed: {e}")));
+    let epics = flowctl_core::json_store::epic_list(&flow_dir).unwrap_or_default();
+    let mut tasks_count = 0;
+    for epic in &epics {
+        let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
+        tasks_count += tasks.len();
+    }
 
     if json {
         json_output(json!({
             "success": true,
-            "epics_imported": result.epics_indexed,
-            "tasks_imported": result.tasks_indexed,
-            "files_skipped": result.files_skipped,
-            "warnings": result.warnings,
+            "epics_imported": epics.len(),
+            "tasks_imported": tasks_count,
+            "files_skipped": 0,
+            "warnings": [],
         }));
     } else {
         println!(
-            "Imported {} epics, {} tasks ({} skipped)",
-            result.epics_indexed, result.tasks_indexed, result.files_skipped
+            "Scanned {} epics, {} tasks from .flow/ (file-based storage, no DB to import into)",
+            epics.len(), tasks_count
         );
-        for w in &result.warnings {
-            eprintln!("  warning: {w}");
-        }
     }
 }

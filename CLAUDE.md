@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Is This
 
-Flow-Code is a Claude Code plugin for structured, plan-first development. It provides a unified entry point (`/flow-code:run`) plus individual slash commands, skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with libSQL storage (async, native vector search) and MCP server support.
+Flow-Code is a Claude Code plugin for structured, plan-first development. It provides a unified entry point (`/flow-code:run`) plus individual slash commands, skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with file-based JSON storage and MCP server support.
 
 ## Core Architecture
 
@@ -52,7 +52,7 @@ bash scripts/ralph_e2e_short_rp_test.sh
 
 All tests create temp directories and clean up after themselves. They must NOT be run from the plugin repo root (safety check enforced).
 
-**Storage runtime**: flowctl is libSQL-only (async, native vector search via `F32_BLOB(384)`). The `flowctl-db` crate was rewritten from rusqlite to libsql in fn-19 and is the sole storage crate. First build downloads the fastembed ONNX model (~130MB) to `.fastembed_cache/` for semantic memory search; subsequent builds/tests reuse the cache.
+**Storage runtime**: State is stored in JSON/JSONL files in the `.flow/` directory, readable by any tool. The `flowctl-db` crate provides synchronous file-based storage with no external database dependencies.
 
 ## Code Quality
 

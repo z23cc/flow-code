@@ -115,7 +115,7 @@ impl Mutation {
 /// A batch of declarative mutation intents.
 ///
 /// Build up mutations, then hand the `Changes` to an applier which executes
-/// them against JSON files and the libSQL database.
+/// them against JSON files in the `.flow/` directory.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Changes {
     /// Ordered list of mutations to apply.

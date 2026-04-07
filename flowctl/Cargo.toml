@@ -40,24 +40,10 @@ tracing = "0.1"
 # DAG
 petgraph = "0.7"
 
-# libSQL (async, native vectors) — the DB engine
-libsql = { version = "0.9", default-features = false, features = ["core"] }
-
-# AI embeddings (memory semantic search)
-# Use rustls to avoid OpenSSL cross-compile headaches on release builds.
-fastembed = { version = "5.12", default-features = false, features = [
-    "ort-download-binaries-rustls-tls",
-    "hf-hub-rustls-tls",
-] }
-
 # CLI (cli crate)
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 miette = { version = "7", features = ["fancy"] }
-
-# Async runtime (service layer)
-tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["rt"] }
 
 # Unix process management
 nix = { version = "0.30", features = ["signal", "process"] }

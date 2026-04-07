@@ -145,12 +145,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
 
 /// Apply a `Changes` batch via the service-layer `ChangesApplier`.
 ///
-/// This opens the libSQL event DB, spins a short-lived tokio runtime, and
-/// applies all mutations (JSON store writes + event logging + DB upserts) in order.
+/// Applies all mutations (JSON store writes + event logging) in order.
 /// Returns the number of mutations applied. Calls `error_exit` on failure.
 pub fn apply_changes(flow_dir: &Path, changes: &flowctl_core::changes::Changes) -> usize {
     use crate::output::error_exit;
-    use flowctl_core::changes::Mutation;
     use flowctl_service::changes::ChangesApplier;
 
     if changes.is_empty() {
@@ -159,57 +157,13 @@ pub fn apply_changes(flow_dir: &Path, changes: &flowctl_core::changes::Changes) 
 
     let actor = resolve_actor();
 
-    // Open DB for event logging + entity upserts
-    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_else(|e| error_exit(&format!("tokio runtime: {e}")));
+    let applier = ChangesApplier::new(flow_dir)
+        .with_actor(&actor);
 
-    let applied = rt.block_on(async {
-        let db = flowctl_db::open_async(&cwd).await
-            .unwrap_or_else(|e| error_exit(&format!("Failed to open DB: {e}")));
-        let conn = db.connect()
-            .unwrap_or_else(|e| error_exit(&format!("Failed to connect to DB: {e}")));
-        let event_repo = flowctl_db::EventRepo::new(conn);
+    let result = applier.apply(changes)
+        .unwrap_or_else(|e| error_exit(&format!("Failed to apply changes: {e}")));
 
-        let applier = ChangesApplier::new(flow_dir, &event_repo)
-            .with_actor(&actor);
-
-        let result = applier.apply(changes).await
-            .unwrap_or_else(|e| error_exit(&format!("Failed to apply changes: {e}")));
-
-        // Dual-write: upsert entities into DB tables so commands like `gap add`
-        // (which validate via EpicRepo::get) can find them.
-        let conn2 = db.connect()
-            .unwrap_or_else(|e| error_exit(&format!("Failed to connect to DB: {e}")));
-        let epic_repo = flowctl_db::EpicRepo::new(conn2.clone());
-        let task_repo = flowctl_db::TaskRepo::new(conn2);
-
-        for mutation in &changes.mutations {
-            match mutation {
-                Mutation::CreateEpic { epic } | Mutation::UpdateEpic { epic } => {
-                    let _ = epic_repo.upsert(epic).await;
-                }
-                Mutation::RemoveEpic { id } => {
-                    let _ = epic_repo.delete(id).await;
-                }
-                Mutation::CreateTask { task } | Mutation::UpdateTask { task } => {
-                    let _ = task_repo.upsert(task).await;
-                }
-                Mutation::RemoveTask { id } => {
-                    let _ = task_repo.delete(id).await;
-                }
-                _ => {}
-            }
-        }
-
-        // Leak the DB handle to keep it alive (same pattern as db_shim)
-        std::mem::forget(db);
-        result.applied
-    });
-
-    applied
+    result.applied
 }
 
 /// Handle dry-run or real apply of a `Changes` batch.

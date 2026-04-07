@@ -74,38 +74,20 @@ pub fn cmd_init(json: bool) {
         }
     }
 
-    // Create/open flow.db (runs migrations automatically)
-    match crate::commands::db_shim::open(&cwd) {
-        Ok(conn) => {
-            actions.push("flow.db ready".to_string());
-
-            // Auto-import from existing MD files if epics exist
-            let epics_dir = flow_dir.join(EPICS_DIR);
-            if epics_dir.is_dir() {
-                let has_md_files = fs::read_dir(&epics_dir)
-                    .map(|entries| entries.flatten().any(|e| {
-                        e.file_name().to_string_lossy().ends_with(".md")
-                    }))
-                    .unwrap_or(false);
-
-                if has_md_files {
-                    match crate::commands::db_shim::reindex(&conn, &flow_dir, None) {
-                        Ok(result) => {
-                            actions.push(format!(
-                                "auto-imported {} epics, {} tasks from MD",
-                                result.epics_indexed, result.tasks_indexed
-                            ));
-                        }
-                        Err(e) => {
-                            eprintln!("warning: auto-import failed: {e}");
-                        }
-                    }
-                }
-            }
+    // Ensure .state directory exists for runtime state
+    let state_dir = flow_dir.join(".state");
+    if !state_dir.exists() {
+        if let Err(e) = fs::create_dir_all(&state_dir) {
+            eprintln!("warning: failed to create .state/: {e}");
+        } else {
+            actions.push("created .state/".to_string());
         }
-        Err(e) => {
-            eprintln!("warning: DB creation failed: {e}");
-        }
+    }
+
+    // Ensure FlowStore dirs are ready
+    let store = flowctl_db::FlowStore::new(flow_dir.clone());
+    if let Err(e) = store.ensure_dirs() {
+        eprintln!("warning: failed to ensure store dirs: {e}");
     }
 
     // Build output

@@ -1,11 +1,8 @@
-//! Skill commands: register, match.
+//! Skill commands: register.
 //!
 //! `skill register` scans `skills/*/SKILL.md` files, extracts YAML
-//! frontmatter (name + description), and upserts each into the DB with
-//! a BGE-small embedding for semantic matching.
-//!
-//! `skill match` performs semantic vector search against registered
-//! skills and returns ranked results.
+//! frontmatter (name + description), and logs them. With file-based storage,
+//! skill registration is a scan-and-report operation (no DB upsert needed).
 
 use clap::Subcommand;
 use serde::Deserialize;
@@ -13,28 +10,15 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output, pretty_output};
 
-use super::db_shim;
-
 // ── CLI definition ─────────────────────────────────────────────────
 
 #[derive(Subcommand, Debug)]
 pub enum SkillCmd {
-    /// Scan skills/*/SKILL.md and register into DB with embeddings.
+    /// Scan skills/*/SKILL.md and register into DB.
     Register {
         /// Directory to scan (default: DROID_PLUGIN_ROOT or CLAUDE_PLUGIN_ROOT).
         #[arg(long)]
         dir: Option<String>,
-    },
-    /// Semantic search against registered skills.
-    Match {
-        /// Search query text.
-        query: String,
-        /// Maximum results to return.
-        #[arg(long, default_value = "5")]
-        limit: usize,
-        /// Minimum cosine similarity threshold.
-        #[arg(long, default_value = "0.70")]
-        threshold: f64,
     },
 }
 
@@ -51,11 +35,6 @@ struct SkillFrontmatter {
 pub fn dispatch(cmd: &SkillCmd, json: bool) {
     match cmd {
         SkillCmd::Register { dir } => cmd_skill_register(json, dir.as_deref()),
-        SkillCmd::Match {
-            query,
-            limit,
-            threshold,
-        } => cmd_skill_match(json, query, *limit, *threshold),
     }
 }
 
@@ -120,28 +99,6 @@ fn cmd_skill_register(json: bool, dir: Option<&str>) {
         ));
     }
 
-    // Upsert each skill into DB.
-    let conn = db_shim::require_db().unwrap_or_else(|e| {
-        error_exit(&format!("Cannot open DB: {e}"));
-    });
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to create tokio runtime");
-
-    let repo = flowctl_db::skill::SkillRepo::new(conn.inner_conn());
-
-    for (name, desc, path) in &entries {
-        rt.block_on(async {
-            repo.upsert(name, desc, Some(path.as_str()))
-                .await
-                .unwrap_or_else(|e| {
-                    eprintln!("warn: failed to upsert skill '{}': {e}", name);
-                });
-        });
-    }
-
     let skills_json: Vec<serde_json::Value> = entries
         .iter()
         .map(|(n, d, _)| json!({"name": n, "description": d}))
@@ -156,57 +113,6 @@ fn cmd_skill_register(json: bool, dir: Option<&str>) {
         pretty_output("skill_register", &format!("Registered {} skills", entries.len()));
         for (name, desc, _) in &entries {
             pretty_output("skill_register", &format!("  {} — {}", name, desc));
-        }
-    }
-}
-
-// ── Match ──────────────────────────────────────────────────────────
-
-fn cmd_skill_match(json: bool, query: &str, limit: usize, threshold: f64) {
-    let conn = db_shim::require_db().unwrap_or_else(|e| {
-        error_exit(&format!("Cannot open DB: {e}"));
-    });
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to create tokio runtime");
-
-    let repo = flowctl_db::skill::SkillRepo::new(conn.inner_conn());
-    let matches = rt.block_on(async {
-        repo.match_skills(query, limit, threshold)
-            .await
-            .unwrap_or_else(|e| {
-                error_exit(&format!("match_skills failed: {e}"));
-            })
-    });
-
-    if json {
-        let out: Vec<serde_json::Value> = matches
-            .iter()
-            .map(|m| {
-                json!({
-                    "name": m.name,
-                    "description": m.description,
-                    "score": (m.score * 100.0).round() / 100.0,
-                })
-            })
-            .collect();
-        json_output(json!(out));
-    } else {
-        if matches.is_empty() {
-            pretty_output("skill_match", "No matching skills found.");
-            return;
-        }
-        pretty_output(
-            "skill_match",
-            &format!("  {:<6} {:<28} {}", "Score", "Name", "Description"),
-        );
-        for m in &matches {
-            pretty_output(
-                "skill_match",
-                &format!("  {:<6.2} {:<28} {}", m.score, m.name, m.description),
-            );
         }
     }
 }

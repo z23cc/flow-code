@@ -1,11 +1,12 @@
 //! Scout cache commands: `flowctl scout-cache get|set|clear`.
+//!
+//! File-based scout cache stored in `.state/scout-cache/` directory.
 
 use clap::Subcommand;
 use serde_json::json;
 
 use crate::output::{error_exit, json_output};
-
-use super::db_shim;
+use super::helpers::get_flow_dir;
 
 #[derive(Subcommand, Debug)]
 pub enum ScoutCacheCmd {
@@ -53,54 +54,40 @@ fn detect_commit(explicit: &Option<String>) -> String {
         .unwrap_or_else(|| "no-git".to_string())
 }
 
+/// Get the cache directory, creating it if needed.
+fn cache_dir() -> std::path::PathBuf {
+    let dir = get_flow_dir().join(".state").join("scout-cache");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Sanitize a cache key for use as a filename.
+fn key_to_filename(key: &str) -> String {
+    key.replace([':', '/', '\\'], "_")
+}
+
 pub fn dispatch(cmd: &ScoutCacheCmd, json_mode: bool) {
     match cmd {
         ScoutCacheCmd::Get { scout_type, commit } => {
             let c = detect_commit(commit);
             let key = format!("{scout_type}:{c}");
+            let path = cache_dir().join(key_to_filename(&key));
 
-            // Get DB connection outside async (require_db uses its own runtime).
-            let conn = match db_shim::require_db() {
-                Ok(c) => c,
-                Err(_) => {
-                    if json_mode {
-                        json_output(json!({"hit": false, "key": key}));
-                    } else {
-                        println!("miss (db unavailable)");
-                    }
-                    return;
+            if path.exists() {
+                let result = std::fs::read_to_string(&path).unwrap_or_default();
+                if json_mode {
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(&result)
+                            .unwrap_or(serde_json::Value::String(result));
+                    json_output(json!({"hit": true, "key": key, "result": parsed}));
+                } else {
+                    println!("hit: {}", result);
                 }
-            };
-
-            let repo = flowctl_db::ScoutCacheRepo::new(conn.inner_conn());
-            db_shim::block_on_pub(async {
-                match repo.get(&key).await {
-                    Ok(Some(result)) => {
-                        if json_mode {
-                            let parsed: serde_json::Value =
-                                serde_json::from_str(&result)
-                                    .unwrap_or(serde_json::Value::String(result));
-                            json_output(json!({"hit": true, "key": key, "result": parsed}));
-                        } else {
-                            println!("hit: {}", result);
-                        }
-                    }
-                    Ok(None) => {
-                        if json_mode {
-                            json_output(json!({"hit": false, "key": key}));
-                        } else {
-                            println!("miss");
-                        }
-                    }
-                    Err(_) => {
-                        if json_mode {
-                            json_output(json!({"hit": false, "key": key}));
-                        } else {
-                            println!("miss (db error)");
-                        }
-                    }
-                }
-            });
+            } else if json_mode {
+                json_output(json!({"hit": false, "key": key}));
+            } else {
+                println!("miss");
+            }
         }
         ScoutCacheCmd::Set {
             scout_type,
@@ -117,15 +104,9 @@ pub fn dispatch(cmd: &ScoutCacheCmd, json_mode: bool) {
                 result.to_string()
             };
 
-            let conn = db_shim::require_db()
-                .unwrap_or_else(|e| error_exit(&format!("DB unavailable: {e}")));
-
-            let repo = flowctl_db::ScoutCacheRepo::new(conn.inner_conn());
-            db_shim::block_on_pub(async {
-                repo.set(&key, &c, scout_type, &result_data)
-                    .await
-                    .unwrap_or_else(|e| error_exit(&format!("Failed to cache: {e}")));
-            });
+            let path = cache_dir().join(key_to_filename(&key));
+            std::fs::write(&path, &result_data)
+                .unwrap_or_else(|e| error_exit(&format!("Failed to cache: {e}")));
 
             if json_mode {
                 json_output(json!({"ok": true, "key": key}));
@@ -134,15 +115,15 @@ pub fn dispatch(cmd: &ScoutCacheCmd, json_mode: bool) {
             }
         }
         ScoutCacheCmd::Clear => {
-            let conn = db_shim::require_db()
-                .unwrap_or_else(|e| error_exit(&format!("DB unavailable: {e}")));
-
-            let repo = flowctl_db::ScoutCacheRepo::new(conn.inner_conn());
-            let n = db_shim::block_on_pub(async {
-                repo.clear()
-                    .await
-                    .unwrap_or_else(|e| error_exit(&format!("Failed to clear: {e}")))
-            });
+            let dir = cache_dir();
+            let mut n = 0u64;
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    if std::fs::remove_file(entry.path()).is_ok() {
+                        n += 1;
+                    }
+                }
+            }
 
             if json_mode {
                 json_output(json!({"ok": true, "cleared": n}));

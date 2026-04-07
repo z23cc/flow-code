@@ -1,19 +1,18 @@
 //! Approval commands: `flowctl approval create|list|show|approve|reject`.
 //!
-//! All operations go directly through libSQL.
+//! All operations use file-based storage via FlowStore.
 
-use std::env;
 use std::time::{Duration, Instant};
 
 use clap::Subcommand;
 use serde_json::Value;
 
 use flowctl_core::approvals::{ApprovalKind, ApprovalStatus, CreateApprovalRequest};
-use flowctl_service::approvals::{ApprovalStore, LibSqlApprovalStore};
+use flowctl_service::approvals::FileApprovalStore;
 
 use crate::output::{error_exit, json_output};
 
-use super::helpers::resolve_actor;
+use super::helpers::{get_flow_dir, resolve_actor};
 
 #[derive(Subcommand, Debug)]
 pub enum ApprovalCmd {
@@ -62,43 +61,27 @@ pub enum ApprovalCmd {
 }
 
 pub fn dispatch(cmd: &ApprovalCmd, json: bool) {
-    // Every subcommand touches async DB/HTTP — run on a Tokio runtime.
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_else(|e| error_exit(&format!("tokio runtime: {e}")));
-    rt.block_on(async move {
-        match cmd {
-            ApprovalCmd::Create { task, kind, payload } => {
-                cmd_create(json, task, kind, payload).await
-            }
-            ApprovalCmd::List { pending } => cmd_list(json, *pending).await,
-            ApprovalCmd::Show { id, wait, timeout } => {
-                cmd_show(json, id, *wait, *timeout).await
-            }
-            ApprovalCmd::Approve { id } => cmd_approve(json, id).await,
-            ApprovalCmd::Reject { id, reason } => {
-                cmd_reject(json, id, reason.clone()).await
-            }
+    match cmd {
+        ApprovalCmd::Create { task, kind, payload } => {
+            cmd_create(json, task, kind, payload)
         }
-    });
+        ApprovalCmd::List { pending } => cmd_list(json, *pending),
+        ApprovalCmd::Show { id, wait, timeout } => {
+            cmd_show(json, id, *wait, *timeout)
+        }
+        ApprovalCmd::Approve { id } => cmd_approve(json, id),
+        ApprovalCmd::Reject { id, reason } => {
+            cmd_reject(json, id, reason.clone())
+        }
+    }
 }
 
-// ── DB operations ───────────────────────────────────────────────────
+// ── Store access ───────────────────────────────────────────────────
 
-async fn open_local_store() -> LibSqlApprovalStore {
-    let cwd = env::current_dir()
-        .unwrap_or_else(|e| error_exit(&format!("cwd: {e}")));
-    let db = flowctl_db::open_async(&cwd)
-        .await
-        .unwrap_or_else(|e| error_exit(&format!("open db: {e}")));
-    let conn = db
-        .connect()
-        .unwrap_or_else(|e| error_exit(&format!("connect db: {e}")));
-    // Leak the Database so the connection stays valid for the rest of the
-    // process lifetime (CLI is short-lived).
-    Box::leak(Box::new(db));
-    LibSqlApprovalStore::new(conn)
+fn open_local_store() -> FileApprovalStore {
+    let flow_dir = get_flow_dir();
+    let store = flowctl_db::FlowStore::new(flow_dir);
+    FileApprovalStore::new(store)
 }
 
 // ── Payload parsing ─────────────────────────────────────────────────
@@ -116,25 +99,24 @@ fn parse_payload(s: &str) -> Value {
 
 // ── Command impls ───────────────────────────────────────────────────
 
-async fn cmd_create(json: bool, task: &str, kind_str: &str, payload: &str) {
+fn cmd_create(json: bool, task: &str, kind_str: &str, payload: &str) {
     let kind = ApprovalKind::parse(kind_str)
         .unwrap_or_else(|| error_exit(&format!("invalid --kind: {kind_str}")));
     let payload_val = parse_payload(payload);
 
-    let store = open_local_store().await;
+    let store = open_local_store();
     let created = store
         .create(CreateApprovalRequest {
             task_id: task.to_string(),
             kind,
             payload: payload_val,
         })
-        .await
         .unwrap_or_else(|e| error_exit(&format!("create: {e}")));
     emit_result(json, serde_json::to_value(&created).unwrap_or_default());
 }
 
-async fn cmd_list(json: bool, pending_only: bool) {
-    let store = open_local_store().await;
+fn cmd_list(json: bool, pending_only: bool) {
+    let store = open_local_store();
     let filter = if pending_only {
         Some(ApprovalStatus::Pending)
     } else {
@@ -142,14 +124,13 @@ async fn cmd_list(json: bool, pending_only: bool) {
     };
     let approvals = store
         .list(filter)
-        .await
         .unwrap_or_else(|e| error_exit(&format!("list: {e}")));
     emit_list(json, serde_json::to_value(&approvals).unwrap_or_default());
 }
 
-async fn cmd_show(json: bool, id: &str, wait: bool, timeout_secs: u64) {
+fn cmd_show(json: bool, id: &str, wait: bool, timeout_secs: u64) {
     if !wait {
-        let val = fetch_one(id).await;
+        let val = fetch_one(id);
         emit_result(json, val);
         return;
     }
@@ -157,7 +138,7 @@ async fn cmd_show(json: bool, id: &str, wait: bool, timeout_secs: u64) {
     // Poll every 1s until status != pending OR timeout elapsed.
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     loop {
-        let val = fetch_one(id).await;
+        let val = fetch_one(id);
         let status = val.get("status").and_then(|v| v.as_str()).unwrap_or("");
         if status != "pending" {
             emit_result(json, val);
@@ -168,35 +149,32 @@ async fn cmd_show(json: bool, id: &str, wait: bool, timeout_secs: u64) {
                 "timeout waiting for approval {id} (status still pending after {timeout_secs}s)"
             ));
         }
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        std::thread::sleep(Duration::from_secs(1));
     }
 }
 
-async fn fetch_one(id: &str) -> Value {
-    let store = open_local_store().await;
+fn fetch_one(id: &str) -> Value {
+    let store = open_local_store();
     let approval = store
         .get(id)
-        .await
         .unwrap_or_else(|e| error_exit(&format!("get: {e}")));
     serde_json::to_value(&approval).unwrap_or_default()
 }
 
-async fn cmd_approve(json: bool, id: &str) {
+fn cmd_approve(json: bool, id: &str) {
     let resolver = resolve_actor();
-    let store = open_local_store().await;
+    let store = open_local_store();
     let resolved = store
         .approve(id, Some(resolver))
-        .await
         .unwrap_or_else(|e| error_exit(&format!("approve: {e}")));
     emit_result(json, serde_json::to_value(&resolved).unwrap_or_default());
 }
 
-async fn cmd_reject(json: bool, id: &str, reason: Option<String>) {
+fn cmd_reject(json: bool, id: &str, reason: Option<String>) {
     let resolver = resolve_actor();
-    let store = open_local_store().await;
+    let store = open_local_store();
     let resolved = store
         .reject(id, Some(resolver), reason)
-        .await
         .unwrap_or_else(|e| error_exit(&format!("reject: {e}")));
     emit_result(json, serde_json::to_value(&resolved).unwrap_or_default());
 }

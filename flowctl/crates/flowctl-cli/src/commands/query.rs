@@ -113,13 +113,6 @@ fn task_list_json(task: &Task) -> serde_json::Value {
     })
 }
 
-// ── DB bridge for file locks (stays in DB) ─────────────────────────
-
-fn require_db() -> crate::commands::db_shim::Connection {
-    crate::commands::db_shim::require_db()
-        .unwrap_or_else(|e| error_exit(&format!("Cannot open database: {}", e)))
-}
-
 // ── JSON file data access ──────────────────────────────────────────
 
 /// Get a single epic by ID from JSON files.
@@ -599,30 +592,25 @@ pub fn cmd_files(json_mode: bool, epic: String) {
 
 
 pub fn cmd_lock(json: bool, task: String, files: String, mode: String) {
-    let _flow_dir = ensure_flow_exists();
+    let flow_dir = ensure_flow_exists();
 
     let file_list: Vec<&str> = files.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     if file_list.is_empty() {
         error_exit("No files specified for locking.");
     }
 
-    let lock_mode = crate::commands::db_shim::LockMode::from_str(&mode)
-        .unwrap_or_else(|e| error_exit(&format!("Invalid lock mode: {}", e)));
-
-    let conn = require_db();
-    let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
+    let store = flowctl_db::FlowStore::new(flow_dir);
+    let lock_store = store.locks();
 
     let mut locked = Vec::new();
     let mut already_locked = Vec::new();
 
     for file in &file_list {
-        match repo.acquire(file, &task, &lock_mode) {
+        match lock_store.acquire(file, &task, &mode) {
             Ok(()) => locked.push(file.to_string()),
-            Err(crate::commands::db_shim::DbError::Constraint(msg)) => {
-                // Already locked — find out by whom
-                let entries = repo.check_locks(file).ok().unwrap_or_default();
-                let owners: Vec<String> = entries.iter().map(|e| format!("{}({})", e.task_id, e.lock_mode.as_str())).collect();
-                already_locked.push(json!({"file": file, "owners": owners, "detail": msg}));
+            Err(flowctl_db::DbError::Constraint(msg)) => {
+                let holder = lock_store.check(file).ok().flatten().unwrap_or_default();
+                already_locked.push(json!({"file": file, "owners": [format!("{}({mode})", holder)], "detail": msg}));
             }
             Err(e) => {
                 error_exit(&format!("Failed to lock {}: {}", file, e));
@@ -652,12 +640,12 @@ pub fn cmd_lock(json: bool, task: String, files: String, mode: String) {
 }
 
 pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all: bool) {
-    let _flow_dir = ensure_flow_exists();
-    let conn = require_db();
-    let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
+    let flow_dir = ensure_flow_exists();
+    let store = flowctl_db::FlowStore::new(flow_dir);
+    let lock_store = store.locks();
 
     if all {
-        match repo.release_all() {
+        match lock_store.release_all() {
             Ok(count) => {
                 if json {
                     json_output(json!({
@@ -680,7 +668,7 @@ pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all:
         }
     };
 
-    match repo.release_for_task(&task_id) {
+    match lock_store.release_for_task(&task_id) {
         Ok(count) => {
             if json {
                 json_output(json!({
@@ -697,30 +685,25 @@ pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all:
 }
 
 pub fn cmd_lock_check(json: bool, file: Option<String>) {
-    let _flow_dir = ensure_flow_exists();
-    let conn = require_db();
-    let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
+    let flow_dir = ensure_flow_exists();
+    let store = flowctl_db::FlowStore::new(flow_dir);
+    let lock_store = store.locks();
 
     match file {
         Some(f) => {
-            match repo.check_locks(&f) {
-                Ok(entries) if !entries.is_empty() => {
-                    let lock_info: Vec<serde_json::Value> = entries.iter().map(|e| json!({
-                        "task_id": e.task_id,
-                        "mode": e.lock_mode.as_str(),
-                    })).collect();
+            match lock_store.check(&f) {
+                Ok(Some(task_id)) => {
                     if json {
                         json_output(json!({
                             "file": f,
                             "locked": true,
-                            "locks": lock_info,
+                            "locks": [{"task_id": task_id, "mode": "write"}],
                         }));
                     } else {
-                        let owners: Vec<String> = entries.iter().map(|e| format!("{}({})", e.task_id, e.lock_mode.as_str())).collect();
-                        println!("{}: locked by {}", f, owners.join(", "));
+                        println!("{}: locked by {}", f, task_id);
                     }
                 }
-                Ok(_) => {
+                Ok(None) => {
                     if json {
                         json_output(json!({
                             "file": f,
@@ -734,18 +717,16 @@ pub fn cmd_lock_check(json: bool, file: Option<String>) {
             }
         }
         None => {
-            // List all locks
-            let lock_repo = crate::commands::db_shim::FileLockRepo::new(&conn);
-            let rows = lock_repo
-                .list_all()
+            let entries = lock_store
+                .list()
                 .unwrap_or_else(|e| { error_exit(&format!("Query failed: {}", e)); });
-            let locks: Vec<serde_json::Value> = rows
+            let locks: Vec<serde_json::Value> = entries
                 .into_iter()
-                .map(|(file, task_id, locked_at, lock_mode)| json!({
-                    "file": file,
-                    "task_id": task_id,
-                    "locked_at": locked_at,
-                    "mode": lock_mode,
+                .map(|entry| json!({
+                    "file": entry.file_path,
+                    "task_id": entry.task_id,
+                    "locked_at": entry.locked_at,
+                    "mode": entry.mode,
                 }))
                 .collect();
 
@@ -774,21 +755,15 @@ pub fn cmd_lock_check(json: bool, file: Option<String>) {
 
 pub fn cmd_heartbeat(json: bool, task: String) {
     let _flow_dir = ensure_flow_exists();
-    let conn = require_db();
-    let repo = crate::commands::db_shim::FileLockRepo::new(&conn);
-
-    match repo.heartbeat(&task) {
-        Ok(count) => {
-            if json {
-                json_output(json!({
-                    "task": task,
-                    "extended": count,
-                    "message": format!("Extended TTL for {} lock(s)", count),
-                }));
-            } else {
-                println!("Extended TTL for {} lock(s) for task {}", count, task);
-            }
-        }
-        Err(e) => error_exit(&format!("Failed to heartbeat: {}", e)),
+    // Heartbeat is a no-op with file-based locks (no TTL expiry).
+    // We still report success for protocol compatibility.
+    if json {
+        json_output(json!({
+            "task": task,
+            "extended": 0,
+            "message": "Heartbeat acknowledged (file-based locks have no TTL)",
+        }));
+    } else {
+        println!("Heartbeat acknowledged for task {} (file-based locks have no TTL)", task);
     }
 }

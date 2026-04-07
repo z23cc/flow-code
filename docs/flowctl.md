@@ -7,7 +7,13 @@ CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 ## Available Commands
 
 ```
-init, detect, epic, task, dep, gap, show, epics, files, lock, unlock, lock-check, tasks, list, cat, ready, queue, next, start, done, restart, block, validate, config, invariants, guard, stack, review-backend, memory, parse-findings, prep-chat, rp, codex, checkpoint, status, state-path, worker-prompt, worker-phase, doctor, ralph
+init, detect, status, doctor, validate, state-path, review-backend, parse-findings,
+guard, worker-prompt, dag, estimate, replay, diff, plan-depth,
+config, epic, task, dep, approval, gap, log, memory, outputs, checkpoint,
+stack, invariants, ralph, scout-cache, skill, rp, codex, hook, stats, worker-phase,
+show, epics, tasks, list, cat, files, lock, unlock, heartbeat, lock-check,
+ready, next, queue, start, done, restart, block, fail,
+export, import, completions
 ```
 
 ## Multi-User Safety
@@ -87,36 +93,38 @@ Output:
 {"success": true, "id": "fn-1-epic-title", "title": "Epic title", "spec_path": ".flow/specs/fn-1-epic-title.md"}
 ```
 
-### epic set-plan
+### epic plan
 
 Overwrite epic spec from file.
 
 ```bash
-flowctl epic set-plan fn-1 --file plan.md [--json]
+flowctl epic plan fn-1 --file plan.md [--json]
 ```
 
-### epic set-plan-review-status
+Use `-` as file to read from stdin.
 
-Set plan review status and timestamp.
+### epic review
+
+Set plan review status.
 
 ```bash
-flowctl epic set-plan-review-status fn-1 --status ship|needs_work|unknown [--json]
+flowctl epic review fn-1 ship|needs_work|unknown [--json]
 ```
 
-### epic set-completion-review-status
+### epic completion
 
-Set completion review status and timestamp.
+Set completion review status.
 
 ```bash
-flowctl epic set-completion-review-status fn-1 --status ship|needs_work|unknown [--json]
+flowctl epic completion fn-1 ship|needs_work|unknown [--json]
 ```
 
-### epic set-branch
+### epic branch
 
-Set epic branch_name.
+Set epic branch name.
 
 ```bash
-flowctl epic set-branch fn-1 --branch "fn-1-epic" [--json]
+flowctl epic branch fn-1 fn-1-epic [--json]
 ```
 
 ### epic close
@@ -157,31 +165,28 @@ Output:
 {"success": true, "id": "fn-1.4", "epic": "fn-1", "title": "Task title", "depends_on": ["fn-1.2", "fn-1.3"]}
 ```
 
-### task set-description
+### task spec
 
-Set task description section.
-
-```bash
-flowctl task set-description fn-1.2 --file desc.md [--json]
-```
-
-### task set-acceptance
-
-Set task acceptance section.
+Set task spec: full file or individual sections.
 
 ```bash
-flowctl task set-acceptance fn-1.2 --file accept.md [--json]
+# Full spec from file
+flowctl task spec fn-1.2 --file spec.md [--json]
+
+# Individual sections
+flowctl task spec fn-1.2 --desc desc.md --accept accept.md [--json]
+
+# With investigation targets
+flowctl task spec fn-1.2 --investigation targets.md [--json]
 ```
 
-### task set-spec
+Options:
+- `--file FILE`: Full spec file (replaces entire body)
+- `--desc FILE`: Description section file (alias: `--description`)
+- `--accept FILE`: Acceptance section file (alias: `--acceptance`)
+- `--investigation FILE`: Investigation targets section file
 
-Set description and acceptance in one call (fewer writes).
-
-```bash
-flowctl task set-spec fn-1.2 --description desc.md --acceptance accept.md [--json]
-```
-
-Both `--description` and `--acceptance` are optional; supply one or both.
+All section flags are optional; supply one or more.
 
 ### task reset
 
@@ -661,43 +666,6 @@ Output:
 
 Without `--register`, the `registered` field is omitted.
 
-### prep-chat
-
-Generate properly escaped JSON for RepoPrompt chat. Avoids shell escaping issues with complex prompts.
-Optional legacy positional arg is ignored; do not pass epic/task IDs.
-
-```bash
-# Write message to file (avoids escaping issues)
-cat > /tmp/prompt.md << 'EOF'
-Your multi-line prompt with "quotes", $variables, and `backticks`.
-EOF
-
-# Generate JSON
-flowctl prep-chat \
-  --message-file /tmp/prompt.md \
-  --mode chat \
-  [--new-chat] \
-  [--chat-name "Review Name"] \
-  [--selected-paths file1.ts file2.ts] \
-  [-o /tmp/payload.json]
-
-# Prefer flowctl rp chat-send (uses this internally)
-flowctl rp chat-send --window W --tab T --message-file /tmp/prompt.md
-```
-
-Options:
-- `--message-file FILE` (required): File containing the message text
-- `--mode {chat,ask}`: Chat mode (default: chat)
-- `--new-chat`: Start a new chat session
-- `--chat-name NAME`: Name for the new chat
-- `--selected-paths FILE...`: Files to include in context (for follow-ups)
-- `-o, --output FILE`: Write JSON to file (default: stdout)
-
-Output (stdout or file):
-```json
-{"message": "...", "mode": "chat", "new_chat": true, "chat_name": "...", "selected_paths": ["..."]}
-```
-
 ### rp
 
 RepoPrompt wrappers (preferred for reviews). Requires RepoPrompt 1.5.68+.
@@ -916,6 +884,444 @@ Source values:
 - `git-common-dir` — `git --git-common-dir` (shared across worktrees)
 - `fallback` — `.flow/state` (non-git or old git)
 
+### doctor
+
+Run comprehensive state health diagnostics.
+
+```bash
+flowctl doctor [--workflow] [--json]
+```
+
+Options:
+- `--workflow`: Run workflow-specific health checks (backend config, tools, locks)
+
+### review-backend
+
+Get review backend and compare review receipts.
+
+```bash
+# Detect configured backend
+flowctl review-backend [--json]
+
+# Compare receipts from specific files
+flowctl review-backend --compare receipt1.json,receipt2.json [--json]
+
+# Auto-discover receipts for an epic
+flowctl review-backend --epic fn-1 [--json]
+```
+
+Options:
+- `--compare FILES`: Comma-separated review receipt file paths
+- `--epic EPIC_ID`: Auto-discover review receipts for epic
+
+### dag
+
+Render ASCII DAG of task dependencies for an epic.
+
+```bash
+flowctl dag fn-1 [--json]
+```
+
+Also available via `flowctl status --dag --epic fn-1`.
+
+### estimate
+
+Estimate remaining time for an epic based on historical task durations.
+
+```bash
+flowctl estimate --epic fn-1 [--json]
+```
+
+### replay
+
+Replay an epic: reset all tasks to `todo` for re-execution.
+
+```bash
+flowctl replay fn-1 [--dry-run] [--force] [--json]
+```
+
+Options:
+- `--dry-run`: Show what would be reset without doing it
+- `--force`: Allow replay even if tasks are `in_progress`
+
+### diff
+
+Show git diff summary for an epic's branch.
+
+```bash
+flowctl diff fn-1 [--json]
+```
+
+### plan-depth
+
+Classify request depth for adaptive plan step selection.
+
+```bash
+flowctl plan-depth --request "Add OAuth support" [--json]
+```
+
+### approval
+
+Approval commands for requesting/resolving blocking decisions (Teams mode).
+
+```bash
+# Create a pending approval
+flowctl approval create --task fn-1.2 --kind file_access --payload '{"file":"src/auth.rs"}' [--json]
+flowctl approval create --task fn-1.2 --kind mutation --payload @request.json [--json]
+
+# List approvals
+flowctl approval list [--pending] [--json]
+
+# Show a single approval (optionally wait for resolution)
+flowctl approval show <id> [--wait] [--timeout 300] [--json]
+
+# Approve or reject
+flowctl approval approve <id> [--json]
+flowctl approval reject <id> [--reason "..."] [--json]
+```
+
+Approval kinds: `file_access`, `mutation`, `generic`. Payload accepts inline JSON or `@path/to/file.json`.
+
+### log
+
+Decision logging for workflow traceability.
+
+```bash
+# Record a decision
+flowctl log decision --key "review_backend" --value "rp-mcp" --reason "RP available" [--epic fn-1] [--task fn-1.2] [--json]
+
+# Query stored decisions
+flowctl log decisions [--epic fn-1] [--limit 20] [--json]
+```
+
+### outputs
+
+Narrative handoff between tasks. Workers write outputs in Phase 9; successors read them during Phase 2 re-anchor.
+
+```bash
+# Write output for a task (from file or stdin)
+flowctl outputs write fn-1.3 --file output.md [--json]
+flowctl outputs write fn-1.3 --file - [--json]  # stdin
+
+# List outputs for an epic (newest-first)
+flowctl outputs list --epic fn-1 [--limit 10] [--json]
+
+# Show full output content
+flowctl outputs show fn-1.3 [--json]
+```
+
+### ralph
+
+Ralph autonomous run control.
+
+```bash
+flowctl ralph pause [--run <id>] [--json]
+flowctl ralph resume [--run <id>] [--json]
+flowctl ralph stop [--run <id>] [--json]
+flowctl ralph status [--run <id>] [--json]
+```
+
+Run ID is auto-detected if only one active run exists.
+
+### scout-cache
+
+Scout result cache commands. Caches keyed by scout type + git commit hash.
+
+```bash
+# Get cached result
+flowctl scout-cache get --scout-type repo [--commit <hash>] [--json]
+
+# Set (cache) a result
+flowctl scout-cache set --scout-type repo --result '{"findings":[]}' [--commit <hash>] [--json]
+flowctl scout-cache set --scout-type capability --result @result.json [--json]
+
+# Clear all cached results
+flowctl scout-cache clear [--json]
+```
+
+Commit hash auto-detected from HEAD if omitted. Result accepts inline JSON or `@path/to/file.json`.
+
+### skill
+
+Skill registry commands with semantic vector search.
+
+```bash
+# Scan and register skills from skills/*/SKILL.md
+flowctl skill register [--dir /path/to/plugin] [--json]
+
+# Semantic search against registered skills
+flowctl skill match "implement OAuth" [--limit 5] [--threshold 0.70] [--json]
+```
+
+Options for `match`:
+- `--limit N`: Maximum results (default: 5)
+- `--threshold F`: Minimum cosine similarity (default: 0.70)
+
+### hook
+
+Claude Code hook scripts (invoked automatically by hooks.json, not manually).
+
+```bash
+flowctl hook auto-memory        # Extract session memories (Stop hook)
+flowctl hook ralph-guard        # Enforce Ralph workflow rules
+flowctl hook commit-gate        # Gate commit on guard pass
+flowctl hook pre-compact        # Inject .flow/ state into compaction
+flowctl hook subagent-context   # Inject active task context for subagents
+flowctl hook task-completed     # Sync Claude task completion with .flow/
+flowctl hook rtk-rewrite        # Rewrite Bash commands via rtk optimizer
+```
+
+All hooks read JSON from stdin and use exit codes 0 (allow) and 2 (block).
+
+### stats
+
+Stats dashboard with summary, trends, tokens, and DORA metrics.
+
+```bash
+# Overall summary
+flowctl stats summary [--json]
+
+# Per-epic breakdown
+flowctl stats epic [--id fn-1] [--json]
+
+# Weekly trends
+flowctl stats weekly [--weeks 8] [--json]
+
+# Token/cost breakdown
+flowctl stats tokens [--epic fn-1] [--json]
+
+# Bottleneck analysis
+flowctl stats bottlenecks [--limit 10] [--json]
+
+# DORA metrics
+flowctl stats dora [--json]
+
+# Maintenance
+flowctl stats rollup [--json]    # Generate monthly rollups
+flowctl stats cleanup [--json]   # Delete old events/rollups
+```
+
+### files
+
+Show file ownership map for an epic.
+
+```bash
+flowctl files --epic fn-1 [--json]
+```
+
+Shows which tasks own which files and detects ownership conflicts.
+
+### lock
+
+Lock files for a task (Teams mode). Prevents other workers from modifying locked files.
+
+```bash
+flowctl lock --task fn-1.2 --files src/auth.rs,src/config.rs [--mode write] [--json]
+```
+
+Options:
+- `--task ID` (required): Task ID that owns the files
+- `--files PATHS` (required): Comma-separated file paths
+- `--mode MODE`: Lock mode — `read`, `write`, or `directory_add` (default: `write`)
+
+### unlock
+
+Unlock files for a task (Teams mode).
+
+```bash
+flowctl unlock --task fn-1.2 [--files src/auth.rs] [--json]
+flowctl unlock --all [--json]
+```
+
+Options:
+- `--task ID`: Task ID to unlock files for
+- `--files PATHS`: Specific files to unlock (all task files if omitted)
+- `--all`: Clear ALL file locks (used between waves)
+
+### heartbeat
+
+Extend lock TTL for a task (Teams mode heartbeat).
+
+```bash
+flowctl heartbeat --task fn-1.2 [--json]
+```
+
+### lock-check
+
+Check file lock status (Teams mode).
+
+```bash
+flowctl lock-check [--file src/auth.rs] [--json]
+```
+
+Shows all active locks, or lock state for a specific file.
+
+### queue
+
+Show multi-epic queue status.
+
+```bash
+flowctl queue [--json]
+```
+
+### fail
+
+Mark task as failed. Triggers `upstream_failed` propagation to downstream dependents.
+
+```bash
+flowctl fail fn-1.2 [--reason "..."] [--force] [--json]
+```
+
+Options:
+- `--reason TEXT`: Reason for failure
+- `--force`: Skip status checks
+
+### restart
+
+Restart task and cascade-reset downstream dependents.
+
+```bash
+flowctl restart fn-1.2 [--dry-run] [--force] [--json]
+```
+
+Options:
+- `--dry-run`: Show what would be reset without doing it
+- `--force`: Allow restart even if tasks are `in_progress`
+
+### dep rm
+
+Remove a dependency between tasks.
+
+```bash
+flowctl dep rm fn-1.3 fn-1.2 [--json]
+```
+
+### task skip
+
+Skip a task (mark as permanently skipped). Downstream deps treat skipped as satisfied.
+
+```bash
+flowctl task skip fn-1.2 [--reason "Not needed after refactor"] [--json]
+```
+
+### task split
+
+Split a task into sub-tasks (runtime DAG mutation).
+
+```bash
+flowctl task split fn-1.2 --titles "Parse config|Validate config|Apply config" [--chain] [--json]
+```
+
+Options:
+- `--titles TEXT` (required): Sub-task titles separated by `|`
+- `--chain`: Chain sub-tasks sequentially (each depends on the previous)
+
+### epic reopen
+
+Reopen a closed epic.
+
+```bash
+flowctl epic reopen fn-1 [--json]
+```
+
+### epic title
+
+Rename an epic's title.
+
+```bash
+flowctl epic title fn-1 --title "New title" [--json]
+```
+
+### epic archive
+
+Archive a closed epic to `.flow/.archive/`.
+
+```bash
+flowctl epic archive fn-1 [--force] [--json]
+```
+
+Options:
+- `--force`: Archive even if not closed
+
+### epic clean
+
+Archive all closed epics at once.
+
+```bash
+flowctl epic clean [--json]
+```
+
+### epic audit
+
+Audit epic task-coverage vs original spec (advisory only).
+
+```bash
+flowctl epic audit fn-1 [--force] [--json]
+```
+
+Assembles epic spec, task list, and prior audit context into a payload for the epic-auditor agent. Writes to `.flow/reviews/epic-audit-<id>-<timestamp>.json`. Never mutates epic/tasks/gaps.
+
+Options:
+- `--force`: Force a new audit even if a recent (<24h) receipt exists
+
+### epic add-dep
+
+Add epic-level dependency.
+
+```bash
+flowctl epic add-dep fn-2 fn-1 [--json]
+```
+
+Makes `fn-2` depend on `fn-1`.
+
+### epic rm-dep
+
+Remove epic-level dependency.
+
+```bash
+flowctl epic rm-dep fn-2 fn-1 [--json]
+```
+
+### epic auto-exec
+
+Set or clear auto-execute pending marker.
+
+```bash
+flowctl epic auto-exec fn-1 --pending [--json]
+flowctl epic auto-exec fn-1 --done [--json]
+```
+
+### export
+
+Export epics/tasks from DB to Markdown files.
+
+```bash
+flowctl export [--epic fn-1] [--format md] [--json]
+```
+
+Exports all epics if `--epic` is omitted.
+
+### import
+
+Import epics/tasks from Markdown files into DB (alias for reindex).
+
+```bash
+flowctl import [--json]
+```
+
+Rebuilds the DB from `.flow/` Markdown files.
+
+### completions
+
+Generate shell completions.
+
+```bash
+flowctl completions bash > ~/.bash_completion.d/flowctl
+flowctl completions zsh > ~/.zfunc/_flowctl
+flowctl completions fish > ~/.config/fish/completions/flowctl.fish
+```
+
+Supported shells: `bash`, `elvish`, `fish`, `powershell`, `zsh`.
 
 ## Ralph Receipts
 

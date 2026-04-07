@@ -122,3 +122,47 @@ Skills that make final judgments, complete workflows, or serve as primary manage
 | `flow-code` | Task and epic management entry point |
 | `flow-code-retro` | Post-epic retrospective and lessons learned |
 | `flow-code-autoplan` | Multi-perspective auto-review pipeline |
+
+## Template Generation
+
+Skills can be generated from `.tmpl` template files with `{{PLACEHOLDER}}` markers that resolve to shared content. This keeps common patterns (preamble, flowctl path, review protocols) in sync across all skills.
+
+### Creating a Template
+
+1. Copy the existing `SKILL.md` to `SKILL.md.tmpl` in the same directory
+2. Replace shared content with placeholder markers (see table below)
+3. Add `{{GENERATED_NOTICE}}` after the frontmatter to mark the file as auto-generated
+4. Run the generation script to produce the `SKILL.md`
+
+### Available Placeholders
+
+| Placeholder | Resolves To |
+|-------------|-------------|
+| `{{GENERATED_NOTICE}}` | `<!-- AUTO-GENERATED from SKILL.md.tmpl — DO NOT EDIT DIRECTLY -->` |
+| `{{FLOWCTL_PATH}}` | `FLOWCTL="$HOME/.flow/bin/flowctl"` |
+| `{{SKILL_NAME}}` | Extracted from the template's frontmatter `name:` field |
+| `{{PREAMBLE}}` | Contents of `skills/_shared/preamble.md` |
+| `{{RP_REVIEW_PROTOCOL}}` | Contents of `skills/_shared/rp-review-protocol.md` |
+
+### Running Generation
+
+```bash
+# Generate all SKILL.md files from their .tmpl sources
+bash scripts/gen-skill-docs.sh
+
+# Preview what would change without writing
+bash scripts/gen-skill-docs.sh --dry-run
+
+# Check if generated files are up to date (for CI)
+bash scripts/gen-skill-docs.sh --check
+```
+
+### CI Freshness Check
+
+Add to your CI pipeline to ensure generated files stay in sync:
+
+```bash
+bash scripts/check-skill-freshness.sh
+```
+
+This exits with code 1 if any `SKILL.md` does not match its `.tmpl` source, preventing stale generated files from being committed.

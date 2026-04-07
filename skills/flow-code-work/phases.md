@@ -19,7 +19,7 @@
 FLOWCTL="$HOME/.flow/bin/flowctl"
 ```
 
-## Phase 1: Resolve Input
+## Step 1: Resolve Input
 
 Detect input type in this order (first match wins):
 
@@ -28,7 +28,7 @@ Detect input type in this order (first match wins):
 3. **Spec file** `.md` path that exists on disk → **EPIC_MODE**
 4. **Idea text** everything else → **EPIC_MODE**
 
-**Track the mode** — it controls looping in Phase 3.
+**Track the mode** — it controls looping in the Wave Loop (Steps 3–13).
 
 ---
 
@@ -59,7 +59,7 @@ Detect input type in this order (first match wins):
 3. Create single task: `$FLOWCTL task create --epic <epic-id> --title "Implement <idea>" --json`
 4. Continue with epic-id
 
-## Phase 2: Apply Branch Choice
+## Step 2: Apply Branch Choice
 
 - **Worktree** (default when on main): use `skill: flow-code-worktree-kit` to create an isolated worktree. This keeps main clean and allows parallel work.
 - **Current branch** (default when on feature branch or dirty tree): proceed in place.
@@ -69,7 +69,7 @@ Detect input type in this order (first match wins):
   git checkout -b <branch>
   ```
 
-## Phase 3: Task Loop
+## Wave Loop (Steps 3–13 repeat per wave)
 
 ### Wave Model
 
@@ -82,13 +82,13 @@ Wave N: [remaining tasks]           → spawn workers → wait → merge → che
 ```
 
 **Wave lifecycle:**
-1. **Find ready tasks** (3a) — query `$FLOWCTL ready --epic <id>`
-2. **Start + spawn workers** (3b-3d) — lock files, spawn in parallel
-3. **Wait + merge** (3e) — collect results, merge worktree branches
-4. **Cleanup** (3f) — release file locks (`$FLOWCTL unlock --all`)
-5. **Checkpoint** (3g) — mandatory: run guards + invariants, aggregate results
-6. **Plan-sync** (3h) — update downstream task specs if drift detected
-7. **Loop** (3i) — return to step 1 for next wave, or finish if no ready tasks
+1. **Find ready tasks** (Step 3) — query `$FLOWCTL ready --epic <id>`
+2. **Start + spawn workers** (Steps 4–7) — lock files, spawn in parallel
+3. **Wait + merge** (Step 8) — collect results, merge worktree branches
+4. **Cleanup** (Step 9) — release file locks (`$FLOWCTL unlock --all`)
+5. **Checkpoint** (Step 10) — mandatory: run guards + invariants, aggregate results
+6. **Plan-sync** (Step 12) — update downstream task specs if drift detected
+7. **Loop** (Step 13) — return to Step 3 for next wave, or finish if no ready tasks
 
 **Stop rules:**
 - Guards or invariants fail and cannot be auto-fixed
@@ -99,7 +99,7 @@ Wave N: [remaining tasks]           → spawn workers → wait → merge → che
 
 **CRITICAL: When multiple tasks are ready, they MUST run in parallel. Do NOT execute them sequentially "for quality" or "one at a time." Parallel execution with isolation IS the quality mechanism.**
 
-### 3a. Find Ready Tasks
+### Step 3. Find Ready Tasks
 
 **State awareness (always runs first):**
 
@@ -134,9 +134,9 @@ After restarts, find ready tasks normally:
 $FLOWCTL ready --epic <epic-id> --json
 ```
 
-Collect ALL ready tasks (no unresolved dependencies). If no ready tasks, check for completion review gate (see 3g below).
+Collect ALL ready tasks (no unresolved dependencies). If no ready tasks, check for completion review gate (see Step 10 below).
 
-### 3b. Readiness Check
+### Step 4. Readiness Check
 
 Before starting, validate each task spec is implementation-ready:
 
@@ -153,7 +153,7 @@ $FLOWCTL cat <task-id>
 - Use AskUserQuestion: "Task `<id>` spec is missing [field]. Add it before starting?"
 - Do NOT spawn a worker with an incomplete spec — workers guess when specs are vague
 
-### 3c. Start Tasks & Spawn Workers
+### Step 5. Start Tasks
 
 ```bash
 # 1. Start each task
@@ -161,7 +161,7 @@ $FLOWCTL start <task-id-1> --json
 $FLOWCTL start <task-id-2> --json
 ```
 
-### 3c½. File Ownership & Locking (Teams mode)
+### Step 6. File Ownership & Locking (Teams mode)
 
 For each ready task, read file ownership from the task spec and lock:
 
@@ -199,7 +199,7 @@ If conflicts exist (two tasks declare the same file):
 
 **RP context detection (once per wave, before spawning workers):**
 
-Detect RP availability and set `RP_CONTEXT` for workers. This controls whether workers use `context_builder` for deep implementation context in Phase 1.5.
+Detect RP availability and set `RP_CONTEXT` for workers. This controls whether workers use `context_builder` for deep implementation context in Worker Phase 6.
 
 ```bash
 # 1. Check if RP context is enabled (default: false — opt-in only)
@@ -225,7 +225,7 @@ Use `flowctl worker-prompt --bootstrap` to generate a minimal bootstrap prompt f
 WORKER_PROMPT=$($FLOWCTL worker-prompt --task <task-id> --bootstrap [--tdd] [--review rp|codex])
 ```
 
-### 3d. Spawn Workers (Worktree + Teams — Default)
+### Step 7. Spawn Workers (Worktree + Teams — Default)
 
 1. Create team: `TeamCreate({team_name: "flow-<epic-id>"})`
 2. Spawn all workers with BOTH `isolation: "worktree"` AND `team_name`:
@@ -248,7 +248,7 @@ Agent({
     TDD_MODE: true|false
     RP_CONTEXT: $RP_CONTEXT
     TEAM_MODE: true
-    OWNED_FILES: <comma-separated file list from 3c½>
+    OWNED_FILES: <comma-separated file list from Step 6>
   "
 })
 ```
@@ -259,7 +259,7 @@ Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
 
 **Worker returns**: Summary of implementation, files changed, test results, review verdict.
 
-### 3e. Wait for Workers & Merge Back
+### Step 8. Wait for Workers & Merge Back
 
 Wait for all workers to complete.
 
@@ -282,7 +282,7 @@ git branch -d <worker-branch> 2>/dev/null || true
 3. **Stop the merge sequence** — do NOT merge remaining branches
 4. Report to the user: conflicting branch name + suggestion to resolve manually
 
-### 3f. Wave Cleanup
+### Step 9. Wave Cleanup
 
 Release file locks so the next wave can re-lock with new ownership:
 
@@ -292,7 +292,7 @@ $FLOWCTL unlock --all
 
 Worktrees are cleaned up automatically by the worktree kit.
 
-### 3g. Verify Completion & Checkpoint
+### Step 10. Verify Completion & Checkpoint
 
 After worker(s) return, verify each task completed:
 
@@ -306,14 +306,14 @@ If status is not `done`, the worker failed. Check output and retry or investigat
 
 After ALL workers in a wave return, run a structured checkpoint before finding the next wave of tasks. This prevents cascading failures and ensures integration quality.
 
-**Step 1 — Aggregate Results:**
+**Sub-step 1 — Aggregate Results:**
 Collect from every worker in the batch:
 - Status: done / failed / spec_conflict
 - Files changed (from worker summary)
 - Tests: pass / fail / skipped
 - Review verdict (if REVIEW_MODE != none)
 
-**Step 2 — Integration Verification:**
+**Sub-step 2 — Integration Verification:**
 ```bash
 # Run guards on the result (catches cross-task breakage)
 $FLOWCTL guard
@@ -324,7 +324,7 @@ $FLOWCTL invariants check
 
 If guards or invariants fail, identify which task's changes caused the regression and report to user.
 
-**Step 3 — Wave Summary:**
+**Sub-step 3 — Wave Summary:**
 Output a concise checkpoint report:
 ```
 ── Wave N Checkpoint ──────────────────────
@@ -341,7 +341,7 @@ Output a concise checkpoint report:
 - Guards or invariants fail and cannot be auto-fixed → report to user
 - ≥ 2 tasks in the same wave failed → likely a systemic issue, pause and investigate
 
-### 3g½. Interactive Checkpoint (if `--interactive`)
+### Step 11. Interactive Checkpoint (if `--interactive`)
 
 If `--interactive` was passed, pause after each task completes and show a checkpoint:
 
@@ -354,17 +354,17 @@ Checkpoint: Task <task-id> complete
 Continue to next task? (y/n/skip/abort)
   y = continue (default)
   n = pause here, I'll review manually
-  skip = skip remaining tasks, go to Phase 4
+  skip = skip remaining tasks, go to Step 15
   abort = stop execution entirely
 ```
 
 Use AskUserQuestion to wait for response. If no `--interactive` flag, skip this step entirely.
 
-### 3h. Plan Sync (if enabled) — BOTH MODES
+### Step 12. Plan Sync (if enabled) — BOTH MODES
 
-**Runs in SINGLE_TASK_MODE and EPIC_MODE.** Only the loop-back in 3i differs by mode.
+**Runs in SINGLE_TASK_MODE and EPIC_MODE.** Only the loop-back in Step 13 differs by mode.
 
-Only run plan-sync if the task status is `done` (from step 3g). If not `done`, skip plan-sync and investigate/retry.
+Only run plan-sync if the task status is `done` (from Step 10). If not `done`, skip plan-sync and investigate/retry.
 
 Check if plan-sync should run:
 
@@ -405,15 +405,15 @@ Follow your phases in plan-sync.md exactly.
 
 Plan-sync returns summary. Log it but don't block - task updates are best-effort.
 
-### 3i. Loop or Finish
+### Step 13. Loop or Finish
 
-**SINGLE_TASK_MODE**: After 3g→3h, go to Phase 4 (Quality). No loop.
+**SINGLE_TASK_MODE**: After Step 10 → Step 12, go to Step 15 (Quality). No loop.
 
-**EPIC_MODE**: After 3g→3h, return to 3a for next wave.
+**EPIC_MODE**: After Step 10 → Step 12, return to Step 3 for next wave.
 
-### 3j. Adversarial Review (EPIC_MODE only — Layer 3)
+### Step 14. Adversarial Review (EPIC_MODE only — Layer 3)
 
-When 3a finds no ready tasks, all tasks are done. Run cross-model adversarial review before shipping.
+When Step 3 finds no ready tasks, all tasks are done. Run cross-model adversarial review before shipping.
 
 **This is Layer 3 of the quality system.** A different model family (GPT via Codex) tries to **break** the code. This catches blind spots that Claude (implementing model) and RP (same model family) both miss.
 
@@ -430,15 +430,15 @@ $FLOWCTL codex adversarial --base "$BRANCH_BASE" --json
 ```
 
 Initialize `ADVERSARIAL_ITERATIONS=0`. Parse response:
-- `verdict: "SHIP"` → go to Phase 4
-- `verdict: "NEEDS_WORK"` → increment `ADVERSARIAL_ITERATIONS`. If `>= 2`: log "Adversarial review: 2 iterations completed. First iteration finds real issues, second verifies fixes. Proceeding." → go to Phase 4. Otherwise: fix issues, commit, re-run.
+- `verdict: "SHIP"` → go to Step 15
+- `verdict: "NEEDS_WORK"` → increment `ADVERSARIAL_ITERATIONS`. If `>= 2`: log "Adversarial review: 2 iterations completed. First iteration finds real issues, second verifies fixes. Proceeding." → go to Step 15. Otherwise: fix issues, commit, re-run.
 
 **If codex not available:**
 ```
 ⚠ Codex CLI not found — skipping Layer 3 adversarial review.
   Install: npm install -g @openai/codex
 ```
-Go to Phase 4 directly. No fallback to RP — different model family is the point.
+Go to Step 15 directly. No fallback to RP — different model family is the point.
 
 **After SHIP (or skip):**
 ```bash
@@ -461,7 +461,7 @@ Context optimization. Each task gets fresh context:
 
 ---
 
-## Phase 4: Quality
+## Step 15: Quality
 
 After all tasks complete (or periodically for large epics):
 
@@ -471,7 +471,7 @@ After all tasks complete (or periodically for large epics):
   - Task flow-code:quality-auditor("Review recent changes")
 - Fix critical issues
 
-## Phase 5: Ship
+## Step 16: Ship
 
 **Verify all tasks done**:
 ```bash
@@ -554,17 +554,18 @@ Confirm before ship:
 
 **Default mode (worktree isolation — auto-parallel):**
 ```
-Phase 1 (resolve) → Phase 2 (branch) → Phase 3:
-  ├─ 3a: read state + progress summary, restart stale tasks, find ready tasks
-  ├─ 3b: readiness check
-  ├─ 3c: start tasks
-  ├─ 3d: spawn workers (worktree isolation, default)
-  ├─ 3e: wait for workers + merge back
-  ├─ 3f: cleanup
-  ├─ 3g: verify done + wave checkpoint
-  ├─ 3g½: interactive pause (if --interactive)
-  ├─ 3h: plan-sync (if enabled + downstream tasks exist)
-  ├─ 3i: EPIC_MODE? → loop to 3a | SINGLE_TASK_MODE? → Phase 4
-  ├─ no more tasks → 3j: completion review gate
-  └─ Phase 4 (quality) → Phase 5 (ship)
+Step 1 (resolve) → Step 2 (branch) → Wave Loop:
+  ├─ Step 3: read state + progress summary, restart stale tasks, find ready tasks
+  ├─ Step 4: readiness check
+  ├─ Step 5: start tasks
+  ├─ Step 6: file ownership & locking
+  ├─ Step 7: spawn workers (worktree isolation, default)
+  ├─ Step 8: wait for workers + merge back
+  ├─ Step 9: cleanup
+  ├─ Step 10: verify done + wave checkpoint
+  ├─ Step 11: interactive pause (if --interactive)
+  ├─ Step 12: plan-sync (if enabled + downstream tasks exist)
+  ├─ Step 13: EPIC_MODE? → loop to Step 3 | SINGLE_TASK_MODE? → Step 15
+  ├─ no more tasks → Step 14: adversarial review gate
+  └─ Step 15 (quality) → Step 16 (ship)
 ```

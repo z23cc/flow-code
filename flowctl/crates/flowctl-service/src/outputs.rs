@@ -1,7 +1,7 @@
 //! Outputs store: file-system native, one `.md` file per task.
 //!
-//! Lives at `.flow/outputs/<task-id>.md`. Worker writes in Phase 5c; the
-//! next worker reads the last N during Phase 1 re-anchor.
+//! Lives at `.flow/outputs/<task-id>.md`. Worker writes in Phase 9; the
+//! next worker reads the last N during Phase 2 re-anchor.
 //!
 //! No libSQL table — outputs are narrative handoff artifacts, not verified
 //! state. Listing is done by directory scan + epic-prefix filtering.

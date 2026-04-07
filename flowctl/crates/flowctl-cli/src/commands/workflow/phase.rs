@@ -53,29 +53,29 @@ struct PhaseDef {
 }
 
 const PHASE_DEFS: &[PhaseDef] = &[
-    PhaseDef { id: "0",   title: "Verify Configuration",  done_condition: "OWNED_FILES verified and configuration validated" },
-    PhaseDef { id: "1",   title: "Re-anchor",             done_condition: "Run flowctl show <task> and verify spec was read" },
-    PhaseDef { id: "2a",  title: "TDD Red-Green",         done_condition: "Failing tests written and confirmed to fail" },
-    PhaseDef { id: "2",   title: "Implement",             done_condition: "Feature implemented and code compiles" },
-    PhaseDef { id: "2.5", title: "Verify & Fix",          done_condition: "flowctl guard passes and diff reviewed" },
-    PhaseDef { id: "3",   title: "Commit",                done_condition: "Changes committed with conventional commit message" },
-    PhaseDef { id: "4",   title: "Review",                done_condition: "SHIP verdict received from reviewer" },
-    PhaseDef { id: "5",   title: "Complete",              done_condition: "flowctl done called and task status is done" },
-    PhaseDef { id: "5c",  title: "Outputs Dump",          done_condition: "Narrative summary written to .flow/outputs/<task-id>.md" },
-    PhaseDef { id: "5b",  title: "Memory Auto-Save",      done_condition: "Non-obvious lessons saved to memory (if any)" },
-    PhaseDef { id: "6",   title: "Return",                done_condition: "Summary returned to main conversation" },
+    PhaseDef { id: "1",   title: "Verify Configuration",  done_condition: "OWNED_FILES verified and configuration validated" },
+    PhaseDef { id: "2",   title: "Re-anchor",             done_condition: "Run flowctl show <task> and verify spec was read" },
+    PhaseDef { id: "4",   title: "TDD Red-Green",         done_condition: "Failing tests written and confirmed to fail" },
+    PhaseDef { id: "5",   title: "Implement",             done_condition: "Feature implemented and code compiles" },
+    PhaseDef { id: "6",   title: "Verify & Fix",          done_condition: "flowctl guard passes and diff reviewed" },
+    PhaseDef { id: "7",   title: "Commit",                done_condition: "Changes committed with conventional commit message" },
+    PhaseDef { id: "8",   title: "Review",                done_condition: "SHIP verdict received from reviewer" },
+    PhaseDef { id: "9",   title: "Outputs Dump",          done_condition: "Narrative summary written to .flow/outputs/<task-id>.md" },
+    PhaseDef { id: "10",  title: "Complete",              done_condition: "flowctl done called and task status is done" },
+    PhaseDef { id: "11",  title: "Memory Auto-Save",      done_condition: "Non-obvious lessons saved to memory (if any)" },
+    PhaseDef { id: "12",  title: "Return",                done_condition: "Summary returned to main conversation" },
 ];
 
 /// Canonical ordering of all phases — used to merge sequences.
-/// Phase 5c (outputs dump) runs BEFORE 5 (completion) so the narrative
+/// Phase 9 (outputs dump) runs BEFORE 10 (completion) so the narrative
 /// handoff artifact exists before dependents unblock and begin re-anchor.
-const CANONICAL_ORDER: &[&str] = &["0", "1", "2a", "2", "2.5", "3", "4", "5c", "5", "5b", "6"];
+const CANONICAL_ORDER: &[&str] = &["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 
-/// Default phase sequence (Worktree + Teams, always includes Phase 0).
-/// Phase 5c is inserted before 5 when `outputs.enabled` is true (default).
-const PHASE_SEQ_DEFAULT: &[&str] = &["0", "1", "2", "2.5", "3", "5", "5b", "6"];
-const PHASE_SEQ_TDD: &[&str]    = &["0", "1", "2a", "2", "2.5", "3", "5", "5b", "6"];
-const PHASE_SEQ_REVIEW: &[&str] = &["0", "1", "2", "2.5", "3", "4", "5", "5b", "6"];
+/// Default phase sequence (Worktree + Teams, always includes Phase 1).
+/// Phase 9 is inserted before 10 when `outputs.enabled` is true (default).
+const PHASE_SEQ_DEFAULT: &[&str] = &["1", "2", "5", "6", "7", "10", "11", "12"];
+const PHASE_SEQ_TDD: &[&str]    = &["1", "2", "4", "5", "6", "7", "10", "11", "12"];
+const PHASE_SEQ_REVIEW: &[&str] = &["1", "2", "5", "6", "7", "8", "10", "11", "12"];
 
 fn get_phase_def(phase_id: &str) -> Option<&'static PhaseDef> {
     PHASE_DEFS.iter().find(|p| p.id == phase_id)
@@ -121,16 +121,39 @@ fn build_phase_sequence(tdd: bool, review: bool) -> Vec<&'static str> {
         }
     }
     if is_outputs_enabled() {
-        phases.insert("5c");
+        phases.insert("9");
     }
     CANONICAL_ORDER.iter().copied().filter(|p| phases.contains(p)).collect()
 }
 
-/// Load completed phases from SQLite.
+/// Map legacy fragmented phase IDs to sequential integers.
+fn migrate_phase_id(id: &str) -> String {
+    match id {
+        "0"   => "1".to_string(),
+        "1"   => "2".to_string(),
+        "1.5" => "3".to_string(),
+        "2a"  => "4".to_string(),
+        "2"   => "5".to_string(),
+        "2.5" => "6".to_string(),
+        "3"   => "7".to_string(),
+        "4"   => "8".to_string(),
+        "5c"  => "9".to_string(),
+        "5"   => "10".to_string(),
+        "5b"  => "11".to_string(),
+        "6"   => "12".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Load completed phases from SQLite, migrating legacy IDs.
 fn load_completed_phases(task_id: &str) -> Vec<String> {
     let conn = require_db();
     let repo = crate::commands::db_shim::PhaseProgressRepo::new(&conn);
-    repo.get_completed(task_id).unwrap_or_default()
+    repo.get_completed(task_id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|id| migrate_phase_id(&id))
+        .collect()
 }
 
 /// Mark a phase as done in SQLite.

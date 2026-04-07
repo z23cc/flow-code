@@ -340,11 +340,18 @@ pub fn state_read(flow_dir: &Path, task_id: &str) -> Result<TaskState> {
 }
 
 /// Write task runtime state to `.state/tasks/<id>.state.json`.
+///
+/// Uses write-to-temp + `fs::rename()` for atomic writes on POSIX,
+/// preventing partial/corrupt state files on crash or power loss.
 pub fn state_write(flow_dir: &Path, task_id: &str, state: &TaskState) -> Result<()> {
     ensure_dir(&state_tasks_dir(flow_dir))?;
     let path = task_state_path(flow_dir, task_id);
     let content = serde_json::to_string_pretty(state)?;
-    fs::write(&path, content)?;
+
+    // Write to a temporary file in the same directory, then atomic rename
+    let tmp_path = path.with_extension("state.json.tmp");
+    fs::write(&tmp_path, &content)?;
+    fs::rename(&tmp_path, &path)?;
     Ok(())
 }
 
@@ -626,6 +633,39 @@ mod tests {
         assert_eq!(read_back.len(), 2);
         assert_eq!(read_back[0].capability, "auth");
         assert!(read_back[1].resolved);
+    }
+
+    #[test]
+    fn test_state_write_atomic_no_corrupt() {
+        // Verify that state_write uses atomic rename: if the original file
+        // exists, a second write should fully replace it (no partial content).
+        let tmp = TempDir::new().unwrap();
+        let flow_dir = tmp.path();
+
+        // Write initial state
+        let state1 = TaskState {
+            status: Status::InProgress,
+            assignee: Some("worker-1".to_string()),
+            ..Default::default()
+        };
+        state_write(flow_dir, "fn-1-test.1", &state1).unwrap();
+
+        // Write a second state that overwrites the first
+        let state2 = TaskState {
+            status: Status::Done,
+            assignee: Some("worker-2".to_string()),
+            ..Default::default()
+        };
+        state_write(flow_dir, "fn-1-test.1", &state2).unwrap();
+
+        // Read back and verify the file contains only the second write
+        let read_back = state_read(flow_dir, "fn-1-test.1").unwrap();
+        assert_eq!(read_back.status, Status::Done);
+        assert_eq!(read_back.assignee.as_deref(), Some("worker-2"));
+
+        // Verify no leftover .tmp file exists
+        let tmp_path = task_state_path(flow_dir, "fn-1-test.1").with_extension("state.json.tmp");
+        assert!(!tmp_path.exists(), "temporary file should be cleaned up by rename");
     }
 
     #[test]

@@ -235,13 +235,17 @@ async fn propagate_upstream_failure(
         if let Ok(mut state) = flowctl_core::json_store::state_read(flow_dir, tid) {
             state.status = Status::UpstreamFailed;
             state.updated_at = Utc::now();
-            let _ = flowctl_core::json_store::state_write(flow_dir, tid, &state);
+            if let Err(e) = flowctl_core::json_store::state_write(flow_dir, tid, &state) {
+                eprintln!("warning: failed to write upstream_failed state for {tid}: {e}");
+            }
         } else {
             let state = flowctl_core::json_store::TaskState {
                 status: Status::UpstreamFailed,
                 ..Default::default()
             };
-            let _ = flowctl_core::json_store::state_write(flow_dir, tid, &state);
+            if let Err(e) = flowctl_core::json_store::state_write(flow_dir, tid, &state) {
+                eprintln!("warning: failed to write upstream_failed state for {tid}: {e}");
+            }
         }
 
         affected.push(tid.clone());
@@ -256,7 +260,7 @@ async fn handle_task_failure(
     flow_dir: &Path,
     task_id: &str,
     runtime: &Option<RuntimeState>,
-) -> (Status, Vec<String>) {
+) -> std::io::Result<(Status, Vec<String>)> {
     let max_retries = get_max_retries(flow_dir);
     let current_retry_count = runtime.as_ref().map(|r| r.retry_count).unwrap_or(0);
 
@@ -276,18 +280,20 @@ async fn handle_task_failure(
             retry_count: new_retry_count,
             updated_at: Utc::now(),
         };
-        let _ = flowctl_core::json_store::state_write(flow_dir, task_id, &task_state);
+        flowctl_core::json_store::state_write(flow_dir, task_id, &task_state)
+            .map_err(|e| std::io::Error::other(format!("failed to write retry state for {task_id}: {e}")))?;
 
-        (Status::UpForRetry, Vec::new())
+        Ok((Status::UpForRetry, Vec::new()))
     } else {
         let task_state = flowctl_core::json_store::TaskState {
             status: Status::Failed,
             ..Default::default()
         };
-        let _ = flowctl_core::json_store::state_write(flow_dir, task_id, &task_state);
+        flowctl_core::json_store::state_write(flow_dir, task_id, &task_state)
+            .map_err(|e| std::io::Error::other(format!("failed to write failed state for {task_id}: {e}")))?;
 
         let affected = propagate_upstream_failure(conn, flow_dir, task_id).await;
-        (Status::Failed, affected)
+        Ok((Status::Failed, affected))
     }
 }
 
@@ -575,7 +581,8 @@ pub async fn done_task(
             retry_count: runtime.as_ref().map(|r| r.retry_count).unwrap_or(0),
             updated_at: now,
         };
-        let _ = flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state);
+        flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state)
+            .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
     }
 
     // Archive review receipt if present
@@ -649,7 +656,8 @@ pub async fn block_task(
             retry_count: existing.as_ref().map(|r| r.retry_count).unwrap_or(0),
             updated_at: Utc::now(),
         };
-        let _ = flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state);
+        flowctl_core::json_store::state_write(flow_dir, &req.task_id, &task_state)
+            .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
     }
 
     Ok(BlockTaskResponse {
@@ -681,7 +689,8 @@ pub async fn fail_task(
     let reason_text = req.reason.unwrap_or_else(|| "Task failed".to_string());
 
     let (final_status, upstream_failed_ids) =
-        handle_task_failure(conn, flow_dir, &req.task_id, &runtime).await;
+        handle_task_failure(conn, flow_dir, &req.task_id, &runtime).await
+            .map_err(ServiceError::IoError)?;
 
     let max_retries = get_max_retries(flow_dir);
     let retry_count = if final_status == Status::UpForRetry {
@@ -789,7 +798,8 @@ pub async fn restart_task(
     for tid in &to_reset {
         // Reset to blank JSON state
         let blank = flowctl_core::json_store::TaskState::default();
-        let _ = flowctl_core::json_store::state_write(flow_dir, tid, &blank);
+        flowctl_core::json_store::state_write(flow_dir, tid, &blank)
+            .map_err(|e| ServiceError::IoError(std::io::Error::other(e.to_string())))?;
 
         reset_ids.push(tid.clone());
     }

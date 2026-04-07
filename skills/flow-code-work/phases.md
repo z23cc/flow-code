@@ -134,6 +134,34 @@ After restarts, find ready tasks normally:
 $FLOWCTL ready --epic <epic-id> --json
 ```
 
+**Deadlock detection:** If ready tasks = 0 AND no tasks are in_progress, check for stalled state:
+
+```bash
+TASKS_JSON=$($FLOWCTL tasks --epic <epic-id> --json)
+FAILED=$(echo "$TASKS_JSON" | jq '[.[] | select(.status=="failed")] | length')
+BLOCKED=$(echo "$TASKS_JSON" | jq '[.[] | select(.status=="blocked")] | length')
+TODO_WITH_DEPS=$(echo "$TASKS_JSON" | jq '[.[] | select(.status=="todo" and (.dependencies | length > 0))] | length')
+```
+
+Classify the stall:
+- If `FAILED > 0`: "Epic stalled: $FAILED tasks failed, blocking downstream. Consider restart or skip."
+- If `BLOCKED > 0`: "Epic stalled: $BLOCKED tasks blocked. Check block reasons."
+- If all remaining are `todo` with unmet deps: "Possible circular dependency. Run `$FLOWCTL validate --epic <epic-id>`."
+
+Stop the wave loop in any of these cases.
+
+**No-progress watchdog:** Track `completed_count` at the start of each wave:
+
+```bash
+COMPLETED_COUNT=$(echo "$TASKS_JSON" | jq '[.[] | select(.status=="done")] | length')
+```
+
+If `completed_count` is unchanged after 2 consecutive waves:
+```
+"No progress detected across 2 waves. Stopping."
+```
+Stop the wave loop.
+
 Collect ALL ready tasks (no unresolved dependencies). If no ready tasks, check for completion review gate (see Step 10 below).
 
 ### Step 4. Readiness Check
@@ -143,6 +171,18 @@ Before starting, validate each task spec is implementation-ready:
 ```bash
 $FLOWCTL cat <task-id>
 ```
+
+**Spec hash snapshot (mid-wave protection):**
+
+Record a content hash for each task spec at wave start:
+```bash
+SPEC_HASH_<task-id>=$(echo "$($FLOWCTL cat <task-id>)" | shasum -a 256 | cut -d' ' -f1)
+```
+Workers compare this hash during re-anchor (Phase 2). If the spec changed since wave start, log:
+```
+"Warning: spec for <task-id> changed since wave start (hash mismatch)"
+```
+Continue execution but note the mismatch in evidence.
 
 **Check these fields exist and are non-empty:**
 - `## Description` — what to build (not just a title)
@@ -238,6 +278,7 @@ Agent({
   team_name: "flow-<epic-id>",
   isolation: "worktree",
   run_in_background: true,
+  timeout: 2700000,
   prompt: "$WORKER_PROMPT
 
     TASK_ID: <task-id>
@@ -262,6 +303,12 @@ Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
 ### Step 8. Wait for Workers & Merge Back
 
 Wait for all workers to complete.
+
+**Worker timeout handling:** If a worker times out (exceeds the 45-minute ceiling):
+```bash
+$FLOWCTL fail <task-id> "Worker timeout after 45min"
+```
+This triggers the retry logic in the task lifecycle (`up_for_retry` if retries remaining). Log the timeout and continue processing other workers in the wave.
 
 **Merge-back** (after all workers return):
 

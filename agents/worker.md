@@ -89,7 +89,7 @@ SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
    ```
    - On `status: approved` → proceed with the edit.
    - On `status: rejected` → emit a `Blocked:` summary and skip the file.
-   - On timeout → note in completion evidence and continue with alternative approach.
+   - On timeout → mark task as blocked: `$FLOWCTL block <TASK_ID> "Approval timeout: requested access to <path>"` and continue with alternative approach.
 
    **Via SendMessage (non-Teams mode):**
    ```
@@ -191,6 +191,16 @@ For each entry returned, fetch its content and include verbatim in your context:
 <FLOWCTL> outputs show <prior-task-id>
 ```
 These are lightweight narrative handoffs from earlier tasks in this epic — read them to understand what upstream work surprised the previous worker, what decisions they made, and what gotchas to watch for. Skip gracefully if the list is empty (new epic) or if `outputs.enabled` is false.
+
+**Spec hash verification (mid-wave protection):**
+If the coordinator passed a `SPEC_HASH` value in your prompt, compare it against the current spec:
+```bash
+CURRENT_HASH=$(echo "$(<FLOWCTL> cat <TASK_ID>)" | shasum -a 256 | cut -d' ' -f1)
+if [ "$CURRENT_HASH" != "$SPEC_HASH" ]; then
+  echo "Warning: spec for <TASK_ID> changed since wave start (hash mismatch)"
+fi
+```
+Continue execution but note the mismatch in evidence.
 
 Parse the spec carefully. Identify:
 - Acceptance criteria
@@ -320,6 +330,12 @@ echo "BASE_COMMIT=$BASE_COMMIT"
 ```
 Save this - you'll pass it to impl-review so it only reviews THIS task's changes.
 
+**Heartbeat signaling:** Every 60 seconds during implementation, call:
+```bash
+$FLOWCTL heartbeat --task $TASK_ID
+```
+This signals liveness to the coordinator. The coordinator checks heartbeats every 3 minutes. If no heartbeat is received within that window, the worker is considered hung and may be terminated.
+
 ### Wave-Checkpoint-Wave Execution
 
 When a task touches **3+ files**, use the Wave pattern to parallelize file I/O. This achieves 3-4x speedup over sequential reads/edits.
@@ -376,7 +392,7 @@ If more files remain (tests, docs, config), repeat: parallel read → checkpoint
           message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id if known>")
         ```
      2. Wait for `status: approved`/`rejected` (API) or "Access granted:"/"Access denied:" (fallback)
-     3. If timeout, skip the file and note it in your completion evidence
+     3. If timeout, mark task as blocked: `$FLOWCTL block <TASK_ID> "Approval timeout: requested access to <path>"` and continue with alternative approach
      4. On rejected/denied, find an alternative approach that stays within your owned files
 
 **This is not optional.** Do not bypass this check even if you believe the lock system will catch violations. Self-enforcement is the primary guard; hooks are the backup.
@@ -719,7 +735,7 @@ If you catch yourself thinking any of these, stop and follow the correct action:
 | Thought | Reality |
 |---------|---------|
 | "I need to edit a file not in OWNED_FILES" | Create a `flowctl approval create --kind file_access` (or fallback "Need file access:" message) and WAIT. Do not edit. |
-| "The coordinator isn't responding" | `approval show --wait --timeout 600` blocks ≤10min; on fallback path wait 60s. If timeout, skip the file and note it in evidence. |
+| "The coordinator isn't responding" | `approval show --wait --timeout 600` blocks ≤10min; on fallback path wait 60s. If timeout, call `$FLOWCTL block <TASK_ID> "Approval timeout: requested access to <file>"` and continue with alternative approach. |
 | "I'll just edit it, the lock check will catch it" | Don't rely on hooks. Self-enforce OWNED_FILES. |
 | "TEAM_MODE doesn't matter for this task" | If TEAM_MODE=true is set, follow the protocol. Always. |
 | "It's a small edit, nobody will notice" | Ownership violations break parallel safety for everyone. |

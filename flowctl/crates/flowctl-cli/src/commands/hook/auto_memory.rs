@@ -169,14 +169,55 @@ fn summarize_with_gemini(text: &str) -> Vec<Memory> {
 
     let prompt = format!("{SUMMARIZE_PROMPT}{truncated}");
 
-    let result = Command::new("gemini")
+    // Spawn with timeout — gemini CLI can hang on auth/network issues.
+    // 10s is generous for a short API call; if it takes longer, fall back
+    // to pattern matching rather than blocking the session teardown.
+    let mut child = match Command::new("gemini")
         .args(["-p", &prompt])
-        .output();
-
-    let output = match result {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-        _ => return Vec::new(),
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
     };
+
+    let timeout = std::time::Duration::from_secs(10);
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return Vec::new();
+                }
+                break;
+            }
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    eprintln!("auto-memory: gemini timed out after 10s, falling back to pattern matching");
+                    return Vec::new();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(_) => return Vec::new(),
+        }
+    }
+
+    let output = child
+        .stdout
+        .take()
+        .map(|mut s| {
+            let mut buf = String::new();
+            std::io::Read::read_to_string(&mut s, &mut buf).ok();
+            buf.trim().to_string()
+        })
+        .unwrap_or_default();
+
+    if output.is_empty() {
+        return Vec::new();
+    }
 
     // Extract JSON array from output (may have surrounding text)
     let re = Regex::new(r"(?s)\[.*\]").unwrap();

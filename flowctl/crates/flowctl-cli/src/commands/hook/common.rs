@@ -97,21 +97,7 @@ pub fn normalize_command(cmd: &str) -> String {
 
 /// Check if memory is enabled in .flow/config.json.
 pub fn is_memory_enabled() -> bool {
-    let config_path = get_repo_root().join(".flow").join("config.json");
-    if !config_path.exists() {
-        return false;
-    }
-    let Ok(content) = std::fs::read_to_string(&config_path) else {
-        return false;
-    };
-    let Ok(config) = serde_json::from_str::<Value>(&content) else {
-        return false;
-    };
-    config
-        .get("memory")
-        .and_then(|m| m.get("enabled"))
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
+    flowctl_core::config::read_config_bool("memory.enabled", false)
 }
 
 /// Make a path relative to a base directory.

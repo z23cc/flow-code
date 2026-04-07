@@ -14,6 +14,7 @@ mod gap;
 pub(crate) mod helpers;
 mod phase_progress;
 mod runtime;
+mod scout_cache;
 mod task;
 
 pub use deps::DepRepo;
@@ -26,6 +27,7 @@ pub use gap::{GapRepo, GapRow};
 pub use helpers::{max_epic_num, max_task_num};
 pub use phase_progress::PhaseProgressRepo;
 pub use runtime::RuntimeRepo;
+pub use scout_cache::ScoutCacheRepo;
 pub use task::TaskRepo;
 
 #[cfg(test)]

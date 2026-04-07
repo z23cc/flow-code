@@ -48,6 +48,18 @@ $FLOWCTL init --json
 
 > **Note — opt-in interactive refinement:** If the user passed `--interactive`, BEFORE running Step 1 (Context Analysis in SKILL.md), invoke `/flow-code:interview` with the raw request text. The interview returns refined-spec markdown with Problem / Scope / Acceptance / Open Questions sections; use that refined text as the effective request for Context Analysis and all subsequent steps. Without the flag, skip this entirely — Step 2 below remains an automated internal brainstorm and is **not** interactive. Do not add any auto-trigger heuristic (length, punctuation, verb detection); interview must be opt-in only to preserve the zero-interaction contract (CLAUDE.md:99).
 
+### Adaptive depth
+
+After init, classify the request to determine which steps to run:
+
+```bash
+$FLOWCTL plan-depth --request "<text>" --json
+```
+
+- If depth is `"quick"`: execute only Steps 1, 4, 10, 12. Skip all others.
+- If depth is `"standard"`: skip Steps 2, 6, 7, 9, 11. Execute rest.
+- If depth is `"deep"`: execute all steps.
+
 ## Step 2: Clarity Check (auto — no human input)
 
 **Skip if brainstorm already ran:** Check if `.flow/specs/` contains a `*-requirements.md` file matching the current request (from a prior `/flow-code:brainstorm` run). If found, log: `Skipping clarity check: requirements doc found from /brainstorm` and proceed to Step 4. The brainstorm already performed pressure testing and approach selection.
@@ -106,6 +118,24 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 - Use `stack.*.conventions` to guide task spec writing
 - Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
+
+**Scout cache check (before spawning scouts):**
+
+Before launching any scout, check the cache for existing results at the current commit:
+```bash
+# Get current commit hash (fallback to "no-git" if not in a git repo)
+COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "no-git")
+
+# Check cache for each scout type that would be spawned
+$FLOWCTL scout-cache get --scout-type repo-scout --commit "$COMMIT" --json
+```
+
+If `hit: true`, use the cached `result` instead of spawning that scout. Only spawn scouts that have cache misses. After each scout completes, cache its result:
+```bash
+$FLOWCTL scout-cache set --scout-type repo-scout --commit "$COMMIT" --result '@/tmp/scout-result.json' --json
+```
+
+Cache entries expire after 24h (1h for no-git fallback). Use `$FLOWCTL scout-cache clear` to force re-run all scouts.
 
 **Scout selection: 3 profiles, auto-selected from depth.**
 

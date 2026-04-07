@@ -24,6 +24,7 @@ use commands::{
     query,
     ralph::RalphCmd,
     rp::RpCmd,
+    scout_cache::ScoutCacheCmd,
     skill::SkillCmd,
     stack::{InvariantsCmd, StackCmd},
     stats::StatsCmd,
@@ -230,6 +231,11 @@ enum Commands {
         #[command(subcommand)]
         cmd: RalphCmd,
     },
+    /// Scout result cache commands (get, set, clear).
+    ScoutCache {
+        #[command(subcommand)]
+        cmd: ScoutCacheCmd,
+    },
     /// Skill registry commands (register, match).
     Skill {
         #[command(subcommand)]
@@ -259,6 +265,12 @@ enum Commands {
     WorkerPhase {
         #[command(subcommand)]
         cmd: WorkerPhaseCmd,
+    },
+    /// Classify request depth for adaptive plan step selection.
+    PlanDepth {
+        /// Request text to classify.
+        #[arg(long)]
+        request: String,
     },
 
     // ── Query commands ───────────────────────────────────────────────
@@ -515,12 +527,14 @@ fn main() {
         Commands::Stack { cmd } => commands::stack::dispatch(&cmd, json),
         Commands::Invariants { cmd } => commands::stack::dispatch_invariants(&cmd, json),
         Commands::Ralph { cmd } => commands::ralph::dispatch(&cmd, json),
+        Commands::ScoutCache { cmd } => commands::scout_cache::dispatch(&cmd, json),
         Commands::Skill { cmd } => commands::skill::dispatch(&cmd, json),
         Commands::Rp { cmd } => commands::rp::dispatch(&cmd, json),
         Commands::Codex { cmd } => commands::codex::dispatch(&cmd, json),
         Commands::Hook { cmd } => commands::hook::dispatch(&cmd),
         Commands::Stats { cmd } => commands::stats::dispatch(&cmd, json),
         Commands::WorkerPhase { cmd } => workflow::dispatch_worker_phase(&cmd, json),
+        Commands::PlanDepth { request } => commands::plan_depth::cmd_plan_depth(json, &request),
 
         // Query
         Commands::Show { id } => query::cmd_show(json, id),

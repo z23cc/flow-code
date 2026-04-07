@@ -8,7 +8,7 @@ use libsql::Connection;
 use crate::error::DbError;
 
 /// Current target schema version. Bump this when adding new migrations.
-const TARGET_VERSION: i64 = 3;
+const TARGET_VERSION: i64 = 4;
 
 /// Ensure `_meta` table exists and run any pending migrations.
 pub async fn migrate(conn: &Connection) -> Result<(), DbError> {
@@ -28,6 +28,10 @@ pub async fn migrate(conn: &Connection) -> Result<(), DbError> {
 
     if current < 3 {
         migrate_v3(conn).await?;
+    }
+
+    if current < 4 {
+        migrate_v4(conn).await?;
     }
 
     // Update stored version to target.
@@ -144,6 +148,38 @@ async fn migrate_v3(conn: &Connection) -> Result<(), DbError> {
     )
     .await
     .map_err(|e| DbError::Schema(format!("file_locks rename failed: {e}")))?;
+
+    Ok(())
+}
+
+/// Migration v4: Add scout_cache table for caching scout results.
+async fn migrate_v4(conn: &Connection) -> Result<(), DbError> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS scout_cache (
+            key TEXT PRIMARY KEY,
+            commit_hash TEXT NOT NULL,
+            scout_type TEXT NOT NULL,
+            result TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        (),
+    )
+    .await
+    .map_err(|e| DbError::Schema(format!("scout_cache creation failed: {e}")))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scout_cache_type ON scout_cache(scout_type)",
+        (),
+    )
+    .await
+    .ok();
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scout_cache_created ON scout_cache(created_at)",
+        (),
+    )
+    .await
+    .ok();
 
     Ok(())
 }

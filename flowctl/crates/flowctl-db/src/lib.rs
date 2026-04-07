@@ -36,8 +36,8 @@ pub use skill::{SkillEntry, SkillMatch, SkillRepo};
 pub use pool::{cleanup, open_async, open_memory_async, resolve_db_path, resolve_libsql_path, resolve_state_dir};
 pub use repo::{
     DepRepo, EpicRepo, EventRepo, EventRow, EvidenceRepo, FileLockRepo, FileOwnershipRepo,
-    GapRepo, GapRow, LockEntry, LockMode, PhaseProgressRepo, RuntimeRepo, TaskRepo,
-    max_epic_num, max_task_num,
+    GapRepo, GapRow, LockEntry, LockMode, PhaseProgressRepo, RuntimeRepo, ScoutCacheRepo,
+    TaskRepo, max_epic_num, max_task_num,
 };
 
 // Re-export libsql types for callers.

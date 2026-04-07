@@ -73,6 +73,46 @@ impl std::fmt::Display for Domain {
     }
 }
 
+// ── TaskSize ────────────────────────────────────────────────────────
+
+/// Task size classification — controls the worker phase sequence length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskSize {
+    /// Small: minimal phases (skip investigation, outputs, memory).
+    #[serde(rename = "S")]
+    Small,
+    /// Medium: default phase sequence.
+    #[default]
+    #[serde(rename = "M")]
+    Medium,
+    /// Large: all defined phases.
+    #[serde(rename = "L")]
+    Large,
+}
+
+impl std::fmt::Display for TaskSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskSize::Small => write!(f, "S"),
+            TaskSize::Medium => write!(f, "M"),
+            TaskSize::Large => write!(f, "L"),
+        }
+    }
+}
+
+impl std::str::FromStr for TaskSize {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "S" => Ok(TaskSize::Small),
+            "M" => Ok(TaskSize::Medium),
+            "L" => Ok(TaskSize::Large),
+            other => Err(format!("invalid task size '{}': expected S, M, or L", other)),
+        }
+    }
+}
+
 // ── Epic ─────────────────────────────────────────────────────────────
 
 /// Epic status (simpler than task status).
@@ -548,6 +588,23 @@ mod tests {
         let deserialized: Epic = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.id, "fn-1-add-auth");
         assert_eq!(deserialized.status, EpicStatus::Open);
+    }
+
+    #[test]
+    fn test_task_size_display_and_parse() {
+        assert_eq!(TaskSize::Small.to_string(), "S");
+        assert_eq!(TaskSize::Medium.to_string(), "M");
+        assert_eq!(TaskSize::Large.to_string(), "L");
+
+        assert_eq!("S".parse::<TaskSize>().unwrap(), TaskSize::Small);
+        assert_eq!("m".parse::<TaskSize>().unwrap(), TaskSize::Medium);
+        assert_eq!("L".parse::<TaskSize>().unwrap(), TaskSize::Large);
+        assert!("X".parse::<TaskSize>().is_err());
+    }
+
+    #[test]
+    fn test_task_size_default() {
+        assert_eq!(TaskSize::default(), TaskSize::Medium);
     }
 
     #[test]

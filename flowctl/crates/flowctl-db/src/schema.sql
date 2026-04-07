@@ -236,6 +236,19 @@ CREATE TABLE IF NOT EXISTS skills (
 -- NOTE: Applied separately in pool.rs with graceful degradation.
 -- CREATE INDEX IF NOT EXISTS skills_emb_idx ON skills(libsql_vector_idx(embedding));
 
+-- ── Scout result cache ──────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS scout_cache (
+    key TEXT PRIMARY KEY,
+    commit_hash TEXT NOT NULL,
+    scout_type TEXT NOT NULL,
+    result TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_scout_cache_type ON scout_cache(scout_type);
+CREATE INDEX IF NOT EXISTS idx_scout_cache_created ON scout_cache(created_at);
+
 -- ── Indexes ─────────────────────────────────────────────────────────
 
 CREATE INDEX IF NOT EXISTS idx_gaps_epic ON gaps(epic_id);

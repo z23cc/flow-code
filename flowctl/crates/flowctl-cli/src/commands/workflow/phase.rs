@@ -126,21 +126,17 @@ fn build_phase_sequence(tdd: bool, review: bool) -> Vec<&'static str> {
     CANONICAL_ORDER.iter().copied().filter(|p| phases.contains(p)).collect()
 }
 
-/// Map legacy fragmented phase IDs to sequential integers.
+/// Map unambiguously legacy phase IDs to sequential integers.
+/// Only IDs that cannot be confused with new sequential IDs are migrated.
+/// Pure integers 1-12 are left as-is since they may already be new IDs.
 fn migrate_phase_id(id: &str) -> String {
     match id {
         "0"   => "1".to_string(),
-        "1"   => "2".to_string(),
         "1.5" => "3".to_string(),
         "2a"  => "4".to_string(),
-        "2"   => "5".to_string(),
         "2.5" => "6".to_string(),
-        "3"   => "7".to_string(),
-        "4"   => "8".to_string(),
         "5c"  => "9".to_string(),
-        "5"   => "10".to_string(),
         "5b"  => "11".to_string(),
-        "6"   => "12".to_string(),
         other => other.to_string(),
     }
 }

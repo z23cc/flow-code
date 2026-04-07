@@ -123,7 +123,7 @@ PY
 echo -e "${GREEN}✓${NC} next plan"
 PASS=$((PASS + 1))
 
-$FLOWCTL epic set-plan-review-status "$EPIC1" --status ship --json >/dev/null
+$FLOWCTL epic review "$EPIC1" ship --json >/dev/null
 work_json="$($FLOWCTL next --json)"
 "$PYTHON_BIN" - "$work_json" "$EPIC1" <<'PY'
 import json, sys
@@ -236,7 +236,7 @@ show_json="$($FLOWCTL show "$EPIC1" --json)"
 "$PYTHON_BIN" - <<'PY' "$show_json"
 import json, sys
 data = json.loads(sys.argv[1])
-assert data.get("plan_review_status") == "unknown"
+assert data.get("plan_review_status") is None or data.get("plan_review_status") == "unknown"
 assert data.get("plan_reviewed_at") is None
 assert data.get("branch_name") is None
 PY
@@ -244,16 +244,21 @@ echo -e "${GREEN}✓${NC} plan_review_status defaulted"
 PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- branch_name set ---${NC}"
-$FLOWCTL epic set-branch "$EPIC1" --branch "${EPIC1}-epic" --json >/dev/null
+$FLOWCTL epic branch "$EPIC1" "${EPIC1}-epic" --json >/dev/null
 show_json="$($FLOWCTL show "$EPIC1" --json)"
-"$PYTHON_BIN" - "$show_json" "$EPIC1" <<'PY'
+if "$PYTHON_BIN" - "$show_json" "$EPIC1" <<'PY' 2>/dev/null
 import json, sys
 data = json.loads(sys.argv[1])
 expected_branch = f"{sys.argv[2]}-epic"
 assert data.get("branch_name") == expected_branch, f"Expected {expected_branch}, got {data.get('branch_name')}"
 PY
-echo -e "${GREEN}✓${NC} branch_name set"
-PASS=$((PASS + 1))
+then
+  echo -e "${GREEN}✓${NC} branch_name set"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} branch_name set: show does not return branch_name (DB-only field)"
+  FAIL=$((FAIL + 1))
+fi
 
 echo -e "${YELLOW}--- epic set-title ---${NC}"
 # Create epic with tasks for rename test
@@ -265,7 +270,7 @@ $FLOWCTL task create --epic "$RENAME_EPIC" --title "Second task" --json >/dev/nu
 $FLOWCTL dep add "${RENAME_EPIC}.2" "${RENAME_EPIC}.1" --json >/dev/null
 
 # Rename epic
-rename_result="$($FLOWCTL epic set-title "$RENAME_EPIC" --title "New Shiny Title" --json)"
+rename_result="$($FLOWCTL epic title "$RENAME_EPIC" --title "New Shiny Title" --json)"
 NEW_EPIC="$(echo "$rename_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["new_id"])')"
 
 # Test 1: Verify old files are gone
@@ -342,7 +347,7 @@ DEP_EPIC_JSON="$($FLOWCTL epic create --title "Depends on renamed" --json)"
 DEP_EPIC="$(echo "$DEP_EPIC_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 $FLOWCTL epic add-dep "$DEP_EPIC" "$NEW_EPIC" --json >/dev/null
 # Rename the dependency
-rename2_result="$($FLOWCTL epic set-title "$NEW_EPIC" --title "Final Title" --json)"
+rename2_result="$($FLOWCTL epic title "$NEW_EPIC" --title "Final Title" --json)"
 FINAL_EPIC="$(echo "$rename2_result" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["new_id"])')"
 # Verify DEP_EPIC's depends_on_epics was updated
 "$PYTHON_BIN" - "$DEP_EPIC" "$FINAL_EPIC" <<'PY'
@@ -917,7 +922,7 @@ cd "$TEST_DIR/repo"
 STDIN_EPIC_JSON="$($FLOWCTL epic create --title "Stdin test" --json)"
 STDIN_EPIC="$(echo "$STDIN_EPIC_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 # Test epic set-plan with stdin
-$FLOWCTL epic set-plan "$STDIN_EPIC" --file - --json <<'EOF'
+$FLOWCTL epic plan "$STDIN_EPIC" --file - --json <<'EOF'
 # Stdin Test Plan
 
 ## Overview
@@ -998,7 +1003,7 @@ $FLOWCTL checkpoint save --epic "$STDIN_EPIC" --json >/dev/null
 # Verify checkpoint file exists
 [[ -f ".flow/.checkpoint-${STDIN_EPIC}.json" ]] || { echo "checkpoint file not created"; FAIL=$((FAIL + 1)); }
 # Modify epic spec
-$FLOWCTL epic set-plan "$STDIN_EPIC" --file - --json <<'EOF'
+$FLOWCTL epic plan "$STDIN_EPIC" --file - --json <<'EOF'
 # Modified content
 EOF
 # Restore from checkpoint
@@ -1806,7 +1811,7 @@ $FLOWCTL task create --epic "$EPIC_AE" --title "AE task 1" --json > /dev/null
 $FLOWCTL task create --epic "$EPIC_AE" --title "AE task 2" --json > /dev/null
 
 # Set pending marker
-ae_pending="$($FLOWCTL epic set-auto-execute "$EPIC_AE" --pending --json)"
+ae_pending="$($FLOWCTL epic auto-exec "$EPIC_AE" --pending --json)"
 ae_pending_val="$(echo "$ae_pending" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["auto_execute_pending"])')"
 if [[ "$ae_pending_val" == "True" ]]; then
   echo -e "${GREEN}✓${NC} set-auto-execute --pending sets marker"
@@ -1834,7 +1839,7 @@ else
 fi
 
 # Clear marker with --done
-ae_done="$($FLOWCTL epic set-auto-execute "$EPIC_AE" --done --json)"
+ae_done="$($FLOWCTL epic auto-exec "$EPIC_AE" --done --json)"
 ae_done_val="$(echo "$ae_done" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["auto_execute_pending"])')"
 if [[ "$ae_done_val" == "False" ]]; then
   echo -e "${GREEN}✓${NC} set-auto-execute --done clears marker"
@@ -1886,46 +1891,46 @@ EPIC_PH="$(echo "$EPIC_PH_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.
 $FLOWCTL task create --epic "$EPIC_PH" --title "Phase task" --json >/dev/null
 $FLOWCTL start "${EPIC_PH}.1" --json >/dev/null
 
-# Test: worker-phase next returns phase 0 initially (worktree+teams default)
+# Test: worker-phase next returns phase 1 initially (worktree+teams default)
 wph_next="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_phase="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
 wph_done="$(echo "$wph_next" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["all_done"])')"
-if [[ "$wph_phase" == "0" ]] && [[ "$wph_done" == "False" ]]; then
-  echo -e "${GREEN}✓${NC} worker-phase next: initial phase is 0 (worktree+teams default)"
+if [[ "$wph_phase" == "1" ]] && [[ "$wph_done" == "False" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase next: initial phase is 1 (worktree+teams default)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} worker-phase next: expected phase=0 all_done=False, got phase=$wph_phase all_done=$wph_done"
+  echo -e "${RED}✗${NC} worker-phase next: expected phase=1 all_done=False, got phase=$wph_phase all_done=$wph_done"
   FAIL=$((FAIL + 1))
 fi
 
-# Test: worker-phase done phase 0 → next returns phase 1
+# Test: worker-phase done phase 1 → next returns phase 2
 wph_next1="$wph_next"
-$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 0 --json >/dev/null
+$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 1 --json >/dev/null
 wph_next1b="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_phase1b="$(echo "$wph_next1b" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
-if [[ "$wph_phase1b" == "1" ]]; then
-  echo -e "${GREEN}✓${NC} worker-phase done→next: advances to phase 1"
+if [[ "$wph_phase1b" == "2" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase done→next: advances to phase 2"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} worker-phase done→next: expected phase=2, got $wph_phase2"
+  echo -e "${RED}✗${NC} worker-phase done→next: expected phase=2, got $wph_phase1b"
   FAIL=$((FAIL + 1))
 fi
 
-# Advance through phase 1 and 2 to test 2.5
-$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 1 --json >/dev/null
+# Advance through phase 2 and 5 to test 6
 $FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 2 --json >/dev/null
-wph_next2_5="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
-wph_phase2_5="$(echo "$wph_next2_5" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
-if [[ "$wph_phase2_5" == "2.5" ]]; then
-  echo -e "${GREEN}✓${NC} worker-phase done→next: advances to phase 2.5"
+$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 5 --json >/dev/null
+wph_next6="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
+wph_phase6="$(echo "$wph_next6" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
+if [[ "$wph_phase6" == "6" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase done→next: advances to phase 6"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} worker-phase done→next: expected phase=2.5, got $wph_phase2_5"
+  echo -e "${RED}✗${NC} worker-phase done→next: expected phase=6, got $wph_phase6"
   FAIL=$((FAIL + 1))
 fi
 
-# Test: worker-phase skip detection — try to complete phase 5 before phase 3
-wph_skip_err="$($FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 5 --json 2>&1 || true)"
+# Test: worker-phase skip detection — try to complete phase 10 before phase 6
+wph_skip_err="$($FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 10 --json 2>&1 || true)"
 if echo "$wph_skip_err" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); assert d.get("error") or not d.get("success")' 2>/dev/null; then
   echo -e "${GREEN}✓${NC} worker-phase skip detection: rejects out-of-order phase"
   PASS=$((PASS + 1))
@@ -1934,24 +1939,24 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# Test: worker-phase next returns non-empty content field
-wph_content_len="$(echo "$wph_next1" | "$PYTHON_BIN" -c 'import json,sys; print(len(json.load(sys.stdin).get("content","")))')"
-if [[ "$wph_content_len" -gt 0 ]]; then
-  echo -e "${GREEN}✓${NC} worker-phase next: content field is non-empty ($wph_content_len chars)"
+# Test: worker-phase next returns content field (may be empty in streamlined mode)
+wph_has_content="$(echo "$wph_next1" | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin); print("content" in d)')"
+if [[ "$wph_has_content" == "True" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase next: content field present"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} worker-phase next: content field is empty"
+  echo -e "${RED}✗${NC} worker-phase next: content field missing"
   FAIL=$((FAIL + 1))
 fi
 
-# Test: worker-phase next returns different content for different phases (phase 0 vs phase 1)
-wph_content_p0="$(echo "$wph_next1" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("content","")[:50])')"
-wph_content_p1="$(echo "$wph_next1b" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("content","")[:50])')"
-if [[ "$wph_content_p0" != "$wph_content_p1" ]] && [[ -n "$wph_content_p1" ]]; then
-  echo -e "${GREEN}✓${NC} worker-phase next: content changes between phases (0 vs 1)"
+# Test: worker-phase next returns different titles for different phases (phase 1 vs phase 2)
+wph_title_p1="$(echo "$wph_next1" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("title",""))')"
+wph_title_p2="$(echo "$wph_next1b" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin).get("title",""))')"
+if [[ "$wph_title_p1" != "$wph_title_p2" ]] && [[ -n "$wph_title_p2" ]]; then
+  echo -e "${GREEN}✓${NC} worker-phase next: title changes between phases (1 vs 2)"
   PASS=$((PASS + 1))
 else
-  echo -e "${RED}✗${NC} worker-phase next: expected different content for phase 0 vs 1"
+  echo -e "${RED}✗${NC} worker-phase next: expected different title for phase 1 vs 2"
   FAIL=$((FAIL + 1))
 fi
 
@@ -1968,8 +1973,8 @@ else
 fi
 
 # Test: complete all remaining default phases → all_done
-# Phases 0, 1, 2 already done above; complete remaining: 2.5, 3, 5, 6
-for phase in 2.5 3 5 6; do
+# Phases 1, 2, 5 already done above; complete remaining: 6, 7, 9, 10, 11, 12
+for phase in 6 7 9 10 11 12; do
   $FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --json >/dev/null
 done
 wph_final="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"

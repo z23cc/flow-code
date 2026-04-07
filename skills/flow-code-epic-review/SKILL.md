@@ -148,7 +148,9 @@ The workflow covers:
 
 **CRITICAL: Do NOT ask user for confirmation. Automatically fix ALL valid issues and re-review — our goal is complete spec compliance. Never use AskUserQuestion in this loop.**
 
-If verdict is NEEDS_WORK, loop internally until SHIP:
+**MAX ITERATIONS**: Limit fix+re-review cycles to **${MAX_REVIEW_ITERATIONS:-3}** iterations (default 3, consistent with impl-review and shared protocol). If still NEEDS_WORK after max rounds, stop the fix loop and log: "Epic review: MAX_REVIEW_ITERATIONS reached. Proceeding with remaining concerns as gaps."
+
+If verdict is NEEDS_WORK, loop internally until SHIP or max iterations:
 
 1. **Parse issues** from reviewer feedback (missing requirements, incomplete implementations)
 2. **Fix code** and run tests/lints
@@ -156,7 +158,7 @@ If verdict is NEEDS_WORK, loop internally until SHIP:
 4. **Re-review**:
    - **Codex**: Re-run `flowctl codex completion-review` (receipt enables context)
    - **RP**: `$FLOWCTL rp chat-send --window "$W" --tab "$T" --message-file /tmp/re-review.md` (NO `--new-chat`)
-5. **Repeat** until `<verdict>SHIP</verdict>`
+5. **Repeat** until `<verdict>SHIP</verdict>` or iteration limit reached
 
 **CRITICAL**: For RP, re-reviews must stay in the SAME chat so reviewer has context. Only use `--new-chat` on the FIRST review.
 

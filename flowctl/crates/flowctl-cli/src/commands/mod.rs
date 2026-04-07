@@ -10,6 +10,7 @@ pub mod dep;
 pub mod epic;
 pub mod gap;
 pub mod hook;
+pub mod log;
 pub mod memory;
 pub mod outputs;
 pub mod query;

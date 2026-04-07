@@ -46,6 +46,11 @@ fn block_on<F: std::future::Future>(fut: F) -> F::Output {
         .block_on(fut)
 }
 
+/// Public block_on for command modules that call async repos directly.
+pub fn block_on_pub<F: std::future::Future>(fut: F) -> F::Output {
+    block_on(fut)
+}
+
 // ── Pool functions ──────────────────────────────────────────────────
 
 pub fn resolve_state_dir(working_dir: &Path) -> Result<PathBuf, DbError> {

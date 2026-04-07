@@ -164,7 +164,9 @@ The workflow covers:
 
 **CRITICAL: Do NOT ask user for confirmation. Automatically fix ALL valid issues and re-review — our goal is production-grade world-class software and architecture. Never use AskUserQuestion in this loop.**
 
-If verdict is NEEDS_WORK, loop internally until SHIP:
+**MAX ITERATIONS**: Limit fix+re-review cycles to **${MAX_REVIEW_ITERATIONS:-3}** iterations (default 3, consistent with impl-review and shared protocol). If still NEEDS_WORK after max rounds, stop the fix loop and log: "Plan review: MAX_REVIEW_ITERATIONS reached. Proceeding with remaining concerns as gaps."
+
+If verdict is NEEDS_WORK, loop internally until SHIP or max iterations:
 
 1. **Parse issues** from reviewer feedback
 2. **Fix epic spec** (stdin preferred, temp file if content has single quotes):

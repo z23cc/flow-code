@@ -50,6 +50,8 @@ $FLOWCTL init --json
 
 ## Step 0.5: Clarity Check (auto — no human input)
 
+**Skip if brainstorm already ran:** Check if `.flow/specs/` contains a `*-requirements.md` file matching the current request (from a prior `/flow-code:brainstorm` run). If found, log: `Skipping clarity check: requirements doc found from /brainstorm` and proceed to Step 1. The brainstorm already performed pressure testing and approach selection.
+
 **Clear?** (specific behavior, bug with repro, existing pattern, has acceptance criteria) → skip to Step 1.
 
 **Ambiguous?** (vague goal, multiple valid approaches, missing who/what/why, unclear scope) → mini brainstorm:
@@ -105,17 +107,32 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 - Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
-**Scout selection: AI decides per-request.**
+**Scout selection: 3 profiles, auto-selected from depth.**
 
-### Scout decision guide
+### Scout profiles
 
-- **Always**: `repo-scout` (fast grep-based research). `memory-scout` if memory.enabled. `capability-scout` unless `--no-capability-scan` passed (non-blocking; fails open — planning continues if it errors).
-- **Deep context** (replaces `context-scout` in this guide — exactly one runs per plan, not multiple):
-  - **Tier 1** (MCP available): direct `context_builder(response_type:"plan")` call — best quality, automatic workspace binding
-  - **Tier 2** (rp-cli available, no MCP): `rp-cli -e 'builder "<request + repo-scout findings>" --response-type plan'` (timeout: 300s)
-  - **Tier 3** (neither available): `context-scout` subagent (existing behavior, unchanged)
-- **Add when needed**: `practice-scout` for security/auth/payments/concurrency. `docs-scout` for external APIs/libraries. `github-scout` for novel patterns (requires scouts.github). `epic-scout` if 2+ open epics. `docs-gap-scout` if user-facing changes.
-- **Constraints**: min 1 (repo-scout required), max 7. Run ALL selected scouts in ONE parallel Agent/Task call. Deep context (Tier 1/2/3) runs AFTER repo-scout returns — it uses repo-scout findings as input.
+| Profile | Scouts | When |
+|---------|--------|------|
+| **quick** | `repo-scout` only | S-size tasks, clear bug fixes, `--research=quick` |
+| **standard** | `repo-scout` + `capability-scout` + deep context (Tier 1/2/3) + `memory-scout` (if enabled) | Default for most features, `--research=standard` |
+| **deep** | All of standard + `practice-scout` + `docs-scout` + `github-scout` (if scouts.github) + `epic-scout` (if 2+ open epics) + `docs-gap-scout` (if user-facing) | Architecture changes, security work, `--research=deep` |
+
+**Auto-selection** (from Context Analysis depth decision): `short` → quick, `standard` → standard, `deep` → deep.
+**Override**: `--research=quick|standard|deep` flag.
+
+### Deep context tiers (used in standard and deep profiles)
+
+Exactly one deep context call per plan (not multiple):
+- **Tier 1** (MCP available): direct `context_builder(response_type:"plan")` call — best quality, automatic workspace binding
+- **Tier 2** (rp-cli available, no MCP): `rp-cli -e 'builder "<request + repo-scout findings>" --response-type plan'` (timeout: 300s)
+- **Tier 3** (neither available): `context-scout` subagent (existing behavior, unchanged)
+
+Deep context runs AFTER repo-scout returns — it uses repo-scout findings as input.
+
+### Constraints
+
+- `capability-scout` skipped if `--no-capability-scan` passed (non-blocking; fails open — planning continues if it errors)
+- Min 1 (repo-scout required), max 7. Run ALL selected scouts in ONE parallel Agent/Task call.
 
 Must capture:
 - File paths + line refs
@@ -426,7 +443,7 @@ If review was decided in Context Analysis:
 2. Invoke `/flow-code:plan-review` with the epic ID
 3. If review returns "Needs Work" or "Major Rethink":
    - Increment `PLAN_REVIEW_ITERATIONS`
-   - **If `PLAN_REVIEW_ITERATIONS >= 2`**: stop the loop. Log: "Plan review: 2 iterations completed. Proceeding." Go to Step 8.
+   - **If `PLAN_REVIEW_ITERATIONS >= 3`**: stop the loop. Log: "Plan review: 3 iterations completed (MAX_REVIEW_ITERATIONS reached). Proceeding." Go to Step 8.
    - **Re-anchor EVERY iteration** (do not skip):
      ```bash
      $FLOWCTL show <epic-id> --json
@@ -436,7 +453,7 @@ If review was decided in Context Analysis:
    - Re-run `/flow-code:plan-review`
 4. Repeat until review returns "Ship" or iteration limit reached.
 
-**No human gates here** — the review-fix-review loop is fully automated. Max 5 iterations prevents infinite loops.
+**No human gates here** — the review-fix-review loop is fully automated. Max 3 iterations (MAX_REVIEW_ITERATIONS) prevents infinite loops. This matches the shared review protocol and impl-review.
 
 **Why re-anchor every iteration?** Per Anthropic's long-running agent guidance: context compresses, you forget details. Re-read before each fix pass.
 

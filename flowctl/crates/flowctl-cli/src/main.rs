@@ -18,6 +18,7 @@ use commands::{
     epic::EpicCmd,
     gap::GapCmd,
     hook::HookCmd,
+    log::LogCmd,
     memory::MemoryCmd,
     outputs::OutputsCmd,
     query,
@@ -61,12 +62,19 @@ enum Commands {
         /// Render ASCII DAG of task dependencies for the active epic.
         #[arg(long)]
         dag: bool,
-        /// Epic ID (required with --dag).
+        /// Epic ID (required with --dag or --progress).
         #[arg(long)]
         epic: Option<String>,
+        /// Show wave/task progress summary.
+        #[arg(long)]
+        progress: bool,
     },
     /// Run comprehensive state health diagnostics.
-    Doctor,
+    Doctor {
+        /// Run workflow-specific health checks (backend config, tools, locks).
+        #[arg(long)]
+        workflow: bool,
+    },
     /// Validate epic or all.
     Validate {
         /// Epic ID.
@@ -186,6 +194,11 @@ enum Commands {
     Gap {
         #[command(subcommand)]
         cmd: GapCmd,
+    },
+    /// Decision logging for workflow traceability.
+    Log {
+        #[command(subcommand)]
+        cmd: LogCmd,
     },
     /// Memory commands (v2: atomic entries).
     Memory {
@@ -450,14 +463,16 @@ fn main() {
         // Admin / top-level
         Commands::Init => admin::cmd_init(json),
         Commands::Detect => admin::cmd_detect(json),
-        Commands::Status { interrupted, dag, epic } => {
+        Commands::Status { interrupted, dag, epic, progress } => {
             if dag {
                 commands::stats::cmd_dag(json, epic);
+            } else if progress {
+                admin::cmd_progress(json, epic);
             } else {
                 admin::cmd_status(json, interrupted);
             }
         }
-        Commands::Doctor => admin::cmd_doctor(json),
+        Commands::Doctor { workflow } => admin::cmd_doctor(json, workflow),
         Commands::Validate { epic, all } => admin::cmd_validate(json, epic, all),
         Commands::StatePath { task } => admin::cmd_state_path(json, task),
         Commands::ReviewBackend { compare, epic } => admin::cmd_review_backend(json, compare, epic),
@@ -484,6 +499,7 @@ fn main() {
         Commands::Dep { cmd } => commands::dep::dispatch(&cmd, json, dry_run),
         Commands::Approval { cmd } => commands::approval::dispatch(&cmd, json),
         Commands::Gap { cmd } => commands::gap::dispatch(&cmd, json),
+        Commands::Log { cmd } => commands::log::dispatch(&cmd, json),
         Commands::Memory { cmd } => commands::memory::dispatch(&cmd, json),
         Commands::Outputs { cmd } => commands::outputs::dispatch(&cmd, json),
         Commands::Checkpoint { cmd } => commands::checkpoint::dispatch(&cmd, json),

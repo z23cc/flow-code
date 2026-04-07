@@ -10,9 +10,10 @@ use serde_json::json;
 use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::types::{
-    CONFIG_FILE, EPICS_DIR, MEMORY_DIR, META_FILE, REVIEWS_DIR, SCHEMA_VERSION,
+    CONFIG_FILE, EPICS_DIR, EpicStatus, MEMORY_DIR, META_FILE, REVIEWS_DIR, SCHEMA_VERSION,
     SPECS_DIR, TASKS_DIR,
 };
+use flowctl_core::state_machine::Status;
 
 use super::get_flow_dir;
 
@@ -491,7 +492,81 @@ pub fn cmd_validate(json_mode: bool, epic: Option<String>, all: bool) {
 
 // ── Doctor command ─────────────────────────────────────────────────
 
-pub fn cmd_doctor(json_mode: bool) {
+// ── Progress command ──────────────────────────────────────────────
+
+pub fn cmd_progress(json_mode: bool, epic_id: Option<String>) {
+    let flow_dir = get_flow_dir();
+    if !flow_dir.exists() {
+        error_exit(".flow/ does not exist. Run 'flowctl init' first.");
+    }
+
+    // Find the epic — either from flag or auto-detect first open epic
+    let epic = if let Some(id) = epic_id {
+        id
+    } else {
+        match flowctl_core::json_store::epic_list(&flow_dir) {
+            Ok(epics) => {
+                epics
+                    .iter()
+                    .find(|e| e.status == EpicStatus::Open)
+                    .map(|e| e.id.clone())
+                    .unwrap_or_else(|| {
+                        error_exit("No open epic found. Pass --epic <id>.");
+                    })
+            }
+            Err(_) => error_exit("Cannot read epics."),
+        }
+    };
+
+    // Load tasks for this epic
+    let tasks = match flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic) {
+        Ok(t) => t,
+        Err(_) => {
+            error_exit(&format!("Cannot load tasks for epic {epic}"));
+        }
+    };
+
+    let total = tasks.len();
+    let done = tasks.iter().filter(|t| t.status == Status::Done || t.status == Status::Skipped).count();
+    let in_progress: Vec<&str> = tasks.iter().filter(|t| t.status == Status::InProgress).map(|t| t.id.as_str()).collect();
+    let blocked = tasks.iter().filter(|t| t.status == Status::Blocked).count();
+    let todo = tasks.iter().filter(|t| t.status == Status::Todo).count();
+    let failed = tasks.iter().filter(|t| t.status == Status::Failed || t.status == Status::UpstreamFailed).count();
+
+    // Estimate wave: count how many distinct "rounds" have completed
+    // Simple heuristic: wave = number of tasks that are done/in_progress groups
+    // Wave estimation reserved for future use
+    let percent = if total > 0 { (done * 100) / total } else { 0 };
+
+    if json_mode {
+        json_output(json!({
+            "epic": epic,
+            "tasks_total": total,
+            "tasks_done": done,
+            "tasks_in_progress": in_progress,
+            "tasks_blocked": blocked,
+            "tasks_todo": todo,
+            "tasks_failed": failed,
+            "percent": percent,
+        }));
+    } else {
+        // Progress bar using Unicode blocks
+        let bar_width = 30;
+        let filled = (percent * bar_width) / 100;
+        let empty = bar_width - filled;
+        let bar: String = "\u{2588}".repeat(filled) + &"\u{2591}".repeat(empty);
+
+        println!("Epic: {epic}");
+        println!("Tasks: {done}/{total} done, {} in progress, {} todo, {} blocked, {} failed",
+            in_progress.len(), todo, blocked, failed);
+        if !in_progress.is_empty() {
+            println!("Active: [{}]", in_progress.join(", "));
+        }
+        println!("{bar} {percent}%");
+    }
+}
+
+pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     let flow_dir = get_flow_dir();
     if !flow_dir.exists() {
         error_exit(".flow/ does not exist. Run 'flowctl init' first.");
@@ -601,6 +676,85 @@ pub fn cmd_doctor(json_mode: bool) {
         }
         Err(_) => {
             checks.push(json!({"name": "git_common_dir", "status": "warn", "message": "git not found on PATH"}));
+        }
+    }
+
+    // Check 5-8: Workflow checks (only when --workflow flag is passed)
+    if workflow {
+        // Check 5: review backend configured
+        let _backend_out = Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            });
+        let config_path = flow_dir.join(CONFIG_FILE);
+        let review_backend = if config_path.exists() {
+            fs::read_to_string(&config_path)
+                .ok()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|v| v["review"]["backend"].as_str().map(String::from))
+        } else {
+            None
+        };
+        match review_backend.as_deref() {
+            Some("rp") | Some("codex") | Some("none") => {
+                checks.push(json!({"name": "review_backend", "status": "pass", "message": format!("Review backend configured: {}", review_backend.as_ref().unwrap())}));
+            }
+            _ => {
+                checks.push(json!({"name": "review_backend", "status": "warn", "message": "Review backend not configured. Run /flow-code:setup or set review.backend in .flow/config.json"}));
+            }
+        }
+
+        // Check 6: configured backend tool available
+        if let Some(ref backend) = review_backend {
+            let tool = match backend.as_str() {
+                "rp" => Some("rp-cli"),
+                "codex" => Some("codex"),
+                _ => None,
+            };
+            if let Some(tool_name) = tool {
+                match Command::new("which").arg(tool_name).output() {
+                    Ok(o) if o.status.success() => {
+                        checks.push(json!({"name": "tool_available", "status": "pass", "message": format!("{} found on PATH", tool_name)}));
+                    }
+                    _ => {
+                        checks.push(json!({"name": "tool_available", "status": "fail", "message": format!("{} not found on PATH (required by review.backend={})", tool_name, backend)}));
+                    }
+                }
+            }
+        }
+
+        // Check 7: stale file locks (count via SQL)
+        let cwd = env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        if let Ok(conn) = crate::commands::db_shim::open(&cwd) {
+            let lock_count = crate::commands::db_shim::block_on_pub(async {
+                let mut rows = conn.inner_conn()
+                    .query("SELECT COUNT(*) FROM file_locks", ())
+                    .await
+                    .map_err(flowctl_db::DbError::LibSql)?;
+                if let Some(row) = rows.next().await.map_err(flowctl_db::DbError::LibSql)? {
+                    Ok::<i64, flowctl_db::DbError>(row.get::<i64>(0).unwrap_or(0))
+                } else {
+                    Ok(0)
+                }
+            });
+            match lock_count {
+                Ok(n) if n > 0 => {
+                    checks.push(json!({"name": "stale_locks", "status": "warn", "message": format!("{} file lock(s) active — verify with 'flowctl lock-check'", n)}));
+                }
+                Ok(_) => {
+                    checks.push(json!({"name": "stale_locks", "status": "pass", "message": "No active file locks"}));
+                }
+                Err(_) => {
+                    checks.push(json!({"name": "stale_locks", "status": "warn", "message": "Could not query file locks"}));
+                }
+            }
         }
     }
 

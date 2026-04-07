@@ -71,6 +71,30 @@ Detect input type in this order (first match wins):
 
 ## Phase 3: Task Loop
 
+### Wave Model
+
+A **wave** is one batch of all currently-ready tasks (all dependencies satisfied). The task loop executes in waves:
+
+```
+Wave 1: [ready tasks with no deps] → spawn workers → wait → merge → checkpoint
+Wave 2: [tasks unblocked by Wave 1] → spawn workers → wait → merge → checkpoint
+Wave N: [remaining tasks]           → spawn workers → wait → merge → checkpoint
+```
+
+**Wave lifecycle:**
+1. **Find ready tasks** (3a) — query `$FLOWCTL ready --epic <id>`
+2. **Start + spawn workers** (3b-3d) — lock files, spawn in parallel
+3. **Wait + merge** (3e) — collect results, merge worktree branches
+4. **Cleanup** (3f) — release file locks (`$FLOWCTL unlock --all`)
+5. **Checkpoint** (3g) — mandatory: run guards + invariants, aggregate results
+6. **Plan-sync** (3h) — update downstream task specs if drift detected
+7. **Loop** (3i) — return to step 1 for next wave, or finish if no ready tasks
+
+**Stop rules:**
+- Guards or invariants fail and cannot be auto-fixed
+- 2 or more tasks in the same wave failed
+- No ready tasks remain (all done or blocked)
+
 **Default mode: Worktree + Teams** — each worker gets an isolated git worktree AND runs as a Team teammate. Worktree provides kernel-level file isolation; Teams provides coordination (TeamCreate + SendMessage + file locking).
 
 **CRITICAL: When multiple tasks are ready, they MUST run in parallel. Do NOT execute them sequentially "for quality" or "one at a time." Parallel execution with isolation IS the quality mechanism.**
@@ -156,6 +180,22 @@ fi
 ```
 
 If a task spec has no `**Files:**` field, log a warning but still spawn. Worker will have unrestricted access (backward compat).
+
+**File overlap detection (before locking):**
+
+After collecting file lists for ALL ready tasks in the current wave, check for overlaps:
+
+```bash
+# Detect file conflicts across ready tasks in this wave
+$FLOWCTL files --epic <epic-id> --status in_progress --json
+# Check output for "conflicts" array — non-empty means overlap
+```
+
+If conflicts exist (two tasks declare the same file):
+1. Log the conflict: `"File conflict: <file> claimed by <task-a> and <task-b>"`
+2. Use AskUserQuestion: "Tasks <A> and <B> both need <file>. Options: (a) serialize them (add dependency), (b) let both proceed (risk merge conflicts), (c) reassign files"
+3. If serialize: `$FLOWCTL dep add <task-b> <task-a> --json` and remove task-b from this wave's ready list
+4. Block worker spawn for conflicting tasks until resolved
 
 **RP context detection (once per wave, before spawning workers):**
 

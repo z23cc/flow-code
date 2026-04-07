@@ -181,3 +181,4 @@ Updated tasks (cross-epic):  # Only if CROSS_EPIC enabled and found
 - **Preserve intent** - Update references, not requirements
 - **Minimal changes** - Only fix stale references, don't rewrite specs
 - **Skip if no drift** - Return quickly if implementation matches spec
+- **Never edit in_progress tasks** - Before editing any task spec, check status via `$FLOWCTL show <task-id> --json`. If status is `in_progress`, skip the edit and log: `"Skipping <task-id>: task is in_progress (worker may be executing)"`. This prevents spec drift while workers are actively implementing.

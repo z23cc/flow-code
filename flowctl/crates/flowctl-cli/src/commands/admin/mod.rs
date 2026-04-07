@@ -64,7 +64,7 @@ mod exchange;
 // ── Re-exports (preserves public API) ──────────────────────────────
 
 pub use init::{cmd_init, cmd_detect};
-pub use status::{cmd_status, cmd_doctor, cmd_validate};
+pub use status::{cmd_status, cmd_doctor, cmd_progress, cmd_validate};
 pub use review::{cmd_review_backend, cmd_parse_findings};
 pub use config::{cmd_config, cmd_state_path, ConfigCmd};
 pub use guard::{cmd_guard, cmd_worker_prompt};

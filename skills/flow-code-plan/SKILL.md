@@ -104,20 +104,20 @@ Research: repo-scout + rp(<mcp|cli|scout-fallback>) | Depth: <short|standard|dee
 ### Explicit flag overrides
 
 These flags override the corresponding AI decision without entering the analysis flow:
-- `--research=rp|grep`, `--depth=short|standard|deep`, `--review=rp|codex|export|none`, `--plan-only`, `--no-capability-scan` (skip capability-scout in Step 1)
-- `--interactive` — **opt-in** interview refinement. Before Context Analysis, invoke `/flow-code:interview` with the raw request text. The interview returns refined-spec markdown (Problem / Scope / Acceptance / Open Questions). Use that refined text as the effective request for Context Analysis and Step 1. When this flag is NOT passed, the plan flow is unchanged and the zero-interaction default (CLAUDE.md:99) is preserved. There is intentionally no auto-trigger heuristic and no `--no-interview` flag — interview is opt-in only.
+- `--research=rp|grep`, `--depth=short|standard|deep`, `--review=rp|codex|export|none`, `--plan-only`, `--no-capability-scan` (skip capability-scout in Step 4)
+- `--interactive` — **opt-in** interview refinement. Before Context Analysis, invoke `/flow-code:interview` with the raw request text. The interview returns refined-spec markdown (Problem / Scope / Acceptance / Open Questions). Use that refined text as the effective request for Context Analysis and Step 4. When this flag is NOT passed, the plan flow is unchanged and the zero-interaction default (CLAUDE.md:99) is preserved. There is intentionally no auto-trigger heuristic and no `--no-interview` flag — interview is opt-in only.
 
-Proceed to Step 1 immediately.
+Proceed to Step 4 immediately.
 
 ## Workflow
 
 Read [steps.md](steps.md) and follow each step in order.
 
-**CRITICAL — Step 1 (Research)**: You MUST launch ALL scouts listed in steps.md in ONE parallel Task call. Do NOT skip scouts or run them sequentially. Each scout provides unique signal.
+**CRITICAL — Step 4 (Research)**: You MUST launch ALL scouts listed in steps.md in ONE parallel Task call. Do NOT skip scouts or run them sequentially. Each scout provides unique signal.
 
 If review was decided (rp/codex/export):
-- rp or codex: run `/flow-code:plan-review` after Step 4, fix issues until it passes
-- export: run `/flow-code:plan-review` with export mode after Step 4
+- rp or codex: run `/flow-code:plan-review` after Step 9, fix issues until it passes
+- export: run `/flow-code:plan-review` with export mode after Step 9
 
 ## Output
 
@@ -135,9 +135,9 @@ All plans go into `.flow/`:
 
 ## Auto-Execute
 
-**Steps.md Step 8 handles auto-execution.** After steps complete:
-- Default: `/flow-code:work <epic-id> --no-review` invoked automatically (Step 8)
-- `--plan-only`: shows plan summary and stops (Step 8)
+**Steps.md Step 15 handles auto-execution.** After steps complete:
+- Default: `/flow-code:work <epic-id> --no-review` invoked automatically (Step 15)
+- `--plan-only`: shows plan summary and stops (Step 15)
 
 **After work completes** (if auto-executed):
 - All tasks done → Layer 3 adversarial review runs automatically (Phase 3j)

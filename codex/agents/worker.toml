@@ -16,8 +16,8 @@ You implement a single flow-code task. Your prompt contains configuration values
 - `FLOWCTL` - path to flowctl CLI
 - `REVIEW_MODE` - none, rp, or codex
 - `RALPH_MODE` - true if running autonomously
-- `TDD_MODE` - true to enforce test-first development (Phase 2a)
-- `RP_CONTEXT` - mcp, cli, or none (controls RP-powered context gathering in Phase 1.5)
+- `TDD_MODE` - true to enforce test-first development (Phase 4)
+- `RP_CONTEXT` - mcp, cli, or none (controls RP-powered context gathering in Phase 3)
 
 ## Environment
 
@@ -34,7 +34,7 @@ You execute phases one at a time via flowctl commands.
 4. Run: `$FLOWCTL worker-phase done --task $TASK_ID --phase <N> --json`
 5. Repeat from step 1 until response has `all_done: true`
 
-Do NOT skip phases. Do NOT execute phases out of order. The gate enforces sequential execution — attempting to complete phase 3 before phase 2 will be rejected.
+Do NOT skip phases. Do NOT execute phases out of order. The gate enforces sequential execution — attempting to complete phase 5 before phase 4 will be rejected.
 <!-- /section:core -->
 
 <!-- section:team -->
@@ -125,7 +125,7 @@ After `flowctl done`, send a `task_complete` message, then wait for next assignm
 <!-- /section:team -->
 
 <!-- section:team -->
-## Phase 0: Verify Configuration (CRITICAL)
+## Phase 1: Verify Configuration (CRITICAL)
 
 **If TEAM_MODE is `true`:**
 
@@ -135,7 +135,7 @@ After `flowctl done`, send a `task_complete` message, then wait for next assignm
      SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
        message: "Task <TASK_ID> is blocked.\\nReason: TEAM_MODE=true but OWNED_FILES is empty or missing.\\nBlocked by: orchestrator configuration error")
      ```
-   - Do NOT proceed to Phase 1
+   - Do NOT proceed to Phase 2
 
 2. **Verify TASK_ID matches prompt**
    - Confirm the `TASK_ID` from your prompt matches what `flowctl show` returns
@@ -144,11 +144,11 @@ After `flowctl done`, send a `task_complete` message, then wait for next assignm
 3. **Log owned files for audit trail**
    - Print `OWNED_FILES: <file1>, <file2>, ...` so the conversation log captures your ownership set
 
-**If TEAM_MODE is not set or `false`:** proceed directly to Phase 1 (unrestricted file access).
+**If TEAM_MODE is not set or `false`:** proceed directly to Phase 2 (unrestricted file access).
 <!-- /section:team -->
 
 <!-- section:core -->
-## Phase 1: Re-anchor (CRITICAL - DO NOT SKIP)
+## Phase 2: Re-anchor (CRITICAL - DO NOT SKIP)
 
 Use the FLOWCTL path and IDs from your prompt:
 
@@ -213,13 +213,13 @@ GIT_BASELINE_REV=$(git rev-parse HEAD)
 echo "GIT_BASELINE_REV=$GIT_BASELINE_REV"
 git diff --stat HEAD 2>/dev/null || true
 ```
-Save `GIT_BASELINE_REV` — you'll use it in Phase 5 to generate workspace change evidence.
+Save `GIT_BASELINE_REV` — you'll use it in Phase 10 to generate workspace change evidence.
 <!-- /section:core -->
 
 <!-- section:core -->
-## Phase 1.5: Pre-implementation Investigation
+## Phase 3: Pre-implementation Investigation
 
-**If the task spec contains `## Investigation targets` with content, execute this phase. Otherwise skip to Phase 2a/2.**
+**If the task spec contains `## Investigation targets` with content, execute this phase. Otherwise skip to Phase 4/5.**
 
 ### Step 0: RP-powered deep context (if RP_CONTEXT != none)
 
@@ -233,7 +233,7 @@ IF RP_CONTEXT == "mcp":
   Timeout: 120 seconds. If context_builder does not return within 120s, log:
     "RP context_builder timed out after 120s, using built-in fallback"
   and skip to Step 1.
-  Use the returned plan to guide Phase 2 implementation.
+  Use the returned plan to guide Phase 5 implementation.
 
 ELIF RP_CONTEXT == "cli":
   Run with 120s timeout:
@@ -241,7 +241,7 @@ ELIF RP_CONTEXT == "cli":
   If timeout or failure, log:
     "rp-cli builder timed out or failed, using built-in fallback"
   and skip to Step 1.
-  Use the returned plan to guide Phase 2 implementation.
+  Use the returned plan to guide Phase 5 implementation.
 
 ELSE (RP_CONTEXT == "none"):
   Skip to Step 1 (existing behavior, unchanged).
@@ -282,11 +282,11 @@ END
 
 3. Read **Optional** files as needed based on Step 1 findings.
 
-4. Continue to Phase 2a/2 only after investigation is complete.
+4. Continue to Phase 4/5 only after investigation is complete.
 <!-- /section:core -->
 
 <!-- section:tdd -->
-## Phase 2a: TDD Red-Green (if TDD_MODE=true)
+## Phase 4: TDD Red-Green (if TDD_MODE=true)
 
 **Skip this phase if TDD_MODE is not `true`.**
 
@@ -299,7 +299,7 @@ Before implementing the feature, write failing tests first:
    ```
    If tests pass already, the feature may already be implemented. Investigate before proceeding.
 
-2. **Green** — Now implement the minimum code to make tests pass (this IS Phase 2).
+2. **Green** — Now implement the minimum code to make tests pass (this IS Phase 5).
 
 3. **Refactor** — After tests pass, clean up without changing behavior. Run tests again to confirm still green.
 
@@ -307,7 +307,7 @@ The key constraint: **no implementation code before a failing test exists**. Thi
 <!-- /section:tdd -->
 
 <!-- section:core -->
-## Phase 2: Implement
+## Phase 5: Implement
 
 **First, capture base commit for scoped review:**
 ```bash
@@ -397,7 +397,7 @@ If during implementation you discover the spec is wrong, incomplete, or contradi
    - What the spec says vs what reality requires
    - Why the spec approach won't work
    - A suggested correction (if you have one)
-3. **Return early** with status `SPEC_CONFLICT` in your Phase 6 summary
+3. **Return early** with status `SPEC_CONFLICT` in your Phase 12 summary
 4. Do NOT mark the task as done — leave it `in_progress`
 
 The main conversation will resolve the conflict and re-dispatch you (or update the spec).
@@ -410,7 +410,7 @@ The main conversation will resolve the conflict and re-dispatch you (or update t
 <!-- /section:core -->
 
 <!-- section:core -->
-## Phase 2.5: Verify & Fix
+## Phase 6: Verify & Fix
 
 **After implementing, before committing — verify your code works. This is normal development: implement → test → fix → retest → pass → commit.**
 
@@ -426,7 +426,7 @@ Continue until guard passes. There is no retry limit — this is not a retry loo
 
 **If the failure is not a code bug but a spec problem** (e.g., spec asks for something impossible, acceptance criteria contradict each other, required API doesn't exist):
 - Do NOT keep trying to fix code
-- Return early with `SPEC_CONFLICT` status (see Phase 2 spec conflict protocol)
+- Return early with `SPEC_CONFLICT` status (see Phase 5 spec conflict protocol)
 - In Teams mode, send a `Spec conflict` message to the coordinator
 
 **Teams mode constraint:** When `TEAM_MODE=true`, only fix files in `OWNED_FILES`. If the failure is caused by a file you don't own, request access via `flowctl approval create --kind file_access` + `approval show --wait` (or fallback `Need file access:` SendMessage), then wait for a resolution. If access is rejected or times out, note the issue in your completion summary.
@@ -448,11 +448,11 @@ If you find issues, fix them and re-run `<FLOWCTL> guard` to verify.
 
 **Rules:**
 - Only fix issues in YOUR changes — don't refactor unrelated code
-- If unsure whether something is an issue, leave it for Phase 4 (external review)
+- If unsure whether something is an issue, leave it for Phase 8 (external review)
 <!-- /section:core -->
 
 <!-- section:core -->
-## Phase 3: Commit
+## Phase 7: Commit
 
 ```bash
 git add -A
@@ -468,9 +468,9 @@ Use conventional commits. Scope from task context.
 <!-- /section:core -->
 
 <!-- section:review -->
-## Phase 4: Review (MANDATORY if REVIEW_MODE != none)
+## Phase 8: Review (MANDATORY if REVIEW_MODE != none)
 
-**If REVIEW_MODE is `none`, skip to Phase 5.**
+**If REVIEW_MODE is `none`, skip to Phase 10.**
 
 **If REVIEW_MODE is `rp` or `codex`, you MUST invoke impl-review and receive SHIP before proceeding.**
 
@@ -495,13 +495,13 @@ If NEEDS_WORK:
 3. Commit fixes
 4. Re-invoke the skill: `/flow-code:impl-review <TASK_ID> --base $BASE_COMMIT`
 
-Continue until SHIP verdict. Save final `REVIEW_ITERATIONS` count for Phase 5 evidence.
+Continue until SHIP verdict. Save final `REVIEW_ITERATIONS` count for Phase 10 evidence.
 <!-- /section:review -->
 
 <!-- section:core -->
-## Phase 5: Complete
+## Phase 10: Complete
 
-**Prerequisite:** Phase 5c (Outputs Dump) must have run if `outputs.enabled=true`. The phase registry orders 5c before 5 so the narrative handoff file exists before dependents unblock.
+**Prerequisite:** Phase 9 (Outputs Dump) must have run if `outputs.enabled=true`. The phase registry orders 9 before 10 so the narrative handoff file exists before dependents unblock.
 
 **Verify before completing:**
 ```bash
@@ -522,7 +522,7 @@ Go through each `- [ ]` acceptance criterion in the spec:
 
 **Rules:**
 - This is a 1-minute sanity check, not a full re-review
-- Only check acceptance criteria, not general quality (Phase 2.5 already did that)
+- Only check acceptance criteria, not general quality (Phase 6 already did that)
 - If you discover a gap, fix + commit + re-run guard
 - If you discover the criterion is impossible, note it in the summary (not SPEC_CONFLICT at this stage)
 
@@ -531,7 +531,7 @@ Capture the commit hash:
 COMMIT_HASH=$(git rev-parse HEAD)
 ```
 
-Capture workspace changes (compare against Phase 1 baseline):
+Capture workspace changes (compare against Phase 2 baseline):
 ```bash
 # Generate workspace change summary
 DIFF_STAT=$(git diff --stat "$GIT_BASELINE_REV"..HEAD 2>/dev/null || echo "no diff")
@@ -549,7 +549,7 @@ EOF
 
 **If a review was done (REVIEW_MODE != none)**, append the review receipt to evidence so it gets auto-archived:
 ```bash
-# Only if RECEIPT_PATH exists from Phase 4
+# Only if RECEIPT_PATH exists from Phase 8
 if [ -f "${RECEIPT_PATH:-/tmp/impl-review-receipt.json}" ]; then
   # Merge review_receipt into evidence JSON
   python3 -c "
@@ -585,9 +585,9 @@ Status MUST be `done`. If not:
 <!-- /section:core -->
 
 <!-- section:outputs -->
-## Phase 5c: Outputs Dump (if outputs.enabled)
+## Phase 9: Outputs Dump (if outputs.enabled)
 
-**Runs BEFORE Phase 5 completion.** Phase 5c must produce the handoff artifact before `flowctl done` fires, otherwise a dependent task can start re-anchoring and race past the missing file. The phase registry in `flowctl-cli/src/commands/workflow/phase.rs` enforces this ordering (5c before 5).
+**Runs BEFORE Phase 10 completion.** Phase 9 must produce the handoff artifact before `flowctl done` fires, otherwise a dependent task can start re-anchoring and race past the missing file. The phase registry in `flowctl-cli/src/commands/workflow/phase.rs` enforces this ordering (9 before 10).
 
 **Skip if `outputs.enabled` is false.** This is gated on its own config key — independent from `memory.enabled`. Outputs are a lightweight narrative handoff layer (plain markdown, no verification), separate from the verified memory system.
 
@@ -620,18 +620,18 @@ fi
 - All three sections are allowed to be missing or empty — downstream readers handle that gracefully
 - Focus on narrative handoff: what would help the next worker, not comprehensive docs
 - Don't repeat spec content — only things you learned while working
-- This is narrative handoff, NOT verified memory. Save verified pitfalls/conventions in Phase 5b.
+- This is narrative handoff, NOT verified memory. Save verified pitfalls/conventions in Phase 11.
 <!-- /section:outputs -->
 
 <!-- section:memory -->
-## Phase 5b: Memory Auto-Save (if memory enabled)
+## Phase 11: Memory Auto-Save (if memory enabled)
 
-**Skip if memory.enabled is false or was not checked in Phase 1.**
+**Skip if memory.enabled is false or was not checked in Phase 2.**
 
 After completing the task, capture any non-obvious lessons learned:
 
 ```bash
-# Check if memory is enabled (already checked in Phase 1)
+# Check if memory is enabled (already checked in Phase 2)
 <FLOWCTL> config get memory.enabled --json
 ```
 
@@ -661,7 +661,7 @@ If enabled, reflect on what you discovered during implementation and save **only
 <!-- /section:memory -->
 
 <!-- section:core -->
-## Phase 6: Return
+## Phase 12: Return
 
 Return a concise summary to the main conversation:
 - What was implemented (1-2 sentences)

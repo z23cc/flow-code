@@ -69,8 +69,8 @@ REVIEW_BACKEND=$($FLOWCTL review-backend)
 Based on context, decide:
 - **Branch**: on feature branch → stay (`current`). on main/master → create worktree (`worktree`). dirty working tree → `current`.
 - **Per-task review**: `none` by default. Three-layer quality system handles review at the right levels:
-  - Layer 1 (guard): runs per-commit in worker Phase 2.5 — always on
-  - Layer 3 (codex adversarial): runs at epic completion in Phase 3j — auto-detects codex CLI
+  - Layer 1 (guard): runs per-commit in Worker Phase 6 — always on
+  - Layer 3 (codex adversarial): runs at epic completion in Step 14 — auto-detects codex CLI
   - Per-task Codex/RP review only if explicitly requested via `--review=rp|codex`
 
 Output one line:

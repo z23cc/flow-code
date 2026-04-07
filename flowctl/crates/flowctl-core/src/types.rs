@@ -260,7 +260,7 @@ impl Task {
 /// Worker execution phase.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Phase {
-    /// Phase ID (e.g. "0", "1", "2a", "2", "2.5").
+    /// Phase ID (sequential integer, e.g. "1", "2", "5", "10").
     pub id: String,
 
     /// Human-readable title.
@@ -300,29 +300,29 @@ impl std::fmt::Display for PhaseStatus {
     }
 }
 
-/// Phase definitions from Python constants.py.
+/// Phase definitions — sequential integer IDs (1-12).
 /// Each entry: (id, title, done_condition).
 pub const PHASE_DEFS: &[(&str, &str, &str)] = &[
-    ("0", "Verify Configuration", "OWNED_FILES verified and configuration validated"),
-    ("1", "Re-anchor", "Run flowctl show <task> and verify spec was read"),
-    ("1.5", "Investigation", "Required investigation target files read and patterns noted"),
-    ("2a", "TDD Red-Green", "Failing tests written and confirmed to fail"),
-    ("2", "Implement", "Feature implemented and code compiles"),
-    ("2.5", "Verify & Fix", "flowctl guard passes and diff reviewed"),
-    ("3", "Commit", "Changes committed with conventional commit message"),
-    ("4", "Review", "SHIP verdict received from reviewer"),
-    ("5", "Complete", "flowctl done called and task status is done"),
-    ("5c", "Outputs Dump", "Narrative summary written to .flow/outputs/<task-id>.md"),
-    ("5b", "Memory Auto-Save", "Non-obvious lessons saved to memory (if any)"),
-    ("6", "Return", "Summary returned to main conversation"),
+    ("1", "Verify Configuration", "OWNED_FILES verified and configuration validated"),
+    ("2", "Re-anchor", "Run flowctl show <task> and verify spec was read"),
+    ("3", "Investigation", "Required investigation target files read and patterns noted"),
+    ("4", "TDD Red-Green", "Failing tests written and confirmed to fail"),
+    ("5", "Implement", "Feature implemented and code compiles"),
+    ("6", "Verify & Fix", "flowctl guard passes and diff reviewed"),
+    ("7", "Commit", "Changes committed with conventional commit message"),
+    ("8", "Review", "SHIP verdict received from reviewer"),
+    ("9", "Outputs Dump", "Narrative summary written to .flow/outputs/<task-id>.md"),
+    ("10", "Complete", "flowctl done called and task status is done"),
+    ("11", "Memory Auto-Save", "Non-obvious lessons saved to memory (if any)"),
+    ("12", "Return", "Summary returned to main conversation"),
 ];
 
-/// Phase sequences by mode (from Python constants.py).
-/// Phase `5c` (outputs_dump) is NOT in these static sequences — it is added
+/// Phase sequences by mode.
+/// Phase `9` (outputs_dump) is NOT in these static sequences — it is added
 /// dynamically by `worker-phase next` based on the `outputs.enabled` config.
-pub const PHASE_SEQ_DEFAULT: &[&str] = &["0", "1", "1.5", "2", "2.5", "3", "5", "5b", "6"];
-pub const PHASE_SEQ_TDD: &[&str] = &["0", "1", "1.5", "2a", "2", "2.5", "3", "5", "5b", "6"];
-pub const PHASE_SEQ_REVIEW: &[&str] = &["0", "1", "1.5", "2", "2.5", "3", "4", "5", "5b", "6"];
+pub const PHASE_SEQ_DEFAULT: &[&str] = &["1", "2", "3", "5", "6", "7", "10", "11", "12"];
+pub const PHASE_SEQ_TDD: &[&str] = &["1", "2", "3", "4", "5", "6", "7", "10", "11", "12"];
+pub const PHASE_SEQ_REVIEW: &[&str] = &["1", "2", "3", "5", "6", "7", "8", "10", "11", "12"];
 
 // ── Evidence ─────────────────────────────────────────────────────────
 

@@ -2,7 +2,7 @@
 //!
 //! Thin CLI wrapper over `flowctl_service::outputs::OutputsStore`. Provides
 //! a lightweight narrative handoff layer at `.flow/outputs/<task-id>.md` that
-//! workers populate in Phase 5c and read during Phase 1 re-anchor.
+//! workers populate in Phase 9 and read during Phase 2 re-anchor.
 
 use std::fs;
 use std::io::Read;

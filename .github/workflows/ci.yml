@@ -74,6 +74,37 @@ jobs:
       - name: Audit dependencies
         run: cargo install cargo-audit && cargo audit
 
+  integration:
+    name: Shell Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            flowctl/target
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('flowctl/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+
+      - name: Build flowctl
+        run: cd flowctl && cargo build --release
+
+      - name: Configure git for tests
+        run: |
+          git config --global user.email "ci@test.local"
+          git config --global user.name "CI Test"
+
+      - name: Run shell integration tests
+        run: bash scripts/tests/run_all.sh
+
   coverage:
     name: Test Coverage
     runs-on: ubuntu-latest

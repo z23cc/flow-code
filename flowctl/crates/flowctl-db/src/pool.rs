@@ -4,7 +4,7 @@
 //!
 //! - **libSQL** is fully async, Tokio-based. All DB calls are `.await`.
 //! - Schema is applied once on open via `apply_schema()` — a single SQL
-//!   blob (see `schema.sql`). Fresh DBs only; no migration story.
+//!   blob (see `schema.sql`). Migrations run after schema init (see `migration.rs`).
 //! - `libsql::Connection` is cheap and `Clone`. Pass by value; do not wrap
 //!   in `Arc<Mutex<_>>`.
 //! - PRAGMAs (WAL, busy_timeout, foreign_keys) are set per-connection on
@@ -23,6 +23,7 @@ use std::process::Command;
 use libsql::{Builder, Connection, Database};
 
 use crate::error::DbError;
+use crate::migration;
 
 /// Embedded schema applied to fresh databases.
 const SCHEMA_SQL: &str = include_str!("schema.sql");
@@ -135,6 +136,7 @@ pub async fn open_async(working_dir: &Path) -> Result<Database, DbError> {
     let conn = db.connect()?;
     apply_pragmas(&conn).await?;
     apply_schema(&conn).await?;
+    migration::migrate(&conn).await?;
 
     Ok(db)
 }
@@ -178,6 +180,7 @@ pub async fn open_memory_async() -> Result<(Database, Connection), DbError> {
     let conn = db.connect()?;
     apply_pragmas(&conn).await.ok();
     apply_schema(&conn).await?;
+    migration::migrate(&conn).await?;
 
     Ok((db, conn))
 }
@@ -223,6 +226,7 @@ mod tests {
             "monthly_rollup",
             "memory",
             "skills",
+            "_meta",
         ] {
             assert!(
                 tables.contains(&expected.to_string()),

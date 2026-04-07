@@ -1,0 +1,141 @@
+//! Schema migration infrastructure for flowctl-db.
+//!
+//! Tracks schema version in a `_meta` table and runs numbered migrations
+//! sequentially. Migrations are idempotent (safe to re-run).
+
+use libsql::Connection;
+
+use crate::error::DbError;
+
+/// Current target schema version. Bump this when adding new migrations.
+const TARGET_VERSION: i64 = 2;
+
+/// Ensure `_meta` table exists and run any pending migrations.
+pub async fn migrate(conn: &Connection) -> Result<(), DbError> {
+    // Create the _meta table if it doesn't exist.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)",
+        (),
+    )
+    .await
+    .map_err(|e| DbError::Schema(format!("_meta table creation failed: {e}")))?;
+
+    let current = get_version(conn).await?;
+
+    if current < 2 {
+        migrate_v2(conn).await?;
+    }
+
+    // Update stored version to target.
+    if current < TARGET_VERSION {
+        set_version(conn, TARGET_VERSION).await?;
+    }
+
+    Ok(())
+}
+
+/// Read current schema version from `_meta`. Returns 1 if no version is set
+/// (meaning the DB has the original schema but no migration history).
+async fn get_version(conn: &Connection) -> Result<i64, DbError> {
+    let mut rows = conn
+        .query(
+            "SELECT value FROM _meta WHERE key = 'schema_version'",
+            (),
+        )
+        .await
+        .map_err(|e| DbError::Schema(format!("_meta query failed: {e}")))?;
+
+    if let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| DbError::Schema(format!("_meta row read failed: {e}")))?
+    {
+        let val: String = row
+            .get(0)
+            .map_err(|e| DbError::Schema(format!("_meta value read failed: {e}")))?;
+        val.parse::<i64>()
+            .map_err(|e| DbError::Schema(format!("_meta version parse failed: {e}")))
+    } else {
+        // No version stored yet — this is a v1 database (original schema).
+        Ok(1)
+    }
+}
+
+/// Write schema version to `_meta`.
+async fn set_version(conn: &Connection, version: i64) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO _meta (key, value) VALUES ('schema_version', ?1) \
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        libsql::params![version.to_string()],
+    )
+    .await
+    .map_err(|e| DbError::Schema(format!("_meta version update failed: {e}")))?;
+    Ok(())
+}
+
+/// Migration v2: Add TTL columns to file_locks.
+///
+/// - `holder_pid INTEGER` — PID of the process holding the lock
+/// - `expires_at TEXT` — ISO-8601 expiry timestamp for TTL-based cleanup
+///
+/// Uses `.ok()` on each ALTER TABLE because the column may already exist
+/// on re-run (ALTER TABLE ADD COLUMN is not idempotent in SQLite/libSQL).
+async fn migrate_v2(conn: &Connection) -> Result<(), DbError> {
+    let _ = conn
+        .execute(
+            "ALTER TABLE file_locks ADD COLUMN holder_pid INTEGER",
+            (),
+        )
+        .await
+        .ok();
+
+    let _ = conn
+        .execute(
+            "ALTER TABLE file_locks ADD COLUMN expires_at TEXT",
+            (),
+        )
+        .await
+        .ok();
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pool;
+
+    #[tokio::test]
+    async fn test_migrate_fresh_db() {
+        let (_db, conn) = pool::open_memory_async().await.unwrap();
+
+        // Verify _meta table exists and version is set.
+        let version = get_version(&conn).await.unwrap();
+        assert_eq!(version, TARGET_VERSION, "version should be {TARGET_VERSION} after open");
+
+        // Verify file_locks has the new columns.
+        let mut rows = conn
+            .query("SELECT name FROM pragma_table_info('file_locks')", ())
+            .await
+            .unwrap();
+
+        let mut cols: Vec<String> = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            cols.push(row.get::<String>(0).unwrap());
+        }
+
+        assert!(cols.contains(&"holder_pid".to_string()), "holder_pid missing: {cols:?}");
+        assert!(cols.contains(&"expires_at".to_string()), "expires_at missing: {cols:?}");
+    }
+
+    #[tokio::test]
+    async fn test_migrate_idempotent() {
+        let (_db, conn) = pool::open_memory_async().await.unwrap();
+
+        // Run migrate again — should not error.
+        migrate(&conn).await.expect("second migrate should be idempotent");
+
+        let version = get_version(&conn).await.unwrap();
+        assert_eq!(version, TARGET_VERSION);
+    }
+}

@@ -7,8 +7,8 @@
 //!
 //! - **libSQL is the single source of truth.** All reads and writes go
 //!   through async repository methods. Markdown files are an export format.
-//! - **Schema is applied on open** via a single embedded SQL blob. No
-//!   migrations — this crate assumes a fresh DB.
+//! - **Schema is applied on open** via a single embedded SQL blob, then
+//!   migrations run to upgrade existing databases (see `migration.rs`).
 //! - **Connections are cheap clones.** `libsql::Connection` is `Send + Sync`,
 //!   pass by value. Do not wrap in `Arc<Mutex<_>>`.
 //!
@@ -22,6 +22,7 @@ pub mod events;
 pub mod indexer;
 pub mod memory;
 pub mod metrics;
+pub mod migration;
 pub mod pool;
 pub mod repo;
 pub mod skill;

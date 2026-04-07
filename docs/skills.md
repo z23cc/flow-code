@@ -2,18 +2,19 @@
 
 Skills are organized into **core** (essential workflow) and **extensions** (optional capabilities).
 
-## Core Skills (8)
+## Core Skills (9)
 
 These skills form the primary plan-execute-review workflow. They ship with the plugin.
 
 | Skill | Command | Purpose |
 |-------|---------|---------|
+| `flow-code-run` | `/flow-code:run` | **Primary entry point** — unified phase loop (plan → review → work → close) |
 | `flow-code` | `/flow-code` | Task/epic management entry point (list, create, status) |
-| `flow-code-plan` | `/flow-code:plan` | Create structured build plans from descriptions |
-| `flow-code-work` | `/flow-code:work` | Execute plans with Teams mode (parallel workers + file locking) |
-| `flow-code-plan-review` | `/flow-code:plan-review` | Carmack-level plan review via RepoPrompt or Codex |
-| `flow-code-impl-review` | `/flow-code:impl-review` | Post-implementation code review |
-| `flow-code-epic-review` | `/flow-code:epic-review` | Final review before closing an epic |
+| `flow-code-plan` | `/flow-code:plan` | Create structured build plans (deprecated — use `run`) |
+| `flow-code-work` | `/flow-code:work` | Execute plans with Teams mode (deprecated — use `run`) |
+| `flow-code-plan-review` | `/flow-code:plan-review` | Carmack-level plan review (deprecated — use `run`) |
+| `flow-code-impl-review` | `/flow-code:impl-review` | Post-implementation code review (deprecated — use `run`) |
+| `flow-code-epic-review` | `/flow-code:epic-review` | Final review before closing (deprecated — use `run`) |
 | `flow-code-setup` | `/flow-code:setup` | Install flowctl CLI and configure project |
 | `flow-code-map` | `/flow-code:map` | Generate codebase architecture maps |
 
@@ -64,8 +65,7 @@ For a new project:
 
 1. `/flow-code:setup` — install and configure
 2. `/flow-code:prime` — assess codebase readiness
-3. `/flow-code:plan "description"` — create a plan
-4. `/flow-code:plan-review` — review the plan
-5. `/flow-code:work <epic-id>` — execute
-6. `/flow-code:impl-review` — review implementation
-7. `/flow-code:epic-review` — final review
+3. `/flow-code:run "description"` — plan, review, execute, and close (all-in-one)
+
+Legacy individual commands (deprecated, still functional):
+3a. `/flow-code:plan "description"` → 4. `/flow-code:plan-review` → 5. `/flow-code:work <epic-id>` → 6. `/flow-code:impl-review` → 7. `/flow-code:epic-review`

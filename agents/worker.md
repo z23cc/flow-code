@@ -515,13 +515,13 @@ Use conventional commits. Scope from task context.
 
 **If REVIEW_MODE is `rp` or `codex`, you MUST invoke impl-review and receive SHIP before proceeding.**
 
-Use the Skill tool to invoke impl-review (NOT flowctl directly):
+Invoke impl-review via the pipeline phase system (NOT flowctl directly). The review phase is handled automatically by `flowctl worker-phase next` when REVIEW_MODE is set. If invoked manually:
 
 ```
 /flow-code:impl-review <TASK_ID> --base $BASE_COMMIT
 ```
 
-The skill handles everything:
+The review phase handles everything:
 - Scoped diff (BASE_COMMIT..HEAD, not main..HEAD)
 - Receipt paths (don't pass --receipt yourself)
 - Sending to reviewer (rp or codex backend)
@@ -534,7 +534,7 @@ If NEEDS_WORK:
 1. Increment `REVIEW_ITERATIONS`
 2. Fix the issues identified
 3. Commit fixes
-4. Re-invoke the skill: `/flow-code:impl-review <TASK_ID> --base $BASE_COMMIT`
+4. Re-invoke review: `/flow-code:impl-review <TASK_ID> --base $BASE_COMMIT`
 
 Continue until SHIP verdict. Save final `REVIEW_ITERATIONS` count for Phase 10 evidence.
 <!-- /section:review -->

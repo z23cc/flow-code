@@ -4,10 +4,10 @@ description: Execute a plan end-to-end with checks
 argument-hint: "<fn-N or idea> [--tdd] [--interactive]"
 ---
 
-# IMPORTANT: This command MUST invoke the skill `flow-code-work`
+# IMPORTANT: This command MUST invoke the skill flow-code-run
 
-The ONLY purpose of this command is to call the `flow-code-work` skill. You MUST use that skill now.
+The ONLY purpose of this command is to call the flow-code-run skill. You MUST use that skill now.
 
-**User input:** $ARGUMENTS
+**User request:** $ARGUMENTS
 
-Pass the user input to the skill. The skill handles all execution logic.
+Pass the user request to the skill. The skill handles all pipeline logic.

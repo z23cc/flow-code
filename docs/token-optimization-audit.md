@@ -231,8 +231,8 @@ Top offenders by description length:
 
 ```
 26,695 bytes  agents/worker.md           (~6.5K tokens every spawn)
-16,036 bytes  flow-code-work/phases.md
-15,364 bytes  flow-code-plan/steps.md
+16,036 bytes  flow-code-work/phases.md   (deleted — skill deprecated, logic moved to flow-code-run)
+15,364 bytes  flow-code-plan/steps.md    (deleted — skill deprecated, logic moved to flow-code-run)
 15,307 bytes  browser/SKILL.md
 14,447 bytes  flow-code-epic-review/workflow.md
 ```

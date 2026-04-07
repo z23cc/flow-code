@@ -4,10 +4,10 @@ description: John Carmack-level implementation review via RepoPrompt or Codex
 argument-hint: "[--review=rp|codex|export] [focus areas]"
 ---
 
-# IMPORTANT: This command MUST invoke the skill `flow-code-impl-review`
+# IMPORTANT: This command MUST invoke the skill flow-code-run
 
-The ONLY purpose of this command is to call the `flow-code-impl-review` skill. You MUST use that skill now.
+The ONLY purpose of this command is to call the flow-code-run skill. You MUST use that skill now.
 
-**Arguments:** $ARGUMENTS
+**User request:** $ARGUMENTS
 
-Pass the arguments to the skill. The skill handles the review logic.
+Pass the user request to the skill. The skill handles all pipeline logic.

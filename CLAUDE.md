@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Is This
 
-Flow-Code is a Claude Code plugin for structured, plan-first development. It provides slash commands (`/flow-code:plan`, `/flow-code:work`, etc.), skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with libSQL storage (async, native vector search) and MCP server support.
+Flow-Code is a Claude Code plugin for structured, plan-first development. It provides a unified entry point (`/flow-code:run`) plus individual slash commands, skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with libSQL storage (async, native vector search) and MCP server support.
 
 ## Core Architecture
 
@@ -18,7 +18,7 @@ hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
 
-**Skills**: 8 core + 22 extensions. See `docs/skills.md` for the full classification. Core workflow: `flow-code-run` (unified phase loop) or individual skills: plan → plan-review → work → impl-review → epic-review.
+**Skills**: 9 core + 22 extensions. See `docs/skills.md` for the full classification. Core workflow: `flow-code-run` (unified phase loop). Legacy individual skills (plan, plan-review, work, impl-review, epic-review) are deprecated but still functional as thin redirects.
 
 **Key invariant**: The `bin/flowctl` Rust binary is the single source of truth for `.flow/` state. Always invoke as:
 ```bash
@@ -92,16 +92,16 @@ Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills an
 - **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
 - **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files --epic <id>` shows ownership map + conflict detection
 - **File locking (Teams)**: `flowctl lock --task <id> --files <paths>` acquires runtime file locks; `flowctl unlock --task <id>` releases on completion; `flowctl lock-check --file <path>` inspects lock state; `flowctl unlock --all` clears all locks between waves
-- **Agent Teams mode**: `/flow-code:work` spawns workers as Agent Team teammates with plain-text protocol messages (summary-prefix routing: "Task complete:", "Spec conflict:", "Blocked:", "Need file access:", "New task:", "Access granted/denied:", native `shutdown_request`) and file lock enforcement
+- **Agent Teams mode**: `/flow-code:run` (or legacy `/flow-code:work`) spawns workers as Agent Team teammates with plain-text protocol messages (summary-prefix routing: "Task complete:", "Spec conflict:", "Blocked:", "Need file access:", "New task:", "Access granted/denied:", native `shutdown_request`) and file lock enforcement
 - **Adversarial review**: `flowctl codex adversarial --base main [--focus "area"]` runs Codex in adversarial mode — tries to break the code, not validate it. Returns SHIP/NEEDS_WORK with grounded findings
-- **Three-layer quality system**: Layer 1: `flowctl guard` (deterministic lint/type/test, every commit). Layer 2: RP plan-review (code-aware spec validation, invoked via `/flow-code:plan-review` — RP sees full codebase via context_builder). Layer 3: `flowctl codex adversarial` (cross-model adversarial, epic completion — different model family catches blind spots). Spec conflicts and blockers forwarded to Codex for autonomous decision-making.
+- **Three-layer quality system**: Layer 1: `flowctl guard` (deterministic lint/type/test, every commit). Layer 2: RP plan-review (code-aware spec validation, invoked via `/flow-code:run` plan-review phase — RP sees full codebase via context_builder). Layer 3: `flowctl codex adversarial` (cross-model adversarial, epic completion — different model family catches blind spots). Spec conflicts and blockers forwarded to Codex for autonomous decision-making.
 - **Review circuit breaker**: impl-review fix loop capped at `MAX_REVIEW_ITERATIONS` (default 3) — prevents infinite NEEDS_WORK cycles
 - **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
 - **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`
 - **Worker self-review**: Phase 6 runs guard + structured diff review (correctness, quality, performance, testing) before commit
-- **Plan auto-execute**: `/flow-code:plan` defaults to auto-execute work after planning (Teams mode handles any task count); `--plan-only` to opt out
+- **Plan auto-execute**: `/flow-code:run` (or legacy `/flow-code:plan`) defaults to auto-execute work after planning (Teams mode handles any task count); `--plan-only` to opt out
 - **Goal-backward verification**: worker Phase 10 re-reads acceptance criteria and verifies each is actually satisfied before completing
-- **Full-auto by default**: `/flow-code:plan` and `/flow-code:work` require zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + Teams + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
+- **Full-auto by default**: `/flow-code:run` requires zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + Teams + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
 - **Cross-platform**: flowctl is a single Rust binary (macOS/Linux). RP plan-review auto-degrades to Codex on platforms where rp-cli is unavailable. Bash hooks degrade gracefully on Windows (skip, don't block)
 - **Session start**: CLAUDE.md instruction (not an enforced hook) — if `.flow/` exists, run `flowctl status --interrupted` to check for unfinished work from a previous session and resume with the suggested `/flow-code:work <id>` command
 

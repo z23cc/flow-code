@@ -245,6 +245,8 @@ sequenceDiagram
     User->>Interview: /flow-code:interview
     Interview->>flowctl: epic set-plan (refined spec)
 
+    Note over User,flowctl: Preferred: /flow-code:run fn-N (unified pipeline)
+    Note over User,flowctl: Legacy individual commands (deprecated, still functional):
     User->>Plan: /flow-code:plan fn-N
     Plan->>Scouts: 7 scouts in parallel
     Scouts-->>Plan: patterns, docs, gaps, deps
@@ -277,13 +279,13 @@ sequenceDiagram
 
     alt status = plan
         ralph.sh->>Claude: prompt_plan.md (new process)
-        Claude->>Claude: /flow-code:plan-review
+        Claude->>Claude: /flow-code:plan-review (deprecated, handled by run pipeline)
     else status = work
         ralph.sh->>Claude: prompt_work.md (new process)
-        Claude->>Claude: /flow-code:work + impl-review
+        Claude->>Claude: /flow-code:work + impl-review (deprecated, handled by run pipeline)
     else status = completion_review
         ralph.sh->>Claude: prompt_completion.md (new process)
-        Claude->>Claude: /flow-code:epic-review
+        Claude->>Claude: /flow-code:epic-review (deprecated, handled by run pipeline)
     end
 
     Claude-->>ralph.sh: exit (verdict in log)

@@ -136,3 +136,30 @@ $FLOWCTL restart <task-id> --force
 - Don't leave tasks half-done
 - Never use TodoWrite for task tracking
 - Never create plan files outside `.flow/`
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "Spec is good enough, skip re-anchor" | Specs change during plan-review. Always re-read before implementing |
+| "Guard passed, definitely no issues" | Guards may not cover your specific change. Manual verification still needed |
+| "Small change, no test needed" | Small changes are the #1 source of regressions |
+| "I'll test after all tasks are done" | Cross-task integration bugs are 10x harder to diagnose than per-task bugs |
+| "One more attempt will fix it" | 3+ failed attempts = architectural problem. Escalate, don't retry |
+
+## Red Flags
+
+- ≥2 tasks failed in the same wave (systemic issue, stop and investigate)
+- Same file needs 3+ fixes across iterations
+- Guard passes but manual test reveals broken behavior
+- Worker reports "spec unclear" but continues implementing
+- >100 lines changed without running any tests
+- Wave checkpoint skipped or results not reviewed
+
+## Verification
+
+- [ ] All tasks in epic are done or explicitly skipped
+- [ ] Guards pass on final state (`flowctl guard`)
+- [ ] Evidence files exist for each completed task
+- [ ] No unresolved spec conflicts
+- [ ] Wave checkpoints completed for each wave

@@ -414,6 +414,27 @@ The main conversation will resolve the conflict and re-dispatch you (or update t
 <!-- /section:core -->
 
 <!-- section:core -->
+## Phase 2.3: Plan Alignment Check
+
+Quick sanity check — did implementation stay within plan scope?
+
+1. Re-read epic spec: `<FLOWCTL> cat <EPIC_ID>`
+2. Compare implementation scope against epic's scope section:
+   - Files changed match expected files in task spec?
+   - No features added beyond what spec described?
+   - No architectural changes not covered in the plan?
+3. If drift detected:
+   - **Minor** (extra helper, renamed file): note in evidence as `"plan_drift": "<description>"`
+   - **Major** (new feature, changed architecture, different approach): send protocol message:
+     ```
+     Spec conflict: <TASK_ID> — implementation diverged from plan.
+     Drift: <description of what changed and why>
+     ```
+
+**This is a 30-second check, not a full re-review.** Read the spec, glance at your diff, note any drift. Then proceed to Phase 2.5.
+<!-- /section:core -->
+
+<!-- section:core -->
 ## Phase 2.5: Verify & Fix
 
 **After implementing, before committing — verify your code works. This is normal development: implement → test → fix → retest → pass → commit.**

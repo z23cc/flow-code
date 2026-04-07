@@ -5,6 +5,8 @@ description: Use when creating new flow-code skills, editing existing skills, or
 
 # Creating Flow-Code Skills
 
+**Template spec:** See [docs/skill-anatomy.md](../../docs/skill-anatomy.md) for the full specification.
+
 Writing skills IS Test-Driven Development applied to documentation. If you didn't watch an agent fail without the skill, you don't know if the skill teaches the right thing.
 
 ## When to Create
@@ -46,12 +48,27 @@ Core principle in 1-2 sentences.
 
 ## When to Use
 Symptoms, triggers, use cases.
+- **When NOT to use:** exclusions to prevent misapplication
 
 ## Core Process / Pattern
 The actual workflow — inline code for simple patterns.
 
-## Common Mistakes
-What goes wrong + fixes.
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "Too simple to need this" | Simple things break too |
+| "I'll do it properly later" | Later never comes |
+| "I already know this" | Knowing != doing consistently |
+
+## Red Flags
+- Observable symptoms indicating the skill is being violated
+- Patterns to watch for during self-check and review
+
+## Verification
+After completing the process, confirm:
+- [ ] Checklist item with verifiable evidence
+- [ ] Another checkpoint (test output, build result, etc.)
 ```
 
 ## The Iron Law
@@ -92,9 +109,9 @@ NO SKILL WITHOUT A FAILING TEST FIRST
   - Exclude: workflow summary, process steps, what the skill does
 - Keywords in body for discovery: error messages, symptoms, tool names
 
-## Bulletproofing Discipline Skills
+## Bulletproofing All Skills
 
-For skills that enforce rules (debugging, TDD, verification):
+Every skill — not just discipline skills — needs rationalization counters and red flags. Agents rationalize skipping steps in ALL skill types (technique, pattern, and reference). The sections below apply universally.
 
 **Close every loophole explicitly:**
 ```markdown
@@ -133,14 +150,18 @@ Write code before test? Delete it. Start over.
 - [ ] Failure patterns identified
 
 **GREEN:**
-- [ ] SKILL.md with frontmatter, overview, process, mistakes
+- [ ] SKILL.md with frontmatter, overview, process
 - [ ] Description starts with "Use when..." (no workflow summary)
 - [ ] Scenario re-run with skill — agent complies
+- [ ] "When NOT to use" included in When to Use section
+- [ ] Common Rationalizations table present (>=3 entries)
+- [ ] Red Flags list present (observable symptoms, not opinions)
+- [ ] Verification checklist present (checkbox format)
 
 **REFACTOR:**
 - [ ] New rationalizations countered
-- [ ] Rationalization table added (if discipline skill)
-- [ ] Red flags list added (if discipline skill)
+- [ ] Rationalization table complete (covers all observed agent excuses)
+- [ ] Red flags list complete (covers all observed violation patterns)
 
 **DEPLOY:**
 - [ ] Committed to git

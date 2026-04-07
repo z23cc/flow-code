@@ -188,3 +188,29 @@ Epic review passed. Next:
 2) Ship the code: push + create PR
 3) Start next epic: `/flow-code:plan <idea>`
 ```
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|--------|---------|
+| "All tasks passed, epic must be fine" | Task-level success ≠ epic-level coherence. Integration gaps hide between tasks |
+| "Tests pass, ship it" | Tests verify code behavior, not user value. Goal-backward check verifies intent |
+| "We already reviewed each task" | Per-task review misses cross-task consistency and architectural drift |
+| "The user will catch any issues" | Your job is to catch issues before the user does |
+| "Good enough for now" | "Good enough" compounds into technical debt. Ship complete or scope down |
+
+## Red Flags
+
+- All acceptance criteria marked "Yes" but no test evidence provided
+- Implementation diverged from epic plan (compare git diff vs spec scope)
+- Goal-backward verification skipped or done superficially
+- Epic has open required gaps but no justification for proceeding
+- No cross-task integration verification performed
+
+## Verification
+
+- [ ] Every acceptance criterion verified with evidence (test output, screenshot, or manual check)
+- [ ] Goal-backward verification completed for each criterion
+- [ ] No open required gaps in gap registry
+- [ ] Epic spec updated if scope changed during implementation
+- [ ] Cross-task consistency verified (no conflicting changes between tasks)

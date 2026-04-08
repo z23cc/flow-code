@@ -251,21 +251,28 @@ Parse the spec carefully. Identify:
 **Domain-specific skill loading:**
 Based on the task `domain` field, you MUST Read and follow the corresponding skill file. This is a quality gate — not optional.
 
-| Domain | Skill file to load | Focus |
-|--------|-------------------|-------|
-| `frontend` | `skills/flow-code-frontend-ui/SKILL.md` | Component architecture, design system, accessibility, AI aesthetic avoidance |
-| `backend` | Apply `flow-code-api-design` patterns (if skill exists) | API design, DB queries, error handling, input validation |
-| `testing` | Apply `flow-code-debug` patterns | Test coverage, edge cases, regression guards |
+| Domain | Skill files to load | Focus |
+|--------|---------------------|-------|
+| `frontend` | `flow-code-frontend-ui` | Component architecture, design system, accessibility, AI aesthetic avoidance |
+| `backend` | `flow-code-api-design` + `flow-code-security` | API design, DB queries, input validation, OWASP prevention |
+| `testing` | `flow-code-tdd` + `flow-code-debug` | TDD Red-Green-Refactor, Prove-It Pattern, test pyramid |
 | `docs` | Follow project's doc conventions | Accuracy, completeness, cross-references |
-| `architecture` | Apply `flow-code-api-design` patterns | Module boundaries, dependency direction, interface stability |
-| `ops` | Focus on idempotency, rollback safety, monitoring | CI/CD, infra, deploy scripts |
+| `architecture` | `flow-code-api-design` + `flow-code-security` | Module boundaries, dependency direction, contract-first |
+| `ops` | `flow-code-security` | Idempotency, rollback safety, secrets management, monitoring |
+
+**All domains additionally load:**
+- `flow-code-incremental` — vertical slicing, scope discipline, Implement→Test→Verify→Commit cycle
+- `flow-code-code-review` — five-axis self-review in Phase 6
 
 ```bash
-# Example: load frontend skill
+# Load domain skills (read each that exists)
 PLUGIN_ROOT="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
+cat "$PLUGIN_ROOT/skills/flow-code-incremental/SKILL.md"
+cat "$PLUGIN_ROOT/skills/flow-code-code-review/SKILL.md"
+# Then load domain-specific skills per table above, e.g.:
 cat "$PLUGIN_ROOT/skills/flow-code-frontend-ui/SKILL.md"
 ```
-If the skill file does not exist for a domain, apply the domain focus guidelines from the table above.
+If a skill file does not exist, skip it and apply the focus guidelines from the table above.
 
 **Baseline check:**
 ```bash
@@ -361,7 +368,7 @@ END
 
 **Skip this phase if TDD_MODE is not `true`.**
 
-Before implementing the feature, write failing tests first:
+Follow the `flow-code-tdd` skill for the full TDD methodology. Core cycle:
 
 1. **Red** — Write test(s) that cover the acceptance criteria. Run them to confirm they FAIL:
    ```bash
@@ -374,11 +381,15 @@ Before implementing the feature, write failing tests first:
 
 3. **Refactor** — After tests pass, clean up without changing behavior. Run tests again to confirm still green.
 
+**For bug fixes**: always use the Prove-It Pattern — write a test that demonstrates the bug, confirm it fails, then fix.
+
 The key constraint: **no implementation code before a failing test exists**. This ensures every change is test-driven.
 <!-- /section:tdd -->
 
 <!-- section:core -->
 ## Phase 5: Implement
+
+Follow the `flow-code-incremental` skill: build in vertical slices (Implement→Test→Verify→Commit per slice). Each slice leaves the system working. Scope discipline: only touch what the task spec requires.
 
 **First, capture base commit for scoped review:**
 ```bash
@@ -529,17 +540,23 @@ Continue until guard passes. There is no retry limit — this is not a retry loo
 
 **Teams mode constraint:** When `TEAM_MODE=true`, only fix files in `OWNED_FILES`. If the failure is caused by a file you don't own, request access via `flowctl approval create --kind file_access` + `approval show --wait` (or fallback `Need file access:` SendMessage), then wait for a resolution. If access is rejected or times out, note the issue in your completion summary.
 
-### Step 2: Review your own diff
+### Step 2: Five-axis self-review
+
+Follow the `flow-code-code-review` skill. Review your own diff across all five axes:
+
 ```bash
 git diff
 ```
 
-Scan your changes for obvious issues:
+**Axis 1 — Correctness:** Does it match the spec? Edge cases handled?
+**Axis 2 — Readability:** Clear names? Functions <40 lines? No dead code?
+**Axis 3 — Architecture:** Follows project patterns? Module boundaries respected?
+**Axis 4 — Security:** Input validated? Queries parameterized? No secrets in code?
+**Axis 5 — Performance:** No N+1 queries? No unbounded fetches? No main-thread blocking?
 
+Also check:
 - No commented-out code or debug prints left behind
 - No hardcoded values that should be constants/config
-- Naming is consistent with existing codebase patterns
-- New functions handle error cases, not just happy path
 - No duplicate logic — reuse existing utilities
 
 If you find issues, fix them and re-run `<FLOWCTL> guard` to verify.

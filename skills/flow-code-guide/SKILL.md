@@ -74,15 +74,31 @@ These skills are loaded during `/flow-code:go` based on task domain. You don't i
 
 | Skill | Loaded When | Core Methodology |
 |-------|-------------|-----------------|
+| **Core (all tasks)** | | |
 | `flow-code-incremental` | All tasks | Vertical slicing, Implement→Test→Verify→Commit |
 | `flow-code-code-review` | All tasks (Phase 6) | Five-axis review, severity labels |
+| `flow-code-error-handling` | All tasks with error paths | Retry, circuit breaker, graceful degradation |
+| **Frontend** | | |
 | `flow-code-frontend-ui` | domain=frontend | Component architecture, WCAG 2.1 AA |
-| `flow-code-security` | domain=backend/architecture/ops | OWASP Top 10, three-tier boundaries |
-| `flow-code-tdd` | --tdd flag or domain=testing | Red-Green-Refactor, Prove-It Pattern |
+| `flow-code-state-management` | domain=frontend | State classification, decision ladder, server state |
+| `flow-code-i18n` | i18n/l10n tasks | ICU messages, Intl APIs, RTL support |
+| **Backend** | | |
 | `flow-code-api-design` | domain=backend/architecture | Contract-first, Hyrum's Law, error semantics |
-| `flow-code-simplify` | /flow-code:simplify or auto-improve | Chesterton's Fence, 18 patterns |
+| `flow-code-security` | domain=backend/architecture/ops | OWASP Top 10, three-tier boundaries |
+| `flow-code-database` | DB/ORM tasks | Migration safety, N+1 detection, indexing |
+| `flow-code-auth` | Auth tasks | OAuth, JWT lifecycle, RBAC, resource-level auth |
+| `flow-code-caching` | Caching tasks | Cache-aside, TTL, invalidation strategies |
+| **Infrastructure** | | |
+| `flow-code-observability` | domain=backend/ops | Structured logging, tracing, metrics (RED/USE) |
+| `flow-code-monitoring` | domain=ops | SLO/SLI, dashboards, alerting, runbooks |
+| `flow-code-containerization` | Docker/K8s tasks | Multi-stage builds, health probes, security |
+| `flow-code-microservices` | Service boundary tasks | Saga, events, data ownership, decomposition |
+| **Quality** | | |
+| `flow-code-tdd` | --tdd flag or domain=testing | Red-Green-Refactor, Prove-It Pattern |
 | `flow-code-debug` | domain=testing or bug tasks | Reproduce→Localize→Reduce→Fix→Guard |
 | `flow-code-performance` | Performance tasks | Measure→Identify→Fix→Verify→Guard |
+| `flow-code-simplify` | /flow-code:simplify or auto-improve | Chesterton's Fence, 18 patterns |
+| `flow-code-documentation` | docs domain or releases | ADRs, README, API docs, changelogs |
 
 ## Reference Checklists
 

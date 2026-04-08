@@ -63,14 +63,15 @@ elif ls .flow/specs/*-requirements.md 1>/dev/null 2>&1; then
 fi
 ```
 
-**If a brainstorm requirements doc exists**, read it and use as enriched context:
-- Extract `## Problem`, `## Requirements`, `## Constraints`, `## Non-Goals` sections
-- Use `## Chosen Approach` to guide scout research direction
+**If a brainstorm requirements doc exists**, you MUST read it and use as enriched context (this is NOT optional — brainstorm output is a first-class input to planning):
+- Extract `## Problem`, `## Requirements`, `## Constraints`, `## Non-Goals` sections — these override any guesses
+- Use `## Chosen Approach` to guide scout research direction and as the primary approach (do not re-derive from scratch)
 - Use `## Evidence` file references as starting points for repo-scout
-- Use `## Open Questions` as specific research targets for scouts
+- Use `## Open Questions` as specific research targets for scouts — each MUST be resolved or explicitly carried as a gap
 - Pass `## Self-Interview Trace` (if present) as additional context for deep RP analysis
+- Reference the requirements doc in the epic spec: `**Source:** .flow/specs/<slug>-requirements.md`
 
-This means `/flow-code:brainstorm` → `/flow-code:plan` flows seamlessly: brainstorm output directly enriches plan research instead of being orphaned.
+This means `/flow-code:brainstorm` → `/flow-code:plan` flows seamlessly: brainstorm output directly enriches plan research instead of being orphaned. The plan MUST be traceable back to the requirements doc.
 
 **If no brainstorm doc exists**, proceed normally — Step 2 does its own mini clarity check.
 

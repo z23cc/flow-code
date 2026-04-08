@@ -247,12 +247,23 @@ Parse the spec carefully. Identify:
 - **Domain** (from task JSON `domain` field): if set (frontend/backend/architecture/testing/docs/ops), focus your approach accordingly — e.g., backend tasks prioritize API/DB, frontend tasks prioritize UI/UX
 
 **Domain-specific skill loading:**
-If task domain is `frontend`, you MUST Read the skill file and follow it:
+Based on the task `domain` field, you MUST Read and follow the corresponding skill file. This is a quality gate — not optional.
+
+| Domain | Skill file to load | Focus |
+|--------|-------------------|-------|
+| `frontend` | `skills/flow-code-frontend-ui/SKILL.md` | Component architecture, design system, accessibility, AI aesthetic avoidance |
+| `backend` | Apply `flow-code-api-design` patterns (if skill exists) | API design, DB queries, error handling, input validation |
+| `testing` | Apply `flow-code-debug` patterns | Test coverage, edge cases, regression guards |
+| `docs` | Follow project's doc conventions | Accuracy, completeness, cross-references |
+| `architecture` | Apply `flow-code-api-design` patterns | Module boundaries, dependency direction, interface stability |
+| `ops` | Focus on idempotency, rollback safety, monitoring | CI/CD, infra, deploy scripts |
+
 ```bash
-# Load frontend UI engineering skill (component architecture, design system, accessibility, AI aesthetic avoidance)
-cat "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/skills/flow-code-frontend-ui/SKILL.md"
+# Example: load frontend skill
+PLUGIN_ROOT="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}"
+cat "$PLUGIN_ROOT/skills/flow-code-frontend-ui/SKILL.md"
 ```
-Apply all phases from the skill during implementation. This is not optional — it is a quality gate.
+If the skill file does not exist for a domain, apply the domain focus guidelines from the table above.
 
 **Baseline check:**
 ```bash
@@ -277,7 +288,7 @@ Save `GIT_BASELINE_REV` — you'll use it in Phase 10 to generate workspace chan
 <!-- section:core -->
 ## Phase 3: Pre-implementation Investigation
 
-**If the task spec contains `## Investigation targets` with content, execute this phase. Otherwise skip to Phase 4/5.**
+**Always execute this phase** — even S/M tasks need context before coding. If the task spec contains `## Investigation targets`, follow them. If not, do a lightweight scan: read the files listed in `**Files:**` and check for 2-3 related patterns via Grep. Skip only if the task is a trivial one-line config change with no dependencies.
 
 ### Step 0: RP-powered deep context (if RP_CONTEXT != none)
 

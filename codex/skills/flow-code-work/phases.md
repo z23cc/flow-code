@@ -392,7 +392,7 @@ Check if plan-sync should run:
 $FLOWCTL config get planSync.enabled --json
 ```
 
-Skip unless planSync.enabled is explicitly `true` (null/false/missing = skip).
+Plan-sync is **enabled by default** (default config: `planSync.enabled: true`). Skip only if explicitly set to `false`.
 
 Get remaining tasks (todo status = not started yet):
 
@@ -429,11 +429,11 @@ CROSS_EPIC: $CROSS_EPIC
 Follow your phases in plan-sync.md exactly.
 ```
 
-**Cross-epic sync** (disabled by default): When `planSync.crossEpic` is `true`, plan-sync also checks other open epics for stale references to the completed task's APIs. Enable via:
+**Cross-epic sync** (enabled by default): When `planSync.crossEpic` is `true`, plan-sync also checks other open epics for stale references to the completed task's APIs. Disable via:
 ```bash
-$FLOWCTL config set planSync.crossEpic true
+$FLOWCTL config set planSync.crossEpic false
 ```
-Use for multi-epic projects where epics share APIs. Disable for single-epic work (default) to save tokens.
+Disable for single-epic work to save tokens. Keep enabled (default) for multi-epic projects where epics share APIs.
 
 Plan-sync returns a summary. **Check the result before advancing:**
 

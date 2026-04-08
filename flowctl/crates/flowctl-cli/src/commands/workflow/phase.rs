@@ -81,16 +81,17 @@ const PHASE_DEFS: &[PhaseDef] = &[
 const CANONICAL_ORDER: &[&str] = &["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 
 /// Default phase sequence (Worktree + Teams, always includes Phase 1).
+/// Phase 3 (investigation) now included by default — even S/M tasks need context.
 /// Phase 9 is inserted before 10 when `outputs.enabled` is true (default).
-const PHASE_SEQ_DEFAULT: &[&str] = &["1", "2", "5", "6", "7", "10", "11", "12"];
-const PHASE_SEQ_TDD: &[&str]    = &["1", "2", "4", "5", "6", "7", "10", "11", "12"];
-const PHASE_SEQ_REVIEW: &[&str] = &["1", "2", "5", "6", "7", "8", "10", "11", "12"];
+const PHASE_SEQ_DEFAULT: &[&str] = &["1", "2", "3", "5", "6", "7", "10", "11", "12"];
+const PHASE_SEQ_TDD: &[&str]    = &["1", "2", "3", "4", "5", "6", "7", "10", "11", "12"];
+const PHASE_SEQ_REVIEW: &[&str] = &["1", "2", "3", "5", "6", "7", "8", "10", "11", "12"];
 
 /// Size-based phase sequences.
-/// S: fast path — skip investigation, outputs, memory. Keep guard (phase 6).
-const PHASE_SEQ_SMALL: &[&str]  = &["1", "2", "5", "6", "7", "10", "12"];
-/// L: thorough path — all 11 defined phases (adds investigation, TDD, review, outputs, memory).
-const PHASE_SEQ_LARGE: &[&str]  = &["1", "2", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+/// S: fast path — includes lightweight investigation (phase 3), skips outputs/memory.
+const PHASE_SEQ_SMALL: &[&str]  = &["1", "2", "3", "5", "6", "7", "10", "12"];
+/// L: thorough path — all 11 defined phases (adds TDD, review, outputs, memory).
+const PHASE_SEQ_LARGE: &[&str]  = &["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 
 fn get_phase_def(phase_id: &str) -> Option<&'static PhaseDef> {
     PHASE_DEFS.iter().find(|p| p.id == phase_id)
@@ -99,9 +100,9 @@ fn get_phase_def(phase_id: &str) -> Option<&'static PhaseDef> {
 /// Build the phase sequence based on mode flags and task size.
 ///
 /// Size controls the base sequence:
-///   - S (small): fast path — 7 phases, skips investigation/outputs/memory
-///   - M (medium, default): standard 8-phase sequence
-///   - L (large): thorough — all 11 defined phases
+///   - S (small): fast path — 8 phases, includes investigation, skips outputs/memory
+///   - M (medium, default): standard 9-phase sequence with investigation
+///   - L (large): thorough — all 12 defined phases
 ///
 /// Additional flags (--tdd, --review) merge extra phases into the base.
 /// Config overrides (outputs.enabled, memory.enabled) apply on top.
@@ -143,7 +144,7 @@ fn build_phase_sequence(tdd: bool, review: bool, size: TaskSize) -> Vec<&'static
     if read_config_bool("outputs.enabled", true) {
         phases.insert("9");
     }
-    if read_config_bool("memory.enabled", false) {
+    if read_config_bool("memory.enabled", true) {
         phases.insert("11");
     }
 
@@ -358,8 +359,8 @@ mod tests {
     #[test]
     fn test_build_sequence_size_s() {
         let seq = build_phase_sequence(false, false, TaskSize::Small);
-        // S base always includes these core phases
-        for p in &["1", "2", "5", "6", "7", "10", "12"] {
+        // S base includes investigation (phase 3) since all tasks need context
+        for p in &["1", "2", "3", "5", "6", "7", "10", "12"] {
             assert!(seq.contains(p), "S sequence missing phase {p}");
         }
         // S should NOT include TDD or review without flags
@@ -370,8 +371,8 @@ mod tests {
     #[test]
     fn test_build_sequence_size_l() {
         let seq = build_phase_sequence(false, false, TaskSize::Large);
-        // L base includes TDD, review, outputs — all non-conditional phases
-        for p in &["1", "2", "4", "5", "6", "7", "8", "10", "12"] {
+        // L base includes TDD, review, outputs, investigation — all non-conditional phases
+        for p in &["1", "2", "3", "4", "5", "6", "7", "8", "10", "12"] {
             assert!(seq.contains(p), "L sequence missing phase {p}");
         }
         // L is strictly a superset of S
@@ -385,6 +386,7 @@ mod tests {
     fn test_size_s_with_tdd() {
         let seq = build_phase_sequence(true, false, TaskSize::Small);
         assert!(seq.contains(&"4"), "S+TDD should include phase 4");
+        assert!(seq.contains(&"3"), "S+TDD should include investigation");
         assert!(seq.contains(&"5"));
         assert!(seq.contains(&"6"));
     }
@@ -392,8 +394,8 @@ mod tests {
     #[test]
     fn test_backward_compat_no_size() {
         let seq = build_phase_sequence(false, false, TaskSize::Medium);
-        // Medium always includes the default core phases
-        for p in &["1", "2", "5", "6", "7", "10", "12"] {
+        // Medium always includes investigation + core phases
+        for p in &["1", "2", "3", "5", "6", "7", "10", "12"] {
             assert!(seq.contains(p), "M sequence missing phase {p}");
         }
         // No TDD, no review

@@ -313,3 +313,5 @@ After building UI:
 - [ ] No AI aesthetic patterns (check the table in Phase 3)
 - [ ] Components under 200 lines each
 - [ ] State management matches existing project patterns
+
+**See also:** [Accessibility Checklist](../../references/accessibility-checklist.md) for full WCAG 2.1 AA reference.

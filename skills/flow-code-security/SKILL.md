@@ -242,3 +242,5 @@ After writing security-sensitive code:
 - [ ] File uploads validated (MIME type, size, renamed, stored safely)
 - [ ] Dependencies audited (`npm audit` / `cargo audit` clean or triaged)
 - [ ] Rate limiting configured on auth and public endpoints
+
+**See also:** [Security Checklist](../../references/security-checklist.md) for full OWASP quick reference.

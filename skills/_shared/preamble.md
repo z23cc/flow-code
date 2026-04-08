@@ -2,6 +2,8 @@
 
 # Startup Sequence
 
+**Unsure which skill to use?** See [Skill Guide](../flow-code-guide/SKILL.md) for the selection flowchart.
+
 **CRITICAL: flowctl is BUNDLED.** Always use:
 ```bash
 FLOWCTL="$HOME/.flow/bin/flowctl"

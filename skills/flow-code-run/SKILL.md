@@ -114,9 +114,17 @@ Detect input type to decide whether to execute or skip:
 
 ### Close (close)
 1. Validate: $FLOWCTL validate --epic $EPIC_ID --json
-2. Run final guard if configured
-3. Mark complete: $FLOWCTL epic completion $EPIC_ID ship --json
-4. Push branch and create draft PR (unless --no-pr)
+2. Run final guard: `$FLOWCTL guard` (lint + type + test must pass)
+3. **Pre-launch checklist** — verify all six dimensions before shipping:
+   - **Code quality**: guard passes, no Critical/Important review findings open
+   - **Security**: no secrets in code (`grep -rn password\|secret\|api_key`), input validated at boundaries
+   - **Performance**: no N+1 queries, list endpoints paginated, images optimized
+   - **Accessibility**: keyboard navigable, screen reader compatible, contrast ratios met (frontend changes only)
+   - **Infrastructure**: environment variables documented, migrations reversible, feature flags configured
+   - **Documentation**: README/CHANGELOG updated if user-facing, API docs match implementation
+   Any failing dimension: fix before proceeding. Skip dimensions not applicable to the change (e.g., skip accessibility for backend-only epics).
+4. Mark complete: $FLOWCTL epic completion $EPIC_ID ship --json
+5. Push branch and create draft PR (unless --no-pr)
 
 ## Recovery
 

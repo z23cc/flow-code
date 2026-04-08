@@ -504,15 +504,24 @@ Context optimization. Each task gets fresh context:
 
 ---
 
-## Step 15: Quality
+## Step 15: Quality & Pre-Launch Checklist
 
 After all tasks complete (or periodically for large epics):
 
-- Run relevant tests
-- Run lint/format per repo
+- Run `$FLOWCTL guard` (lint + type + test must pass)
 - If change is large/risky, run the quality auditor subagent:
   - Task flow-code:quality-auditor("Review recent changes")
 - Fix critical issues
+
+**Pre-launch checklist** — verify all applicable dimensions before shipping:
+- **Code quality**: guard passes, no Critical/Important review findings open
+- **Security**: no secrets in code, input validated at boundaries (see `references/security-checklist.md`)
+- **Performance**: no N+1 queries, list endpoints paginated (see `references/performance-checklist.md`)
+- **Accessibility**: keyboard navigable, screen reader compatible (frontend changes — see `references/accessibility-checklist.md`)
+- **Infrastructure**: env vars documented, migrations reversible, feature flags configured
+- **Documentation**: README/CHANGELOG updated if user-facing, API docs match implementation
+
+Skip dimensions not applicable to the change (e.g., skip accessibility for backend-only epics).
 
 ## Step 16: Ship
 

@@ -213,3 +213,5 @@ After TDD cycle:
 - [ ] No flickering tests (run 3 times, same result)
 - [ ] Test pyramid respected (~80% unit, ~15% integration, ~5% E2E)
 - [ ] No mocks of internal modules (only external boundaries)
+
+**See also:** [Testing Patterns](../../references/testing-patterns.md) for AAA, factories, anti-patterns, and framework commands.

@@ -1,8 +1,8 @@
 ---
 name: flow-code-run
-description: Unified entry point for plan-first development. Manages the entire pipeline (plan, plan-review, work, impl-review, close) via flowctl phase commands.
+description: Internal pipeline engine. Manages the entire pipeline (brainstorm, plan, plan-review, work, impl-review, close) via flowctl phase commands. Invoked by /flow-code:go.
 tier: 3
-user-invocable: true
+user-invocable: false
 ---
 
 # Flow Code Run
@@ -10,7 +10,7 @@ user-invocable: true
 > **Startup:** Follow [Startup Sequence](../_shared/preamble.md) before proceeding.
 <!-- SKILL_TAGS: workflow,pipeline,planning -->
 
-Unified pipeline entry point. Drives the entire development lifecycle through flowctl phase next/done.
+Internal pipeline engine. Drives the entire development lifecycle (brainstorm, plan, work, review, close) through flowctl phase next/done. Invoked by `/flow-code:go`.
 
 **CRITICAL: flowctl is BUNDLED.** Always use:
 ```bash
@@ -45,6 +45,28 @@ Loop until all phases complete:
 5. Repeat
 
 ## Phase Details
+
+### Brainstorm (brainstorm)
+
+Detect input type to decide whether to execute or skip:
+
+**Skip brainstorm** (input is a Flow ID like `fn-N-*`, a spec file path, or `--plan-only` flag):
+1. Run: `$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --json`
+2. Proceed to Plan phase
+
+**Execute brainstorm** (input is natural language — a new idea):
+1. **Codebase context**: Search for files related to the request (Grep/Glob for key terms), read git log for recent changes, check existing `.flow/` specs for related work
+2. **Classify complexity**: Trivial (1-2 files) / Medium (clear feature) / Large (cross-cutting)
+3. **Self-interview**: Ask and answer 6-10 Q&A pairs grounded in code evidence. Core questions:
+   - Who uses this and what pain point does it solve?
+   - What happens if we do nothing?
+   - Is there a simpler version that delivers 80% of the value?
+   - How does the codebase currently handle similar problems?
+   - What other systems/modules will this touch?
+   - What can go wrong? What are the boundary conditions?
+4. **Approach generation**: Generate 2-3 approaches with Name/Summary/Effort/Risk/Pros/Cons. Auto-select the best approach based on codebase alignment and risk.
+5. **Write requirements doc** to `.flow/specs/${SLUG}-requirements.md` with: Problem, Users, Chosen Approach, Requirements checklist, Non-Goals, Constraints, Evidence, Self-Interview Trace
+6. Run: `$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --json`
 
 ### Plan (plan)
 1. Spawn research scouts in parallel (repo-scout, context-scout, practice-scout)

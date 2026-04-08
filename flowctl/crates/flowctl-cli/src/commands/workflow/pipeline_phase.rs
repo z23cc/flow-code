@@ -41,14 +41,14 @@ pub fn dispatch_pipeline_phase(cmd: &PipelinePhaseCmd, json: bool) {
     }
 }
 
-/// Read current pipeline phase from file. If no entry exists, initialize to Plan.
+/// Read current pipeline phase from file. If no entry exists, initialize to Brainstorm.
 fn get_or_init_phase(flow_dir: &std::path::Path, epic_id: &str) -> PipelinePhase {
     match json_store::pipeline_read(flow_dir, epic_id) {
-        Ok(Some(phase_str)) => PipelinePhase::parse(&phase_str).unwrap_or(PipelinePhase::Plan),
+        Ok(Some(phase_str)) => PipelinePhase::parse(&phase_str).unwrap_or(PipelinePhase::Brainstorm),
         _ => {
-            // No entry — initialize with Plan phase.
-            let _ = json_store::pipeline_write(flow_dir, epic_id, "plan");
-            PipelinePhase::Plan
+            // No entry — initialize with Brainstorm phase.
+            let _ = json_store::pipeline_write(flow_dir, epic_id, "brainstorm");
+            PipelinePhase::Brainstorm
         }
     }
 }

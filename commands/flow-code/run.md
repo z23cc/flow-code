@@ -1,11 +1,15 @@
 ---
-name: run
-description: Unified pipeline entry point for plan-first development
+name: flow-code:run
+description: "Internal pipeline entry point. Use /flow-code:go instead."
 ---
 
-# IMPORTANT: This command MUST invoke the skill flow-code-run
+# This command redirects to /flow-code:go
 
-The ONLY purpose of this command is to call the flow-code-run skill. You MUST use that skill now.
+`/flow-code:run` is now internal. The user-facing entry point is `/flow-code:go`.
+
+Tell the user: "Use `/flow-code:go` instead. It runs the full pipeline: brainstorm, plan, work, review, close."
+
+If the user provided arguments, invoke the flow-code-run skill directly:
 
 **User request:** $ARGUMENTS
 

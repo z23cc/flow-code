@@ -1,6 +1,6 @@
 ---
 name: worker
-description: Task implementation worker. Spawned by flow-code-run during the work phase. Do not invoke directly - use /flow-code:run instead.
+description: Task implementation worker. Spawned by flow-code-run during the work phase. Do not invoke directly - use /flow-code:go instead.
 model: inherit
 disallowedTools: Task
 color: "#3B82F6"
@@ -45,7 +45,7 @@ Do NOT skip phases. Do NOT execute phases out of order. The gate enforces sequen
 The project has two phase models that operate at different levels:
 
 **Epic-level phases** (managed by `flowctl phase next/done`):
-Plan → PlanReview → Work → ImplReview → Close
+Brainstorm → Plan → PlanReview → Work → ImplReview → Close
 
 **Worker-level phases** (managed by `flowctl worker-phase next/done`):
 Phases 1-12 execute WITHIN the epic "Work" phase. Each worker processes one task through all 12 phases while the epic remains in "Work" phase.

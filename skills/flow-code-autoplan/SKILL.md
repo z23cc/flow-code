@@ -43,7 +43,7 @@ else:
 fi
 
 if [[ -z "$EPIC_ID" ]]; then
-  echo "No epic found. Provide an epic ID or create one with /flow-code:run"
+  echo "No epic found. Provide an epic ID or create one with /flow-code:go"
   exit 1
 fi
 
@@ -233,7 +233,7 @@ All perspectives scored 7+. Plan is ready for implementation.
 
 **Summary:** <one sentence overall assessment>
 
-Next step: Run `/flow-code:run <epic-id>` to begin implementation.
+Next step: Run `/flow-code:go <epic-id>` to begin implementation.
 ```
 
 ### NEEDS_WORK Path
@@ -314,7 +314,7 @@ fi
 | Giving all 10s to avoid conflict | Each perspective should be genuinely critical; a score of 10 means zero issues |
 | N/A on design when there ARE user-facing changes | CLI output, error messages, and config formats are user-facing too |
 | Skipping the taste zone conversation | When scores are 5-6, the user MUST decide; don't auto-resolve |
-| Reviewing code instead of the plan | This reviews the plan/spec, not implementation; use `/flow-code:run` impl-review for code |
+| Reviewing code instead of the plan | This reviews the plan/spec, not implementation; use `/flow-code:go` impl-review for code |
 | Running all perspectives in parallel | Perspectives run sequentially so each can build on prior observations |
 
 ## Examples

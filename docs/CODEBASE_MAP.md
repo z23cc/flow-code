@@ -241,8 +241,8 @@ sequenceDiagram
     User->>Interview: /flow-code:interview
     Interview->>flowctl: epic set-plan (refined spec)
 
-    Note over User,flowctl: Preferred: /flow-code:run fn-N (unified pipeline)
-    User->>Run: /flow-code:run "description"
+    Note over User,flowctl: Preferred: /flow-code:go fn-N (unified pipeline)
+    User->>Run: /flow-code:go "description"
     loop flowctl phase next/done
         Run->>flowctl: phase next --epic fn-N --json
         flowctl-->>Run: {phase, prompt, all_done}
@@ -272,13 +272,13 @@ sequenceDiagram
 
     alt status = plan
         ralph.sh->>Claude: prompt_plan.md (new process)
-        Claude->>Claude: /flow-code:run (plan phase)
+        Claude->>Claude: /flow-code:go (plan phase)
     else status = work
         ralph.sh->>Claude: prompt_work.md (new process)
-        Claude->>Claude: /flow-code:run (work phase)
+        Claude->>Claude: /flow-code:go (work phase)
     else status = completion_review
         ralph.sh->>Claude: prompt_completion.md (new process)
-        Claude->>Claude: /flow-code:run (close phase)
+        Claude->>Claude: /flow-code:go (close phase)
     end
 
     Claude-->>ralph.sh: exit (verdict in log)

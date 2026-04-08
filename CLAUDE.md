@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Is This
 
-Flow-Code is a Claude Code plugin for structured, plan-first development. It provides two main entry points — `/flow-code:go` (full autopilot: brainstorm → plan → work → review → close) and `/flow-code:run` (plan → work → review → close) — plus individual slash commands, skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with file-based JSON storage and MCP server support.
+Flow-Code is a Claude Code plugin for structured, plan-first development. The primary entry point is `/flow-code:go` (full autopilot: brainstorm → plan → work → review → close), plus individual slash commands, skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with file-based JSON storage and MCP server support.
 
 ## Core Architecture
 
@@ -31,9 +31,7 @@ $FLOWCTL <command>
 
 ## Primary Workflow
 
-`/flow-code:go "idea"` — full autopilot from raw idea to PR. Runs auto-brainstorm (AI self-interview) → plan → plan-review → work → impl-review → close. Zero human input.
-
-`/flow-code:run "description"` — drives the pipeline (plan → plan-review → work → impl-review → close) via `flowctl phase next/done`. Skips brainstorm — use when requirements are already clear.
+`/flow-code:go "idea"` — full autopilot from raw idea to PR. Runs brainstorm (AI self-interview) → plan → plan-review → work → impl-review → close via `flowctl phase next/done`. Zero human input. For existing epics or spec files, brainstorm is auto-skipped.
 
 Ralph (`/flow-code:ralph-init`) is the autonomous harness that runs this loop unattended.
 
@@ -133,17 +131,17 @@ Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills an
 - **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
 - **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files <id>` shows ownership map + conflict detection
 - **File locking (Teams)**: `flowctl lock --task <id> --files <paths>` acquires runtime file locks; `flowctl unlock --task <id>` releases on completion; `flowctl lock-check --file <path>` inspects lock state; `flowctl unlock --all` clears all locks between waves
-- **Agent Teams mode**: `/flow-code:run` (or legacy `/flow-code:work`) spawns workers as Agent Team teammates with plain-text protocol messages (summary-prefix routing: "Task complete:", "Spec conflict:", "Blocked:", "Need file access:", "New task:", "Access granted/denied:", native `shutdown_request`) and file lock enforcement
+- **Agent Teams mode**: `/flow-code:go` (or legacy `/flow-code:work`) spawns workers as Agent Team teammates with plain-text protocol messages (summary-prefix routing: "Task complete:", "Spec conflict:", "Blocked:", "Need file access:", "New task:", "Access granted/denied:", native `shutdown_request`) and file lock enforcement
 - **Adversarial review**: `flowctl codex adversarial --base main [--focus "area"]` runs Codex in adversarial mode — tries to break the code, not validate it. Returns SHIP/NEEDS_WORK with grounded findings
-- **Three-layer quality system**: Layer 1: `flowctl guard` (deterministic lint/type/test — runs at Worker Phase 6, wave checkpoint, and close phase). Layer 2: RP plan-review (code-aware spec validation, invoked via `/flow-code:run` plan-review phase — RP sees full codebase via context_builder). Layer 3: `flowctl codex adversarial` (cross-model adversarial, epic completion — different model family catches blind spots). Spec conflicts and blockers forwarded to Codex for autonomous decision-making.
+- **Three-layer quality system**: Layer 1: `flowctl guard` (deterministic lint/type/test — runs at Worker Phase 6, wave checkpoint, and close phase). Layer 2: RP plan-review (code-aware spec validation, invoked via `/flow-code:go` plan-review phase — RP sees full codebase via context_builder). Layer 3: `flowctl codex adversarial` (cross-model adversarial, epic completion — different model family catches blind spots). Spec conflicts and blockers forwarded to Codex for autonomous decision-making.
 - **Review circuit breaker**: Plan review max 2 iterations, impl review max 3, epic review max 2 — prevents infinite NEEDS_WORK cycles. After max iterations, pipeline proceeds with warning
 - **Review backend resolution**: All review phases use the same priority chain: `--review` flag > `FLOW_REVIEW_BACKEND` env > `.flow/config.json` > default `none`. The `--no-review` flag is equivalent to `--review=none` and always wins
 - **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
 - **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`
 - **Worker self-review**: Phase 6 runs guard + structured diff review (correctness, quality, performance, testing) before commit
-- **Plan auto-execute**: `/flow-code:run` (or legacy `/flow-code:plan`) defaults to auto-execute work after planning (Teams mode handles any task count); `--plan-only` to opt out
+- **Plan auto-execute**: `/flow-code:go` (or legacy `/flow-code:plan`) defaults to auto-execute work after planning (Teams mode handles any task count); `--plan-only` to opt out
 - **Goal-backward verification**: worker Phase 10 re-reads acceptance criteria and verifies each is actually satisfied before completing
-- **Full-auto by default**: `/flow-code:run` requires zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + Teams + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
+- **Full-auto by default**: `/flow-code:go` requires zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + Teams + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
 - **Cross-platform**: flowctl is a single Rust binary (macOS/Linux). RP plan-review auto-degrades to Codex on platforms where rp-cli is unavailable. Bash hooks degrade gracefully on Windows (skip, don't block)
 - **Session start**: CLAUDE.md instruction (not an enforced hook) — if `.flow/` exists, run `flowctl status --interrupted` to check for unfinished work from a previous session and resume with the suggested `/flow-code:work <id>` command
 - **DAG cycle detection**: `flowctl dep add` validates that adding a dependency does not create a cycle in the task dependency graph. If a cycle would be created, the command fails with an error. The DAG is validated using topological sort via the `petgraph` crate

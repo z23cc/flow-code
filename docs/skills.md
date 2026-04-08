@@ -8,8 +8,8 @@ These skills form the primary workflow. They ship with the plugin.
 
 | Skill | Command | Purpose | Location |
 |-------|---------|---------|----------|
-| `flow-code-go` | `/flow-code:go` | **Full autopilot** — brainstorm → plan → work → review → close → PR | `skills/` |
-| `flow-code-run` | `/flow-code:run` | Unified phase loop (plan → review → work → close) | `skills/` |
+| `flow-code-go` | `/flow-code:go` | **Full autopilot** — brainstorm → plan → work → review → close → PR (sole user-facing entry point) | `skills/` |
+| `flow-code-run` | Internal | Internal pipeline engine, invoked by `/flow-code:go` | `skills/` |
 | `flow-code-plan` | `/flow-code:plan` | Research codebase and create epic with tasks | `codex/skills/` |
 | `flow-code-work` | `/flow-code:work` | Execute tasks with re-anchoring, reviews, wave checkpoints | `codex/skills/` |
 | `flow-code` | `/flow-code` | Task/epic management entry point (list, create, status) | `skills/` |
@@ -82,7 +82,7 @@ Or for more control:
 2. `/flow-code:plan .flow/specs/<slug>-requirements.md` — research + create tasks
 3. `/flow-code:work fn-N` — execute tasks
 
-`/flow-code:run` handles plan → work → close (skips brainstorm).
+`/flow-code:go fn-N` resumes an existing epic (brainstorm auto-skipped).
 
 ## Tier Classification
 

@@ -1,6 +1,6 @@
 //! Pipeline phase state machine for epic-level workflow progression.
 //!
-//! Phases form a linear sequence: Plan → PlanReview → Work → ImplReview → Close.
+//! Phases form a linear sequence: Brainstorm → Plan → PlanReview → Work → ImplReview → Close.
 //! No branching — each phase has exactly one successor (except Close, which is terminal).
 
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,7 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PipelinePhase {
+    Brainstorm,
     Plan,
     PlanReview,
     Work,
@@ -18,6 +19,7 @@ pub enum PipelinePhase {
 }
 
 static ALL_PHASES: &[PipelinePhase] = &[
+    PipelinePhase::Brainstorm,
     PipelinePhase::Plan,
     PipelinePhase::PlanReview,
     PipelinePhase::Work,
@@ -29,6 +31,7 @@ impl PipelinePhase {
     /// Returns the next phase in the pipeline, or `None` if this is the terminal phase.
     pub fn next(&self) -> Option<PipelinePhase> {
         match self {
+            PipelinePhase::Brainstorm => Some(PipelinePhase::Plan),
             PipelinePhase::Plan => Some(PipelinePhase::PlanReview),
             PipelinePhase::PlanReview => Some(PipelinePhase::Work),
             PipelinePhase::Work => Some(PipelinePhase::ImplReview),
@@ -50,6 +53,7 @@ impl PipelinePhase {
     /// Short description of what this phase does.
     pub fn prompt_template(&self) -> &'static str {
         match self {
+            PipelinePhase::Brainstorm => "Explore and pressure-test the idea before planning",
             PipelinePhase::Plan => "Draft a structured build plan from the request",
             PipelinePhase::PlanReview => "Review the plan for correctness and completeness",
             PipelinePhase::Work => "Execute tasks according to the plan",
@@ -61,6 +65,7 @@ impl PipelinePhase {
     /// Parse a phase from its snake_case string representation.
     pub fn parse(s: &str) -> Option<PipelinePhase> {
         match s {
+            "brainstorm" => Some(PipelinePhase::Brainstorm),
             "plan" => Some(PipelinePhase::Plan),
             "plan_review" => Some(PipelinePhase::PlanReview),
             "work" => Some(PipelinePhase::Work),
@@ -73,6 +78,7 @@ impl PipelinePhase {
     /// Return the snake_case name used for DB storage and JSON.
     pub fn as_str(&self) -> &'static str {
         match self {
+            PipelinePhase::Brainstorm => "brainstorm",
             PipelinePhase::Plan => "plan",
             PipelinePhase::PlanReview => "plan_review",
             PipelinePhase::Work => "work",
@@ -94,8 +100,9 @@ mod tests {
 
     #[test]
     fn test_phase_sequence() {
-        let mut phase = PipelinePhase::Plan;
+        let mut phase = PipelinePhase::Brainstorm;
         let expected = [
+            PipelinePhase::Plan,
             PipelinePhase::PlanReview,
             PipelinePhase::Work,
             PipelinePhase::ImplReview,
@@ -110,6 +117,7 @@ mod tests {
 
     #[test]
     fn test_is_terminal() {
+        assert!(!PipelinePhase::Brainstorm.is_terminal());
         assert!(!PipelinePhase::Plan.is_terminal());
         assert!(!PipelinePhase::PlanReview.is_terminal());
         assert!(!PipelinePhase::Work.is_terminal());
@@ -120,9 +128,9 @@ mod tests {
     #[test]
     fn test_all_phases() {
         let all = PipelinePhase::all();
-        assert_eq!(all.len(), 5);
-        assert_eq!(all[0], PipelinePhase::Plan);
-        assert_eq!(all[4], PipelinePhase::Close);
+        assert_eq!(all.len(), 6);
+        assert_eq!(all[0], PipelinePhase::Brainstorm);
+        assert_eq!(all[5], PipelinePhase::Close);
     }
 
     #[test]
@@ -158,6 +166,7 @@ mod tests {
 
     #[test]
     fn test_display() {
+        assert_eq!(PipelinePhase::Brainstorm.to_string(), "brainstorm");
         assert_eq!(PipelinePhase::Plan.to_string(), "plan");
         assert_eq!(PipelinePhase::PlanReview.to_string(), "plan_review");
         assert_eq!(PipelinePhase::Close.to_string(), "close");
@@ -165,6 +174,8 @@ mod tests {
 
     #[test]
     fn test_invalid_transition_rejection() {
+        // Can't skip phases: brainstorm -> plan_review (must go through plan)
+        assert_ne!(PipelinePhase::Brainstorm.next(), Some(PipelinePhase::PlanReview));
         // Can't skip phases: plan -> work (must go through plan_review)
         assert_ne!(PipelinePhase::Plan.next(), Some(PipelinePhase::Work));
         // Can't go backwards: work -> plan_review

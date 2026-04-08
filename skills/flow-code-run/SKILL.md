@@ -85,6 +85,8 @@ Detect input type to decide whether to execute or skip:
 2. Start tasks: `$FLOWCTL start <task-id> --json`
 3. Lock files: `$FLOWCTL lock --task <task-id> --files "file1,file2" --json`
 4. Spawn ALL ready workers in ONE parallel Agent call with isolation worktree and team_name
+   - Include task domain in worker prompt (from task JSON `domain` field)
+   - Frontend-domain tasks: worker auto-loads `flow-code-frontend-ui` skill
 5. Wait for workers, merge worktree branches back
 6. Mark tasks complete: `$FLOWCTL done <task-id> --summary "what was done" --json`
 7. Wave checkpoint: verify done, run guards

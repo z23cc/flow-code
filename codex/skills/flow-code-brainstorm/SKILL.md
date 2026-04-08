@@ -9,6 +9,8 @@ user-invocable: false
 
 Explore and pressure-test an idea before committing to a plan. Outputs a requirements doc that feeds directly into `/flow-code:plan`.
 
+**Pipeline auto-detection**: If this skill is invoked as part of the `/flow-code:go` pipeline (detected by: epic already exists, or `flow-code-run` is the caller), ALWAYS use Auto mode — AI self-interview with zero human input. Do NOT use `AskUserQuestion`. The go pipeline has a zero-interaction contract.
+
 **IMPORTANT**: This plugin uses `.flow/` for ALL task tracking. Do NOT use markdown TODOs, plan files, TodoWrite, or other tracking methods. All task state must be read and written via `flowctl`.
 
 **CRITICAL: flowctl is BUNDLED — NOT installed globally.** `which flowctl` will fail (expected). Always use:

@@ -56,7 +56,8 @@ Examples:
 - `/flow-code:work Add rate limiting`
 - `/flow-code:work fn-1-add-oauth then review via /flow-code:impl-review`
 
-If no input provided, ask for it.
+If no input provided and invoked standalone: ask for it.
+If invoked from `/flow-code:go` pipeline: input is always the epic ID from the plan phase — never block on user input.
 
 ## Context Analysis (replaces setup questions)
 

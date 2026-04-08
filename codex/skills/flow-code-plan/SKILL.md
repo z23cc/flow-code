@@ -72,7 +72,8 @@ Examples:
 - `/flow-code:plan fn-1` (legacy formats fn-1, fn-1-xxx still supported)
 - `/flow-code:plan fn-1-add-oauth then review via /flow-code:plan-review`
 
-If empty, ask: "What should I plan? Give me the feature or bug in 1-5 sentences."
+If empty and invoked standalone: ask "What should I plan? Give me the feature or bug in 1-5 sentences."
+If empty and invoked from `/flow-code:go` pipeline: this should never happen (go always provides input). If it does, derive the plan target from the epic title or requirements doc — never block on user input.
 
 ## Context Analysis (replaces setup questions)
 

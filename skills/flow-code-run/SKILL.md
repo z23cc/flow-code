@@ -12,6 +12,8 @@ user-invocable: false
 
 Internal pipeline engine. Drives the entire development lifecycle (brainstorm, plan, work, review, close) through flowctl phase next/done. Invoked by `/flow-code:go`.
 
+**ZERO-INTERACTION CONTRACT**: This pipeline runs fully autonomously. You MUST NOT use `AskUserQuestion` at any point. All decisions are made automatically based on codebase analysis, config, and best-practice defaults. If information is missing, use the best available default — never block on user input.
+
 **CRITICAL: flowctl is BUNDLED.** Always use:
 ```bash
 FLOWCTL="$HOME/.flow/bin/flowctl"
@@ -65,7 +67,8 @@ Detect input type to decide whether to execute or skip:
 1. Run: `$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --json`
 2. Proceed to Plan phase
 
-**Execute brainstorm** (input is natural language — a new idea):
+**Execute brainstorm** (input is natural language — a new idea).
+**This is always AUTO mode — AI self-interview, no AskUserQuestion, no human input.**
 1. **Codebase context**: Search for files related to the request (Grep/Glob for key terms), read git log for recent changes, check existing `.flow/` specs for related work
 2. **Classify complexity**: Trivial (1-2 files) / Medium (clear feature) / Large (cross-cutting)
 3. **Self-interview**: Ask and answer 6-10 Q&A pairs grounded in code evidence. Core questions:

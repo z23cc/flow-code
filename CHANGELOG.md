@@ -4,6 +4,22 @@ All notable changes to Flow-Code are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Semantic Versioning](https://semver.org/).
 
+## [0.1.44] - 2026-04-09
+
+### Added
+- **`flowctl search`** — Fuzzy file search with nucleo-matcher + frecency scoring + git status boost + ignore (.gitignore-aware). `--git modified|staged|untracked` filter, `--limit N`
+- **`flowctl index`** — N-gram trigram inverted index for fast text search. `build` (56ms for 145 files), `status`, `search` (<1ms per query). Persistent `.flow/index/ngram.bin`
+- **`flowctl code-structure`** — Regex-based symbol extraction (functions, structs, traits, classes) across 9 languages (Rust, Python, JS, TS, Go, Java, C, C++, Ruby)
+- **`flowctl repo-map`** — PageRank-ranked symbol overview within token budget. Builds file-level reference graph, outputs top signatures grouped by file
+- **`flowctl patch`** — Fuzzy diff/patch via fudiff. `diff` (generate), `apply` (context-based, tolerates drift), `replace` (3-tier fallback: exact → whitespace-normalized → context-based)
+- **`flowctl doctor` enhanced** — 9 check categories: binary, flow-dir, review backends, git status, state integrity (orphaned tasks, stale locks), project-context, search tools, external tools
+- **Frecency scoring** — Exponential decay (14-day half-life), auto-tracked on task completion. Files modified/accessed recently rank higher in search
+- Agent skills updated: repo-scout, context-scout, worker, plan step-02, brainstorm step-02, code-review now use `flowctl search/index/code-structure/repo-map/patch` as primary tools
+
+### Dependencies
+- Added: `nucleo-matcher` 0.3, `ignore` 0.4, `fudiff` 0.2, `memmap2` 0.9 (workspace-level)
+- Zero new deps for code-structure/repo-map (uses existing regex + petgraph + ignore)
+
 ## [0.1.43] - 2026-04-08
 
 ### Added

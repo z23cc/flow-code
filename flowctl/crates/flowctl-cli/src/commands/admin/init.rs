@@ -34,7 +34,7 @@ pub fn cmd_init(json: bool) {
     let flow_dir = get_flow_dir();
 
     // Create directories if missing (idempotent, never destroys existing)
-    for subdir in &[EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR, REVIEWS_DIR, "checklists"] {
+    for subdir in &[EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR, REVIEWS_DIR, "checklists", "index"] {
         let dir_path = flow_dir.join(subdir);
         if !dir_path.exists() {
             if let Err(e) = fs::create_dir_all(&dir_path) {

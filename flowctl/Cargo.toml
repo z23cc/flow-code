@@ -41,6 +41,13 @@ tracing = "0.1"
 # DAG
 petgraph = "0.7"
 
+# Fuzzy search
+nucleo-matcher = "0.3"
+ignore = "0.4"
+
+# Fuzzy diff/patch
+fudiff = "0.2"
+
 # CLI (cli crate)
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"

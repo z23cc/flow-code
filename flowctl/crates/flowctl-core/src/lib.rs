@@ -8,8 +8,11 @@
 
 pub mod approvals;
 pub mod changes;
+pub mod code_structure;
 pub mod codex_sync;
 pub mod events;
+pub mod frecency;
+pub mod fuzzy;
 pub mod compress;
 pub mod config;
 pub mod dag;
@@ -18,8 +21,11 @@ pub mod frontmatter;
 pub mod id;
 pub mod json_store;
 pub mod lifecycle;
+pub mod ngram_index;
 pub mod outputs;
+pub mod patch;
 pub mod pipeline;
+pub mod repo_map;
 pub mod review_protocol;
 pub mod state_machine;
 pub mod types;

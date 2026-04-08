@@ -7,7 +7,11 @@ FLOWCTL="$HOME/.flow/bin/flowctl"
 **Always run (both modes):** Read relevant code, git log, and project structure to understand scope.
 
 **In auto mode, gather deep context:**
-1. Search for files related to the request (Grep/Glob for key terms)
+1. Search for files related to the request:
+   - `$FLOWCTL search "<key terms>" --limit 20 --json` — fuzzy file search with frecency ranking
+   - `$FLOWCTL index search "<key terms>" --limit 20 --json` — trigram content search (if index exists)
+   - `$FLOWCTL code-structure extract --path <relevant-dir> --json` — extract symbols for key directories
+   - Grep/Glob for exact regex patterns (fallback)
 2. Read git log for recent changes in relevant areas
 3. Check existing `.flow/` specs/epics for related work
 4. Read key config files, README, CLAUDE.md for project constraints

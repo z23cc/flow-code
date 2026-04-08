@@ -16,14 +16,17 @@ use commands::{
     approval::ApprovalCmd,
     checklist::ChecklistCmd,
     checkpoint::CheckpointCmd,
+    code_structure::CodeStructureCmd,
     codex::CodexCmd,
     dep::DepCmd,
     epic::EpicCmd,
     gap::GapCmd,
     hook::HookCmd,
+    index::IndexCmd,
     log::LogCmd,
     memory::MemoryCmd,
     outputs::OutputsCmd,
+    patch::PatchCmd,
     query,
     ralph::RalphCmd,
     rp::RpCmd,
@@ -272,6 +275,11 @@ enum Commands {
         #[command(subcommand)]
         cmd: HookCmd,
     },
+    /// Trigram index commands (build, status, search).
+    Index {
+        #[command(subcommand)]
+        cmd: IndexCmd,
+    },
     /// Stats dashboard: summary, trends, tokens, DORA metrics.
     Stats {
         #[command(subcommand)]
@@ -480,6 +488,13 @@ enum Commands {
         append: bool,
     },
 
+    // ── Patch ─────────────────────────────────────────────────────────
+    /// Fuzzy diff, patch application, and search-replace.
+    Patch {
+        #[command(subcommand)]
+        cmd: PatchCmd,
+    },
+
     // ── Data exchange ────────────────────────────────────────────────
     /// Export epics/tasks from DB to Markdown files.
     Export {
@@ -492,6 +507,35 @@ enum Commands {
     },
     /// Import epics/tasks from Markdown files into DB (alias for reindex).
     Import,
+
+    // ── Search ────────────────────────────────────────────────────────
+    /// Fuzzy file search with frecency boosting and git status filtering.
+    Search {
+        /// Fuzzy query string.
+        query: String,
+        /// Filter by git status: modified, staged, untracked.
+        #[arg(long, value_parser = ["modified", "staged", "untracked"])]
+        git: Option<String>,
+        /// Maximum number of results.
+        #[arg(long, default_value = "20")]
+        limit: usize,
+    },
+
+    // ── Code structure & repo map ──────────────────────────────────
+    /// Extract code structure (symbols, signatures) from source files.
+    CodeStructure {
+        #[command(subcommand)]
+        cmd: CodeStructureCmd,
+    },
+    /// Generate a ranked repo map (top symbols by importance).
+    RepoMap {
+        /// Token budget for the output (default: 1024).
+        #[arg(long, default_value = "1024")]
+        budget: usize,
+        /// Root directory to scan (default: current directory).
+        #[arg(long, default_value = ".")]
+        path: String,
+    },
 
     // ── Shell completions ────────────────────────────────────────────
     /// Generate shell completions.
@@ -595,6 +639,7 @@ fn main() {
         Commands::Rp { cmd } => commands::rp::dispatch(&cmd, json),
         Commands::Codex { cmd } => commands::codex::dispatch(&cmd, json),
         Commands::Hook { cmd } => commands::hook::dispatch(&cmd),
+        Commands::Index { cmd } => commands::index::dispatch(&cmd, json),
         Commands::Stats { cmd } => commands::stats::dispatch(&cmd, json),
         Commands::WorkerPhase { cmd } => workflow::dispatch_worker_phase(&cmd, json),
         Commands::Phase { cmd } => workflow::dispatch_pipeline_phase(&cmd, json),
@@ -676,9 +721,21 @@ fn main() {
             commands::file::cmd_write_file(json, path, content, stdin, append)
         }
 
+        // Patch
+        Commands::Patch { cmd } => commands::patch::dispatch(&cmd, json),
+
+        // Search
+        Commands::Search { query, git, limit } => {
+            commands::search::cmd_search(json, query, git, limit)
+        }
+
         // Data exchange
         Commands::Export { epic, format } => admin::cmd_export(json, epic, format),
         Commands::Import => admin::cmd_import(json),
+
+        // Code structure & repo map
+        Commands::CodeStructure { cmd } => commands::code_structure::dispatch(&cmd, json),
+        Commands::RepoMap { budget, path } => commands::repo_map::cmd_repo_map(json, budget, &path),
 
         // Shell completions
         Commands::Completions { shell } => {

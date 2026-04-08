@@ -15,7 +15,10 @@ chrono = { workspace = true }
 regex = { workspace = true }
 petgraph = { workspace = true }
 fs2 = { workspace = true }
+nucleo-matcher = { workspace = true }
+ignore = { workspace = true }
 toml = "0.8"
+fudiff = { workspace = true }
 
 [lints]
 workspace = true

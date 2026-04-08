@@ -6,7 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
-[![Version](https://img.shields.io/badge/Version-0.1.43-green)](https://github.com/z23cc/flow-code/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.44-green)](https://github.com/z23cc/flow-code/releases)
 
 **Claude Code 的生产级开发框架。从想法到 PR，全自动。**
 

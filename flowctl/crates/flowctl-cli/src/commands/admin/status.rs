@@ -566,127 +566,393 @@ pub fn cmd_progress(json_mode: bool, epic_id: Option<String>) {
     }
 }
 
+// ── Doctor helpers ─────────────────────────────────────────────────
+
+/// Check if an external tool is available via `which` crate, return (status, path_or_none).
+fn check_tool(name: &str) -> (String, Option<String>) {
+    match which::which(name) {
+        Ok(path) => ("ok".to_string(), Some(path.to_string_lossy().to_string())),
+        Err(_) => ("missing".to_string(), None),
+    }
+}
+
+/// Run a command and return trimmed stdout, or None on failure.
+fn run_cmd(program: &str, args: &[&str]) -> Option<String> {
+    Command::new(program)
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+/// Detect stale locks: locks held by tasks that are done/failed/blocked.
+fn count_stale_locks(flow_dir: &Path) -> (usize, usize) {
+    let locks = match flowctl_core::json_store::locks_read(flow_dir) {
+        Ok(l) => l,
+        Err(_) => return (0, 0),
+    };
+    let total = locks.len();
+    let mut stale = 0usize;
+    let tasks = flowctl_core::json_store::task_list_all(flow_dir).unwrap_or_default();
+    let task_map: std::collections::HashMap<&str, &flowctl_core::state_machine::Status> =
+        tasks.iter().map(|t| (t.id.as_str(), &t.status)).collect();
+    for lock in &locks {
+        match task_map.get(lock.task_id.as_str()) {
+            Some(Status::Done) | Some(Status::Blocked) | Some(Status::Failed)
+            | Some(Status::UpstreamFailed) | Some(Status::Skipped) | None => {
+                stale += 1;
+            }
+            _ => {}
+        }
+    }
+    (total, stale)
+}
+
+/// Count orphaned tasks (tasks whose epic doesn't exist).
+fn count_orphaned_tasks(flow_dir: &Path) -> usize {
+    let epics: std::collections::HashSet<String> = flowctl_core::json_store::epic_list(flow_dir)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    let tasks = flowctl_core::json_store::task_list_all(flow_dir).unwrap_or_default();
+    tasks
+        .iter()
+        .filter(|t| {
+            // Epic ID is the part before the last dot: fn-1.2 -> fn-1
+            let epic_id = t.id.rsplitn(2, '.').nth(1).unwrap_or("");
+            !epics.contains(epic_id)
+        })
+        .count()
+}
+
 pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     let flow_dir = get_flow_dir();
-    if !flow_dir.exists() {
-        error_exit(".flow/ does not exist. Run 'flowctl init' first.");
-    }
 
+    // Structured results for JSON mode
+    let mut result = json!({});
+    // Flat check list (preserved from original for summary)
     let mut checks: Vec<serde_json::Value> = Vec::new();
 
-    // Check 1: Run validate --all internally
-    let root_errors = validate_flow_root(&flow_dir);
-    let mut validate_errors = root_errors.clone();
+    // ── 1. Binary info ────────────────────────────────────────────
+    let version = env!("CARGO_PKG_VERSION");
+    let binary_path = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    result["binary"] = json!({
+        "version": version,
+        "path": binary_path,
+    });
+    checks.push(json!({"name": "binary", "status": "pass",
+        "message": format!("v{} at {}", version, binary_path)}));
 
+    // ── 2. .flow/ directory ───────────────────────────────────────
+    let flow_exists = flow_dir.exists();
+    let flow_writable = if flow_exists {
+        let probe = flow_dir.join(".doctor-probe");
+        let w = fs::write(&probe, "probe").is_ok();
+        let _ = fs::remove_file(&probe);
+        w
+    } else {
+        false
+    };
+
+    let expected_subdirs = ["epics", "tasks", "specs", "memory", "reviews", "checklists", "index"];
+    let mut present_subdirs: Vec<String> = Vec::new();
+    let mut missing_subdirs: Vec<String> = Vec::new();
+    for sub in &expected_subdirs {
+        if flow_dir.join(sub).exists() {
+            present_subdirs.push(sub.to_string());
+        } else {
+            missing_subdirs.push(sub.to_string());
+        }
+    }
+
+    result["flow_dir"] = json!({
+        "exists": flow_exists,
+        "writable": flow_writable,
+        "subdirs": present_subdirs,
+        "missing_subdirs": missing_subdirs,
+    });
+
+    if !flow_exists {
+        checks.push(json!({"name": "flow_dir", "status": "fail",
+            "message": ".flow/ does not exist. Run 'flowctl init' first."}));
+    } else if !flow_writable {
+        checks.push(json!({"name": "flow_dir", "status": "fail",
+            "message": ".flow/ exists but is not writable"}));
+    } else if !missing_subdirs.is_empty() {
+        checks.push(json!({"name": "flow_dir", "status": "warn",
+            "message": format!("exists, writable, missing subdirs: {}", missing_subdirs.join(", "))}));
+    } else {
+        checks.push(json!({"name": "flow_dir", "status": "pass",
+            "message": "exists, writable"}));
+    }
+
+    // ── 3. Review backends ────────────────────────────────────────
+    let (rp_status, rp_path) = check_tool("rp-cli");
+    let (codex_status, codex_path) = check_tool("codex");
+    result["review_backends"] = json!({
+        "rp_cli": {"status": rp_status, "path": rp_path},
+        "codex_cli": {"status": codex_status, "path": codex_path},
+    });
     {
+        let rp_icon = if rp_status == "ok" { "ok" } else { "missing" };
+        let codex_icon = if codex_status == "ok" { "ok" } else { "missing" };
+        let status = if rp_status == "ok" || codex_status == "ok" { "pass" } else { "warn" };
+        checks.push(json!({"name": "review_backends", "status": status,
+            "message": format!("rp-cli {} codex {}", rp_icon, codex_icon)}));
+    }
+
+    // ── 4. Git status ─────────────────────────────────────────────
+    let is_repo = run_cmd("git", &["rev-parse", "--is-inside-work-tree"])
+        .map(|s| s == "true")
+        .unwrap_or(false);
+    let branch = run_cmd("git", &["rev-parse", "--abbrev-ref", "HEAD"])
+        .unwrap_or_default();
+    let uncommitted_count = run_cmd("git", &["status", "--porcelain"])
+        .map(|s| s.lines().filter(|l| !l.is_empty()).count())
+        .unwrap_or(0);
+    let clean = uncommitted_count == 0;
+
+    result["git"] = json!({
+        "is_repo": is_repo,
+        "branch": branch,
+        "clean": clean,
+        "uncommitted_count": uncommitted_count,
+    });
+    if !is_repo {
+        checks.push(json!({"name": "git", "status": "warn",
+            "message": "not a git repository"}));
+    } else if !clean {
+        checks.push(json!({"name": "git", "status": "warn",
+            "message": format!("{}, {} uncommitted file(s)", branch, uncommitted_count)}));
+    } else {
+        checks.push(json!({"name": "git", "status": "pass",
+            "message": format!("{}, clean", branch)}));
+    }
+
+    // ── 5. State integrity ────────────────────────────────────────
+    let epics_count = if flow_exists {
+        flowctl_core::json_store::epic_list(&flow_dir)
+            .map(|e| e.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let tasks_count = if flow_exists {
+        flowctl_core::json_store::task_list_all(&flow_dir)
+            .map(|t| t.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let orphaned_tasks = if flow_exists { count_orphaned_tasks(&flow_dir) } else { 0 };
+    let (total_locks, stale_locks) = if flow_exists { count_stale_locks(&flow_dir) } else { (0, 0) };
+
+    result["state_integrity"] = json!({
+        "epics_count": epics_count,
+        "tasks_count": tasks_count,
+        "orphaned_tasks": orphaned_tasks,
+        "total_locks": total_locks,
+        "stale_locks": stale_locks,
+    });
+    {
+        let status = if orphaned_tasks > 0 || stale_locks > 0 { "warn" } else { "pass" };
+        let mut parts = vec![
+            format!("{} epic(s)", epics_count),
+            format!("{} task(s)", tasks_count),
+            format!("{} orphaned", orphaned_tasks),
+        ];
+        if stale_locks > 0 {
+            parts.push(format!("{} stale lock(s)", stale_locks));
+        }
+        checks.push(json!({"name": "state_integrity", "status": status,
+            "message": parts.join(", ")}));
+    }
+
+    // ── 6. Project context ────────────────────────────────────────
+    let project_context_path = flow_dir.join("project-context.md");
+    let pc_exists = project_context_path.exists();
+    result["project_context"] = json!({
+        "exists": pc_exists,
+        "path": ".flow/project-context.md",
+    });
+    if pc_exists {
+        checks.push(json!({"name": "project_context", "status": "pass",
+            "message": ".flow/project-context.md"}));
+    } else {
+        checks.push(json!({"name": "project_context", "status": "warn",
+            "message": "project-context.md missing (optional but recommended)"}));
+    }
+
+    // ── 7. Search tools ───────────────────────────────────────────
+    let ngram_path = flow_dir.join("index").join("ngram.bin");
+    let ngram_status;
+    let mut ngram_file_count = 0usize;
+    if ngram_path.exists() {
+        // Check if the index is recent (< 24h old)
+        let stale = fs::metadata(&ngram_path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
+            .is_some_and(|d| d.as_secs() > 86400);
+        if stale {
+            ngram_status = "stale";
+        } else {
+            ngram_status = "ok";
+        }
+        // Estimate file count from index size (rough heuristic)
+        ngram_file_count = fs::metadata(&ngram_path)
+            .map(|m| (m.len() / 100).max(1) as usize)
+            .unwrap_or(0);
+    } else {
+        ngram_status = "missing";
+    }
+
+    let frecency_path = flow_dir.join("frecency.json");
+    let frecency_status;
+    let mut frecency_entry_count = 0usize;
+    if frecency_path.exists() {
+        match fs::read_to_string(&frecency_path) {
+            Ok(content) => {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    frecency_entry_count = val.as_object().map(|o| o.len()).unwrap_or(0);
+                    frecency_status = if frecency_entry_count == 0 { "empty" } else { "ok" };
+                } else {
+                    frecency_status = "empty";
+                }
+            }
+            Err(_) => {
+                frecency_status = "empty";
+            }
+        }
+    } else {
+        frecency_status = "missing";
+    }
+
+    result["search_tools"] = json!({
+        "ngram_index": {"status": ngram_status, "file_count": ngram_file_count},
+        "frecency": {"status": frecency_status, "entry_count": frecency_entry_count},
+    });
+    {
+        let ngram_msg = match ngram_status {
+            "ok" => format!("index ok (~{} files)", ngram_file_count),
+            "stale" => "index stale".to_string(),
+            _ => "index missing".to_string(),
+        };
+        let frec_msg = match frecency_status {
+            "ok" => format!("frecency {} entries", frecency_entry_count),
+            "empty" => "frecency empty".to_string(),
+            _ => "frecency missing".to_string(),
+        };
+        let status = if ngram_status == "ok" && frecency_status == "ok" {
+            "pass"
+        } else if ngram_status == "missing" && frecency_status != "ok" {
+            "warn"
+        } else {
+            "warn"
+        };
+        checks.push(json!({"name": "search_tools", "status": status,
+            "message": format!("{} | {}", ngram_msg, frec_msg)}));
+    }
+
+    // ── 8. External tools ─────────────────────────────────────────
+    let git_version = run_cmd("git", &["--version"])
+        .map(|s| s.replace("git version ", ""))
+        .unwrap_or_default();
+    let (git_tool_status, _) = if git_version.is_empty() {
+        ("missing".to_string(), None)
+    } else {
+        ("ok".to_string(), Some(git_version.clone()))
+    };
+
+    let external_tools = ["jq", "gh", "rg"];
+    let mut ext_results = json!({
+        "git": {"status": git_tool_status, "version": git_version},
+    });
+    let mut ext_parts = vec![format!("git {}", if git_tool_status == "ok" { "ok" } else { "missing" })];
+
+    for tool_name in &external_tools {
+        let (st, _path) = check_tool(tool_name);
+        ext_results[*tool_name] = json!({"status": st});
+        ext_parts.push(format!("{} {}", tool_name, st));
+    }
+    result["external_tools"] = ext_results;
+    {
+        let all_ok = ext_parts.iter().all(|p| p.ends_with("ok"));
+        let status = if all_ok { "pass" } else { "warn" };
+        checks.push(json!({"name": "external_tools", "status": status,
+            "message": ext_parts.join("  ")}));
+    }
+
+    // ── 9. Original checks: validate, state-dir, config, git-common-dir ──
+    // Validate
+    if flow_exists {
+        let root_errors = validate_flow_root(&flow_dir);
+        let mut validate_errors = root_errors;
         if let Ok(epics) = flowctl_core::json_store::epic_list(&flow_dir) {
             for epic in &epics {
                 let (errors, _, _) = validate_epic(&flow_dir, &epic.id);
                 validate_errors.extend(errors);
             }
         }
-    }
-
-    if validate_errors.is_empty() {
-        checks.push(json!({"name": "validate", "status": "pass", "message": "All epics and tasks validated successfully"}));
-    } else {
-        checks.push(json!({"name": "validate", "status": "fail", "message": format!("Validation found {} error(s). Run 'flowctl validate --all' for details", validate_errors.len())}));
-    }
-
-    // Check 2: State-dir accessibility
-    {
-        let state_dir = flow_dir.join(".state");
-        if let Err(e) = fs::create_dir_all(&state_dir) {
-            checks.push(json!({"name": "state_dir_access", "status": "fail", "message": format!("State dir not accessible: {}", e)}));
+        if validate_errors.is_empty() {
+            checks.push(json!({"name": "validate", "status": "pass",
+                "message": "All epics and tasks validated successfully"}));
         } else {
-            let test_file = state_dir.join(".doctor-probe");
-            match fs::write(&test_file, "probe") {
-                Ok(_) => {
-                    let _ = fs::remove_file(&test_file);
-                    checks.push(json!({"name": "state_dir_access", "status": "pass", "message": format!("State dir accessible: {}", state_dir.display())}));
-                }
-                Err(e) => {
-                    checks.push(json!({"name": "state_dir_access", "status": "fail", "message": format!("State dir not writable: {}", e)}));
-                }
-            }
+            checks.push(json!({"name": "validate", "status": "fail",
+                "message": format!("Validation found {} error(s). Run 'flowctl validate --all' for details",
+                    validate_errors.len())}));
         }
     }
 
-    // Check 3: Config validity
-    let config_path = flow_dir.join(CONFIG_FILE);
-    if config_path.exists() {
-        match fs::read_to_string(&config_path) {
-            Ok(raw_text) => match serde_json::from_str::<serde_json::Value>(&raw_text) {
-                Ok(parsed) => {
-                    if !parsed.is_object() {
-                        checks.push(json!({"name": "config", "status": "fail", "message": "config.json is not a JSON object"}));
-                    } else {
-                        let known_keys: std::collections::HashSet<&str> =
-                            ["memory", "notifications", "planSync", "review", "scouts", "stack"]
-                                .iter()
-                                .copied()
-                                .collect();
-                        let unknown: Vec<String> = parsed
-                            .as_object()
-                            .unwrap()
-                            .keys()
-                            .filter(|k| !known_keys.contains(k.as_str()))
-                            .cloned()
-                            .collect();
-                        if unknown.is_empty() {
-                            checks.push(json!({"name": "config", "status": "pass", "message": "config.json valid with known keys"}));
+    // Config validity
+    if flow_exists {
+        let config_path = flow_dir.join(CONFIG_FILE);
+        if config_path.exists() {
+            match fs::read_to_string(&config_path) {
+                Ok(raw_text) => match serde_json::from_str::<serde_json::Value>(&raw_text) {
+                    Ok(parsed) => {
+                        if !parsed.is_object() {
+                            checks.push(json!({"name": "config", "status": "fail",
+                                "message": "config.json is not a JSON object"}));
                         } else {
-                            checks.push(json!({"name": "config", "status": "warn", "message": format!("Unknown config keys: {}", unknown.join(", "))}));
+                            let known_keys: std::collections::HashSet<&str> =
+                                ["memory", "notifications", "planSync", "review", "scouts", "stack", "outputs", "worker"]
+                                    .iter().copied().collect();
+                            let unknown: Vec<String> = parsed.as_object().unwrap()
+                                .keys().filter(|k| !known_keys.contains(k.as_str()))
+                                .cloned().collect();
+                            if unknown.is_empty() {
+                                checks.push(json!({"name": "config", "status": "pass",
+                                    "message": "config.json valid with known keys"}));
+                            } else {
+                                checks.push(json!({"name": "config", "status": "warn",
+                                    "message": format!("Unknown config keys: {}", unknown.join(", "))}));
+                            }
                         }
                     }
-                }
+                    Err(e) => {
+                        checks.push(json!({"name": "config", "status": "fail",
+                            "message": format!("config.json invalid JSON: {}", e)}));
+                    }
+                },
                 Err(e) => {
-                    checks.push(json!({"name": "config", "status": "fail", "message": format!("config.json invalid JSON: {}", e)}));
+                    checks.push(json!({"name": "config", "status": "warn",
+                        "message": format!("Could not read config: {}", e)}));
                 }
-            },
-            Err(e) => {
-                checks.push(json!({"name": "config", "status": "warn", "message": format!("Could not read config: {}", e)}));
             }
-        }
-    } else {
-        checks.push(json!({"name": "config", "status": "warn", "message": "config.json missing (run 'flowctl init')"}));
-    }
-
-    // Check 4: git common-dir reachability
-    match Command::new("git")
-        .args(["rev-parse", "--git-common-dir", "--path-format=absolute"])
-        .output()
-    {
-        Ok(output) if output.status.success() => {
-            let common_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if Path::new(&common_dir).exists() {
-                checks.push(json!({"name": "git_common_dir", "status": "pass", "message": format!("git common-dir reachable: {}", common_dir)}));
-            } else {
-                checks.push(json!({"name": "git_common_dir", "status": "warn", "message": format!("git common-dir path does not exist: {}", common_dir)}));
-            }
-        }
-        Ok(_) => {
-            checks.push(json!({"name": "git_common_dir", "status": "warn", "message": "Not in a git repository (git common-dir unavailable)"}));
-        }
-        Err(_) => {
-            checks.push(json!({"name": "git_common_dir", "status": "warn", "message": "git not found on PATH"}));
+        } else {
+            checks.push(json!({"name": "config", "status": "warn",
+                "message": "config.json missing (run 'flowctl init')"}));
         }
     }
 
-    // Check 5-8: Workflow checks (only when --workflow flag is passed)
+    // ── 10. Workflow checks (only when --workflow flag is passed) ──
     if workflow {
-        // Check 5: review backend configured
-        let _backend_out = Command::new("git")
-            .args(["rev-parse", "--show-toplevel"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            });
+        // Review backend configured
         let config_path = flow_dir.join(CONFIG_FILE);
         let review_backend = if config_path.exists() {
             fs::read_to_string(&config_path)
@@ -698,14 +964,17 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
         };
         match review_backend.as_deref() {
             Some("rp") | Some("codex") | Some("none") => {
-                checks.push(json!({"name": "review_backend", "status": "pass", "message": format!("Review backend configured: {}", review_backend.as_ref().unwrap())}));
+                checks.push(json!({"name": "review_backend", "status": "pass",
+                    "message": format!("Review backend configured: {}",
+                        review_backend.as_ref().unwrap())}));
             }
             _ => {
-                checks.push(json!({"name": "review_backend", "status": "warn", "message": "Review backend not configured. Run /flow-code:setup or set review.backend in .flow/config.json"}));
+                checks.push(json!({"name": "review_backend", "status": "warn",
+                    "message": "Review backend not configured. Run /flow-code:setup or set review.backend in .flow/config.json"}));
             }
         }
 
-        // Check 6: configured backend tool available
+        // Configured backend tool available
         if let Some(ref backend) = review_backend {
             let tool = match backend.as_str() {
                 "rp" => Some("rp-cli"),
@@ -713,34 +982,33 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
                 _ => None,
             };
             if let Some(tool_name) = tool {
-                match Command::new("which").arg(tool_name).output() {
-                    Ok(o) if o.status.success() => {
-                        checks.push(json!({"name": "tool_available", "status": "pass", "message": format!("{} found on PATH", tool_name)}));
-                    }
-                    _ => {
-                        checks.push(json!({"name": "tool_available", "status": "fail", "message": format!("{} not found on PATH (required by review.backend={})", tool_name, backend)}));
-                    }
+                let (st, _) = check_tool(tool_name);
+                if st == "ok" {
+                    checks.push(json!({"name": "tool_available", "status": "pass",
+                        "message": format!("{} found on PATH", tool_name)}));
+                } else {
+                    checks.push(json!({"name": "tool_available", "status": "fail",
+                        "message": format!("{} not found on PATH (required by review.backend={})",
+                            tool_name, backend)}));
                 }
             }
         }
 
-        // Check 7: stale file locks
-        {
-            match flowctl_core::json_store::locks_read(&flow_dir) {
-                Ok(locks) if !locks.is_empty() => {
-                    checks.push(json!({"name": "stale_locks", "status": "warn", "message": format!("{} file lock(s) active — verify with 'flowctl lock-check'", locks.len())}));
-                }
-                Ok(_) => {
-                    checks.push(json!({"name": "stale_locks", "status": "pass", "message": "No active file locks"}));
-                }
-                Err(_) => {
-                    checks.push(json!({"name": "stale_locks", "status": "warn", "message": "Could not query file locks"}));
-                }
-            }
+        // Stale file locks (detailed)
+        if stale_locks > 0 {
+            checks.push(json!({"name": "stale_locks", "status": "warn",
+                "message": format!("{} stale lock(s) of {} total -- run 'flowctl unlock --all' to clear",
+                    stale_locks, total_locks)}));
+        } else if total_locks > 0 {
+            checks.push(json!({"name": "stale_locks", "status": "pass",
+                "message": format!("{} active lock(s), none stale", total_locks)}));
+        } else {
+            checks.push(json!({"name": "stale_locks", "status": "pass",
+                "message": "No active file locks"}));
         }
     }
 
-    // Build summary
+    // ── Build summary ─────────────────────────────────────────────
     let mut summary = json!({"pass": 0, "warn": 0, "fail": 0});
     for c in &checks {
         let status = c["status"].as_str().unwrap_or("warn");
@@ -751,26 +1019,24 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     let overall_healthy = summary["fail"].as_u64().unwrap_or(0) == 0;
 
     if json_mode {
-        json_output(json!({
-            "checks": checks,
-            "summary": summary,
-            "healthy": overall_healthy,
-        }));
+        result["checks"] = json!(checks);
+        result["summary"] = summary.clone();
+        result["healthy"] = json!(overall_healthy);
+        json_output(result);
     } else {
-        println!("Doctor diagnostics:");
+        println!("flowctl doctor");
+        // Pretty grouped output
         for c in &checks {
             let icon = match c["status"].as_str().unwrap_or("warn") {
-                "pass" => "OK",
-                "warn" => "WARN",
-                "fail" => "FAIL",
+                "pass" => "\u{2713}",   // checkmark
+                "warn" => "\u{26a0}",   // warning
+                "fail" => "\u{2717}",   // cross
                 _ => "?",
             };
-            println!(
-                "  [{}] {}: {}",
-                icon,
-                c["name"].as_str().unwrap_or(""),
-                c["message"].as_str().unwrap_or("")
-            );
+            let name = c["name"].as_str().unwrap_or("");
+            let msg = c["message"].as_str().unwrap_or("");
+            // Pad name to 18 chars for alignment
+            println!("  {:<18} {} {}", format!("{}:", name), msg, icon);
         }
         println!();
         println!(

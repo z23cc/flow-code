@@ -28,6 +28,26 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 - Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
+## Pre-Scout Search (flowctl tools)
+
+Before spawning scouts, use flowctl's built-in search tools for fast initial discovery:
+
+```bash
+# Fuzzy file search with frecency + git status ranking
+$FLOWCTL search "<key terms from request>" --limit 20 --json
+
+# Trigram indexed content search (if index exists)
+$FLOWCTL index search "<key terms from request>" --limit 20 --json
+
+# Project structure overview
+$FLOWCTL repo-map --budget 512 --json
+
+# Symbol extraction for key directories
+$FLOWCTL code-structure extract --path <relevant-dir> --json
+```
+
+Feed these results into scout prompts for more targeted exploration. Skip if the request is trivial (single-file, clear location).
+
 ## Scout Selection: AI Decides Per-Request
 
 ### Scout Decision Guide

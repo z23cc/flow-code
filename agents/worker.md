@@ -205,7 +205,11 @@ Use the FLOWCTL path and IDs from your prompt:
 git status
 git log -5 --oneline
 
-# 3. Check memory system
+# 3. Understand project structure and find related files
+$FLOWCTL repo-map --budget 512 --json
+$FLOWCTL search "<task-relevant-terms>" --git modified --json
+
+# 4. Check memory system
 <FLOWCTL> config get memory.enabled --json
 ```
 
@@ -398,6 +402,8 @@ The key constraint: **no implementation code before a failing test exists**. Thi
 
 Follow the `flow-code-incremental` skill: build in vertical slices (Implement→Test→Verify→Commit per slice). Each slice leaves the system working. Scope discipline: only touch what the task spec requires.
 
+For code edits, prefer `flowctl patch replace --file <path> --old "text" --new "text" --json` when the target text might have drifted from what was read earlier. It uses fuzzy matching with fallback, reducing failed edits from whitespace or minor changes.
+
 **First, capture base commit for scoped review:**
 ```bash
 BASE_COMMIT=$(git rev-parse HEAD)
@@ -587,6 +593,8 @@ Task: <TASK_ID>"
 ```
 
 Use conventional commits. Scope from task context.
+
+Note: frecency data for modified files is auto-tracked by `flowctl done` — no manual recording needed.
 <!-- /section:core -->
 
 <!-- section:review -->

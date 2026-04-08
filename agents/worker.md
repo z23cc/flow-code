@@ -244,7 +244,7 @@ Parse the spec carefully. Identify:
 - Technical approach hints
 - Test requirements
 - Quick commands from epic spec (run these for verification)
-- **Domain** (from task JSON `domain` field): if set (frontend/backend/architecture/testing/docs/ops), focus your approach accordingly — e.g., backend tasks prioritize API/DB, frontend tasks prioritize UI/UX
+- **Domain** (from task JSON `domain` field): if set (frontend/backend/architecture/testing/docs/ops), focus your approach accordingly — e.g., backend tasks prioritize API/DB, frontend tasks prioritize UI/UX and MUST follow the `flow-code-frontend-ui` skill (component architecture, design system adherence, accessibility, AI aesthetic avoidance)
 
 **Baseline check:**
 ```bash

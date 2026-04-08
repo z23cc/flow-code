@@ -209,6 +209,13 @@ git log -5 --oneline
 <FLOWCTL> config get memory.enabled --json
 ```
 
+**Read project context** (if `.flow/project-context.md` exists):
+```bash
+# Load shared technical standards (non-negotiable rules, stack details, architecture decisions)
+cat .flow/project-context.md 2>/dev/null
+```
+If the file exists, treat its contents as authoritative project-wide constraints. Apply any rules from "Critical Implementation Rules" and "Non-Goals" throughout all subsequent phases.
+
 **If memory.enabled is true**, inject relevant memory (L1: compact index):
 ```bash
 <FLOWCTL> memory inject --json

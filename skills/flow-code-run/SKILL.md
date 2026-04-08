@@ -28,6 +28,33 @@ Accepts:
 - Flow epic ID: fn-1-add-oauth (resume existing epic)
 - --plan-only flag to stop after planning
 
+## Quick Dev Path
+
+When `--quick` flag is present OR auto-detected as trivial:
+
+**Auto-detection signals (2+ triggers quick path):**
+- Change involves ≤ 2 files
+- No new dependencies needed
+- Change type: typo, copy, config, small bug fix
+- User explicitly says "quick"/"simple"/"small fix"/"trivial"
+
+**Quick path execution:**
+1. Skip brainstorm: `$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm`
+2. Skip full plan — create epic + single task directly:
+   ```bash
+   $FLOWCTL epic plan $EPIC_ID --spec "Quick fix: <description>"
+   $FLOWCTL task create --epic $EPIC_ID --title "<description>"
+   $FLOWCTL phase done --epic $EPIC_ID --phase plan
+   ```
+3. Skip plan_review: `$FLOWCTL phase done --epic $EPIC_ID --phase plan_review`
+4. Work phase: single worker, no Teams mode, no file locking
+5. Skip impl_review — run guard only:
+   ```bash
+   $FLOWCTL guard
+   $FLOWCTL phase done --epic $EPIC_ID --phase impl_review
+   ```
+6. Close: validate + completion (no PR unless requested)
+
 ## Two-Level Phase System
 
 This plugin has TWO independent phase systems operating at different levels:
@@ -79,7 +106,8 @@ Detect input type to decide whether to execute or skip:
    - What other systems/modules will this touch?
    - What can go wrong? What are the boundary conditions?
 4. **Approach generation**: Generate 2-3 approaches with Name/Summary/Effort/Risk/Pros/Cons. Auto-select the best approach based on codebase alignment and risk.
-5. **Write requirements doc** to `.flow/specs/${SLUG}-requirements.md` with: Problem, Users, Chosen Approach, Requirements checklist, Non-Goals, Constraints, Evidence, Self-Interview Trace
+4b. **Structured deepening**: Apply the most relevant reasoning method (Pre-mortem for specs, First Principles for architecture, Inversion for refactoring). Append insights to the self-interview trace.
+5. **Write requirements doc** to `.flow/specs/${SLUG}-requirements.md` via `$FLOWCTL write-file --path ".flow/specs/${SLUG}-requirements.md" --stdin --json` with: Problem, Users, Chosen Approach, Requirements checklist, Non-Goals, Constraints, Evidence, Self-Interview Trace
 6. Run: `$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --json`
 
 ### Plan (plan)
@@ -109,8 +137,13 @@ Detect input type to decide whether to execute or skip:
 ### Impl Review (impl_review)
 1. Detect review backend: `$FLOWCTL review-backend` (same as plan_review)
 2. If backend is "none" or "ASK", skip review and advance with `$FLOWCTL phase done`
-3. Otherwise run adversarial review via Codex or RP
-4. Fix issues until SHIP (max 2 iterations)
+3. Generate diff: `git diff main...HEAD`
+4. Spawn 3-layer parallel review (see flow-code-code-review skill):
+   - Blind Hunter (diff only, no context)
+   - Edge Case Hunter (diff + project access)
+   - Acceptance Auditor (diff + spec + project-context.md)
+5. Merge findings, apply zero-findings rule
+6. Fix Critical/Important issues until SHIP (max 2 iterations)
 
 ### Close (close)
 1. Validate: $FLOWCTL validate --epic $EPIC_ID --json
@@ -131,9 +164,33 @@ Detect input type to decide whether to execute or skip:
 The loop resumes from wherever flowctl says the current phase is:
 $FLOWCTL phase next --epic $EPIC_ID --json
 
+## File Writes
+
+**CRITICAL**: Never use the Write or Edit tools for pipeline artifacts (specs, requirements, docs, output files). These tools trigger Claude Code permission prompts and break the zero-interaction contract.
+
+Instead, always use `flowctl write-file` via Bash:
+```bash
+# Inline content (short)
+$FLOWCTL write-file --path ".flow/specs/my-spec.md" --content "# Spec content" --json
+
+# Heredoc via stdin (long content)
+cat <<'FLOWEOF' | $FLOWCTL write-file --path "docs/output.md" --stdin --json
+# Long document content here
+Multiple lines...
+FLOWEOF
+
+# Append mode
+$FLOWCTL write-file --path "docs/log.md" --content "New entry" --append --json
+```
+
+This ensures all file I/O goes through Bash (which is auto-allowed), keeping the pipeline fully autonomous.
+
+**Exception**: Worker agents in worktree isolation MAY use Write/Edit since they run with `bypassPermissions`.
+
 ## Guardrails
 
 - Never skip phases. flowctl enforces the sequence.
 - Never bypass flowctl phase done. It records evidence.
 - Always use flowctl for ALL state operations.
 - Workers use worker-phase next/done internally (unchanged).
+- Never use Write/Edit tools in the pipeline coordinator — use `$FLOWCTL write-file` instead.

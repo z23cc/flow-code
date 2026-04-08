@@ -83,6 +83,20 @@ Rules:
 - Output ONLY the JSON object. No markdown fences, no preamble, no commentary outside the JSON.
 </structured_output_contract>
 
+<zero_findings_rule>
+Zero findings is NOT an acceptable output. If your first pass produces no findings, halt and
+re-analyze the diff from these angles before concluding:
+1. Concurrency/race conditions — shared state, lock ordering, TOCTOU, async gaps
+2. Boundary conditions — empty, null, overflow, max-length, unicode, negative inputs
+3. Error propagation — swallowed errors, missing rollback, partial failure states
+4. Performance degradation — N+1 queries, unbounded growth, hot loops, missing pagination
+5. Security attack surface — injection, auth bypass, information leakage, insecure defaults
+
+If after re-analysis there are truly no critical or high findings, report at least 3 medium or
+low findings. Every change has improvement opportunities in error handling, observability,
+or defensive coding.
+</zero_findings_rule>
+
 <final_check>
 Before emitting your response, verify:
 1. Every finding references a real file and line range from the provided diff.

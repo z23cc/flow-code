@@ -113,13 +113,12 @@ Proceed to Step 4 immediately.
 
 ## Workflow
 
-Read [steps.md](steps.md) and follow each step in order.
-
-**CRITICAL — Step 4 (Research)**: You MUST launch ALL scouts listed in steps.md in ONE parallel Task call. Do NOT skip scouts or run them sequentially. Each scout provides unique signal.
-
-If review was decided (rp/codex/export):
-- rp or codex: run `/flow-code:plan-review` after Step 9, fix issues until it passes
-- export: run `/flow-code:plan-review` with export mode after Step 9
+Execute steps from `steps/` directory one at a time (JIT loading — only read the current step):
+1. Read `steps/step-01-init.md` and execute
+2. Read `steps/step-02-research.md` and execute
+3. Read `steps/step-03-gap-analysis.md` and execute
+4. Read `steps/step-04-task-breakdown.md` and execute
+5. Read `steps/step-05-output.md` and execute
 
 ## Output
 

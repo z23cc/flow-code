@@ -34,7 +34,7 @@ pub fn cmd_init(json: bool) {
     let flow_dir = get_flow_dir();
 
     // Create directories if missing (idempotent, never destroys existing)
-    for subdir in &[EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR, REVIEWS_DIR] {
+    for subdir in &[EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR, REVIEWS_DIR, "checklists"] {
         let dir_path = flow_dir.join(subdir);
         if !dir_path.exists() {
             if let Err(e) = fs::create_dir_all(&dir_path) {
@@ -89,6 +89,10 @@ pub fn cmd_init(json: bool) {
         eprintln!("warning: failed to ensure store dirs: {e}");
     }
 
+    // Check for project-context.md and hint if missing
+    let project_context_path = flow_dir.join("project-context.md");
+    let has_project_context = project_context_path.exists();
+
     // Build output
     let message = if actions.is_empty() {
         ".flow/ already up to date".to_string()
@@ -101,9 +105,15 @@ pub fn cmd_init(json: bool) {
             "message": message,
             "path": flow_dir.to_string_lossy(),
             "actions": actions,
+            "hint": if has_project_context { serde_json::Value::Null } else {
+                serde_json::Value::String("Tip: copy templates/project-context.md to .flow/project-context.md to share technical standards with all worker agents".to_string())
+            },
         }));
     } else {
         println!("{}", message);
+        if !has_project_context {
+            println!("Tip: copy templates/project-context.md to .flow/project-context.md to share technical standards with all worker agents");
+        }
     }
 }
 

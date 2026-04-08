@@ -3,6 +3,7 @@
 pub mod helpers;
 pub mod admin;
 pub mod approval;
+pub mod checklist;
 pub mod checkpoint;
 pub mod codex;
 pub mod dep;
@@ -19,6 +20,7 @@ pub mod scout_cache;
 pub mod stack;
 pub mod stats;
 pub mod task;
+pub mod file;
 pub mod plan_depth;
 pub mod skill;
 pub mod workflow;

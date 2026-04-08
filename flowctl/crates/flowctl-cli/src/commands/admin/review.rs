@@ -393,6 +393,26 @@ pub fn cmd_parse_findings(
         warnings.push("No findings found in review output".to_string());
     }
 
+    // Zero-findings rule: if no findings were parsed, flag for re-analysis
+    if findings.is_empty() {
+        if json_mode {
+            json_output(json!({
+                "verdict": "NEEDS_REANALYSIS",
+                "reason": "Zero findings — review may be insufficient",
+                "findings": [],
+                "count": 0,
+                "registered": 0,
+                "warnings": warnings,
+            }));
+        } else {
+            eprintln!("WARNING: Zero findings — review may be insufficient. Re-analyze from: concurrency, boundaries, error paths, performance, security.");
+            for w in &warnings {
+                eprintln!("  Warning: {}", w);
+            }
+        }
+        return;
+    }
+
     if json_mode {
         let findings_json: Vec<serde_json::Value> = findings
             .iter()

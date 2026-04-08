@@ -94,6 +94,33 @@ Wait for each answer before asking the next question.
 
 After all 3 answers, summarize the key insights in 2-3 bullets before proceeding.
 
+## Structured Deepening
+
+After self-interview completes, apply 1-2 named reasoning methods to pressure-test the output:
+
+### Method Selection Guide
+| Method | Best for | Prompt |
+|--------|----------|--------|
+| **Pre-mortem Analysis** | Specs, plans, new features | "Assume this shipped and failed 6 months later. What are the 3 most likely causes?" |
+| **First Principles** | Architecture, major refactors | "Strip all assumptions. What's the simplest possible solution from ground truth?" |
+| **Inversion** | Risk assessment, refactoring | "How would you guarantee this fails? Now avoid those things." |
+| **Red Team** | Security, APIs, public surfaces | "You're an attacker. How do you break this?" |
+| **Constraint Removal** | Innovation, scope decisions | "Remove all constraints (time, tech, team). What changes? What stays the same?" |
+| **Stakeholder Mapping** | Multi-user features | "Re-evaluate from each stakeholder's perspective. Who loses?" |
+
+### Auto-Selection Rules
+- For spec/plan tasks → Pre-mortem (default)
+- For architecture tasks → First Principles
+- For refactoring tasks → Inversion
+- For security-sensitive → Red Team
+- For scope decisions → Constraint Removal
+
+### Execution
+1. Auto-select the most relevant method based on task type
+2. Apply the method's prompt to the current brainstorm output
+3. Append insights to requirements doc under "## Deepening Insights" section
+4. If insights reveal significant gaps, re-run self-interview for those specific areas
+
 ## Phase 2: Approach Generation
 
 Generate 2-3 concrete approaches based on the answers from Phase 1 and your codebase analysis.

@@ -56,6 +56,17 @@ Examples:
 - `/flow-code:brainstorm --auto We keep getting auth token expiry bugs`
 - `/flow-code:brainstorm We keep getting auth token expiry bugs`
 
+## Workflow
+
+Execute steps from `steps/` directory one at a time (JIT loading — only read the current step):
+1. Read `steps/step-01-mode-detect.md` and execute
+2. Read `steps/step-02-context-gather.md` and execute
+3. Read `steps/step-03-self-interview.md` and execute
+4. Read `steps/step-04-approaches.md` and execute
+5. Read `steps/step-05-requirements.md` and execute
+
+---
+
 ## Mode Detection
 
 Parse `$ARGUMENTS` for `--auto` flag:
@@ -216,6 +227,33 @@ Ask and answer questions in structured Q&A format. Output each as a visible bloc
 > A: Analyze existing test files for the affected area, identify missing test categories.
 
 **Adaptive follow-ups**: If any answer reveals unexpected complexity (e.g., a shared module with 10+ consumers, no test coverage, concurrency issues), add 1-2 follow-up Q&A pairs to drill into that specific area. Cap at 15 total Q&A pairs.
+
+## Structured Deepening
+
+After self-interview completes, apply 1-2 named reasoning methods to pressure-test the output:
+
+### Method Selection Guide
+| Method | Best for | Prompt |
+|--------|----------|--------|
+| **Pre-mortem Analysis** | Specs, plans, new features | "Assume this shipped and failed 6 months later. What are the 3 most likely causes?" |
+| **First Principles** | Architecture, major refactors | "Strip all assumptions. What's the simplest possible solution from ground truth?" |
+| **Inversion** | Risk assessment, refactoring | "How would you guarantee this fails? Now avoid those things." |
+| **Red Team** | Security, APIs, public surfaces | "You're an attacker. How do you break this?" |
+| **Constraint Removal** | Innovation, scope decisions | "Remove all constraints (time, tech, team). What changes? What stays the same?" |
+| **Stakeholder Mapping** | Multi-user features | "Re-evaluate from each stakeholder's perspective. Who loses?" |
+
+### Auto-Selection Rules
+- For spec/plan tasks → Pre-mortem (default)
+- For architecture tasks → First Principles
+- For refactoring tasks → Inversion
+- For security-sensitive → Red Team
+- For scope decisions → Constraint Removal
+
+### Execution
+1. Auto-select the most relevant method based on task type
+2. Apply the method's prompt to the current brainstorm output
+3. Append insights to requirements doc under "## Deepening Insights" section
+4. If insights reveal significant gaps, re-run self-interview for those specific areas
 
 ### Phase A3: Approach Generation
 

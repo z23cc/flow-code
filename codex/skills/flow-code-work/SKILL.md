@@ -89,7 +89,12 @@ Proceed to Workflow immediately.
 
 ## Workflow
 
-Read [phases.md](phases.md) and execute each phase in order.
+Execute steps from `steps/` directory one at a time (JIT loading — only read the current step):
+1. Read `steps/step-01-resolve-input.md` and execute
+2. Read `steps/step-02-setup.md` and execute
+3. Read `steps/step-03-find-ready.md` and execute
+4. Read `steps/step-04-spawn-workers.md` and execute
+5. Read `steps/step-05-wave-checkpoint.md` and execute
 
 **Worker subagent model**: Each task is implemented by a `worker` subagent with fresh context. This prevents context bleed between tasks and keeps re-anchor info with the implementation. The main conversation handles task selection and looping; worker handles implementation, commits, and reviews.
 

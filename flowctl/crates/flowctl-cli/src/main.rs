@@ -14,6 +14,7 @@ use clap_complete::{generate, Shell};
 use commands::{
     admin::{self, ConfigCmd, ReviewCmd},
     approval::ApprovalCmd,
+    checklist::ChecklistCmd,
     checkpoint::CheckpointCmd,
     codex::CodexCmd,
     dep::DepCmd,
@@ -200,6 +201,11 @@ enum Commands {
     Approval {
         #[command(subcommand)]
         cmd: ApprovalCmd,
+    },
+    /// Structured Definition of Done checklists.
+    Checklist {
+        #[command(subcommand)]
+        cmd: ChecklistCmd,
     },
     /// Requirement gap registry.
     Gap {
@@ -457,6 +463,23 @@ enum Commands {
         epic_flag: Option<String>,
     },
 
+    // ── File I/O ─────────────────────────────────────────────────────
+    /// Write content to a file (pipeline helper, bypasses permission prompts).
+    WriteFile {
+        /// Target file path.
+        #[arg(long)]
+        path: String,
+        /// Content to write (inline). Use --stdin for piped input.
+        #[arg(long)]
+        content: Option<String>,
+        /// Read content from stdin.
+        #[arg(long)]
+        stdin: bool,
+        /// Append instead of overwrite.
+        #[arg(long)]
+        append: bool,
+    },
+
     // ── Data exchange ────────────────────────────────────────────────
     /// Export epics/tasks from DB to Markdown files.
     Export {
@@ -558,6 +581,7 @@ fn main() {
         Commands::Task { cmd } => commands::task::dispatch(&cmd, json, dry_run),
         Commands::Dep { cmd } => commands::dep::dispatch(&cmd, json, dry_run),
         Commands::Approval { cmd } => commands::approval::dispatch(&cmd, json),
+        Commands::Checklist { cmd } => commands::checklist::dispatch(&cmd, json),
         Commands::Gap { cmd } => commands::gap::dispatch(&cmd, json),
         Commands::Log { cmd } => commands::log::dispatch(&cmd, json),
         Commands::Memory { cmd } => commands::memory::dispatch(&cmd, json),
@@ -645,6 +669,11 @@ fn main() {
         Commands::Events { id, epic_flag } => {
             let epic = resolve_epic(id, epic_flag, "events");
             workflow::cmd_events(json, epic);
+        }
+
+        // File I/O
+        Commands::WriteFile { path, content, stdin, append } => {
+            commands::file::cmd_write_file(json, path, content, stdin, append)
         }
 
         // Data exchange

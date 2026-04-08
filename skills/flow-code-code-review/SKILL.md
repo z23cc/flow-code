@@ -208,6 +208,54 @@ Merged output follows the canonical findings schema documented in `docs/findings
 
 The merge pipeline deduplicates using a three-part fingerprint (file + line bucket + normalized description). See the Fingerprinting section in `docs/findings-schema.md` for details.
 
+## Zero-Findings Rule
+
+Reviewers MUST produce at least 3 findings (any severity level). Zero findings is NOT an acceptable review output -- it indicates insufficient analysis, not perfect code.
+
+If the first pass yields zero findings, halt and re-analyze from these angles:
+
+1. **Concurrency/race conditions** -- shared state, lock ordering, TOCTOU, async gaps
+2. **Boundary conditions and input edges** -- empty, null, overflow, max-length, unicode, negative
+3. **Error propagation paths** -- swallowed errors, missing rollback, partial failure states
+4. **Performance degradation scenarios** -- N+1 queries, unbounded growth, hot loops, missing pagination
+5. **Security attack surface** -- injection, auth bypass, information leakage, insecure defaults
+
+If after re-analysis there are truly no Critical or Important issues, report at least 3 Suggestion or Nit improvements. Every codebase has room for improvement in naming, structure, documentation, or test coverage.
+
+## Three-Layer Parallel Review
+
+When performing impl_review or epic-level code review, spawn 3 independent review agents in parallel:
+
+### Layer 1: Blind Hunter
+- **Input**: Git diff only (`git diff main...HEAD`)
+- **Context**: NONE — no spec, no project access, no docs
+- **Purpose**: Find issues visible purely from code quality (bugs, logic errors, style)
+- **Prompt**: See `prompts/blind-hunter.md`
+
+### Layer 2: Edge Case Hunter
+- **Input**: Git diff + read-only project access (Grep/Glob/Read)
+- **Context**: Can explore project structure, dependencies, related code
+- **Purpose**: Boundary conditions, error propagation, hidden assumptions, race conditions
+- **Prompt**: See `prompts/edge-case-hunter.md`
+
+### Layer 3: Acceptance Auditor
+- **Input**: Git diff + task spec + project-context.md (if exists)
+- **Context**: Full spec and project standards
+- **Purpose**: Verify every acceptance criterion is met, no spec drift
+- **Prompt**: See `prompts/acceptance-auditor.md`
+
+### Orchestration
+1. Spawn all 3 agents in ONE parallel Agent call (use subagent_type "Code Reviewer")
+2. Each agent returns findings in structured format
+3. Merge findings: deduplicate by file:line, boost severity if multiple layers flag same issue
+4. Apply zero-findings rule to merged results
+5. Final verdict: SHIP if no Critical/Important findings, NEEDS_WORK otherwise
+
+### When to use
+- Always for impl_review phase
+- Optional for worker Phase 6 self-review (single-layer Blind Hunter only for speed)
+- Skip for --quick path (guard-only)
+
 ## Dead Code Hygiene
 
 During review, flag:

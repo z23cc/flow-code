@@ -60,6 +60,7 @@ All three must pass (or be skipped via `flowctl config set review.backend none`)
 | `--research=rp\|grep` | plan | Override research backend |
 | `--depth=short\|standard\|deep` | plan | Override plan depth |
 | `--review=rp\|codex\|none` | plan, run | Override review backend |
+| `--quick` | go, run | Fast path for trivial changes (skip brainstorm, plan review, impl review) |
 
 ## Worker Protocol (Teams Mode)
 
@@ -149,6 +150,7 @@ Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills an
 - **Worker timeout**: Workers have a 30-minute default timeout per task (configurable via `worker.timeout_minutes`). On timeout: task marked failed, file locks released, wave continues
 - **Stale lock recovery**: Runs at wave start AND on worker completion — detects locks held by done/failed/blocked tasks and releases them to prevent deadlocks
 - **Worker phase mapping**: Workers execute 12 internal phases (via `flowctl worker-phase next/done`) within the epic "Work" phase. Epic phases and worker phases are independent systems operating at different levels
+- **Project context**: Optional `.flow/project-context.md` (template in `templates/project-context.md`) provides shared technical standards (stack, rules, architecture decisions, non-goals) that all worker agents read during Phase 2 re-anchoring. Keeps agents aligned on conventions code alone can't convey
 
 ## Files to Never Commit
 

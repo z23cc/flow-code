@@ -131,7 +131,7 @@ pub fn cmd_set_plan(id: &str, file: Option<&str>, spec: Option<&str>, json_mode:
     }
     let duplicates: Vec<String> = seen
         .iter()
-        .filter(|(_, &count)| count > 1)
+        .filter(|(_, count)| **count > 1)
         .map(|(h, count)| format!("Duplicate heading: {h} (found {count} times)"))
         .collect();
     if !duplicates.is_empty() {

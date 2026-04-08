@@ -328,7 +328,7 @@ fn validate_done_request(
             }
         }
 
-        if let Some(ref rt) = runtime {
+        if let Some(rt) = runtime {
             if let Some(ref assignee) = rt.assignee {
                 if assignee != &req.actor {
                     return Err(ServiceError::CrossActorViolation(format!(

@@ -187,8 +187,8 @@ impl TaskDag {
 
         let mut queue: VecDeque<NodeIndex> = in_degree
             .iter()
-            .filter(|(_, &deg)| deg == 0)
-            .map(|(&ni, _)| ni)
+            .filter(|(_, deg)| **deg == 0)
+            .map(|(ni, _)| *ni)
             .collect();
 
         let mut processed = 0usize;
@@ -210,8 +210,8 @@ impl TaskDag {
             // Nodes with remaining in-degree > 0 are in cycles.
             let mut cycle_members: Vec<String> = in_degree
                 .iter()
-                .filter(|(_, &deg)| deg > 0)
-                .map(|(&ni, _)| self.graph[ni].clone())
+                .filter(|(_, deg)| **deg > 0)
+                .map(|(ni, _)| self.graph[*ni].clone())
                 .collect();
             cycle_members.sort();
             Some(cycle_members)
@@ -250,14 +250,14 @@ impl TaskDag {
         }
 
         // Find the node with the maximum distance (end of critical path).
-        let (&end_node, _) = dist.iter().max_by_key(|(_, &d)| d).unwrap();
+        let (end_node, _) = dist.iter().max_by_key(|(_, d)| *d).unwrap();
 
         // Trace back.
-        let mut path = vec![end_node];
-        let mut current = end_node;
-        while let Some(&p) = pred.get(&current) {
-            path.push(p);
-            current = p;
+        let mut path = vec![*end_node];
+        let mut current = *end_node;
+        while let Some(p) = pred.get(&current) {
+            path.push(*p);
+            current = *p;
         }
         path.reverse();
 
@@ -354,8 +354,8 @@ impl TaskDag {
 
         let mut queue: VecDeque<NodeIndex> = in_degree
             .iter()
-            .filter(|(_, &deg)| deg == 0)
-            .map(|(&ni, _)| ni)
+            .filter(|(_, deg)| **deg == 0)
+            .map(|(ni, _)| *ni)
             .collect();
 
         let mut order = Vec::with_capacity(node_count);

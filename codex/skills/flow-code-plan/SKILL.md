@@ -1,6 +1,7 @@
 ---
 name: flow-code-plan
 description: "Use when planning features or designing implementation. Triggers on /flow-code:plan with text descriptions or Flow IDs."
+tier: 3
 user-invocable: false
 ---
 

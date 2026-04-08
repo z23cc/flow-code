@@ -1,6 +1,7 @@
 ---
 name: flow-code-skill-create
 description: Use when creating new flow-code skills, editing existing skills, or verifying skills work before deployment
+tier: 3
 ---
 
 # Creating Flow-Code Skills

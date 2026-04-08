@@ -539,7 +539,7 @@ pub fn start_task(
         .is_some()
         && !force_takeover
     {
-        existing_rt.as_ref().unwrap().claimed_at
+        existing_rt.as_ref().expect("existing_rt verified as Some above").claimed_at
     } else {
         Some(now)
     };
@@ -678,7 +678,7 @@ fn validate_workspace_changes(evidence_obj: &serde_json::Value) -> Option<String
     ];
     let missing: Vec<&str> = required
         .iter()
-        .filter(|k| !wc.as_object().unwrap().contains_key(**k))
+        .filter(|k| !wc.as_object().expect("wc confirmed as object above").contains_key(**k))
         .copied()
         .collect();
     if !missing.is_empty() {

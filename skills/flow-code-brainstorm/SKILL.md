@@ -1,6 +1,6 @@
 ---
 name: flow-code-brainstorm
-description: "Use when exploring requirements before planning. Pressure-tests ideas, generates approaches, and outputs a requirements doc for /flow-code:plan."
+description: "Use when exploring requirements before planning. Pressure-tests ideas, generates approaches, and outputs a requirements doc for /flow-code:plan. Supports --auto mode for AI self-interview (no human input needed)."
 tier: 3
 user-invocable: false
 ---
@@ -8,6 +8,10 @@ user-invocable: false
 # Flow brainstorm
 
 Explore and pressure-test an idea before committing to a plan. Outputs a requirements doc that feeds directly into `/flow-code:plan`.
+
+**Two modes:**
+- **Interactive** (default): asks user questions via `AskUserQuestion`
+- **Auto** (`--auto`): AI self-interview — analyzes codebase, asks itself questions, answers from code evidence, produces refined spec with zero human input
 
 **IMPORTANT**: This plugin uses `.flow/` for ALL task tracking. Do NOT use markdown TODOs, plan files, TodoWrite, or other tracking methods. All task state must be read and written via `flowctl`.
 
@@ -41,39 +45,59 @@ Full request: $ARGUMENTS
 
 Accepts:
 - Feature/bug description in natural language
+- `--auto` flag: enable AI self-interview mode (no human questions)
 - Empty: ask "What idea or problem should we brainstorm? Describe it in 1-5 sentences."
 
 Examples:
 - `/flow-code:brainstorm Add real-time collaboration to the editor`
+- `/flow-code:brainstorm --auto migrate from REST to GraphQL`
+- `/flow-code:brainstorm --auto We keep getting auth token expiry bugs`
 - `/flow-code:brainstorm We keep getting auth token expiry bugs`
-- `/flow-code:brainstorm migrate from REST to GraphQL`
 
-## Phase 0: Complexity Assessment
+## Mode Detection
 
-Analyze the request and the codebase to gauge complexity:
+Parse `$ARGUMENTS` for `--auto` flag:
+- If `--auto` present: remove flag from arguments, set AUTO_MODE=true
+- Otherwise: AUTO_MODE=false (interactive, original behavior)
+
+## Phase 0: Codebase Context Gathering
 
 ```bash
 FLOWCTL="$HOME/.flow/bin/flowctl"
 ```
 
-Read relevant code, git log, and project structure to understand the scope.
+**Always run (both modes):** Read relevant code, git log, and project structure to understand scope.
 
-Classify into one of three tiers:
+**In auto mode, gather deep context:**
+1. Search for files related to the request (Grep/Glob for key terms)
+2. Read git log for recent changes in relevant areas
+3. Check existing `.flow/` specs/epics for related work
+4. Read key config files, README, CLAUDE.md for project constraints
+5. Identify affected modules, dependencies, and integration points
+
+Classify complexity:
 
 ### Trivial (1-2 files, clear fix, well-understood change)
-- Skip brainstorm entirely.
-- Tell the user: "This looks straightforward — skip brainstorm and go directly to planning."
-- Suggest: `Run /flow-code:plan <their request>` and stop here.
+- **Interactive**: Skip brainstorm, suggest `/flow-code:plan` directly.
+- **Auto**: Skip brainstorm, suggest `/flow-code:plan` directly.
 
 ### Medium (clear feature, moderate scope)
-- Run a **quick brainstorm**: ask only the 3 pressure-test questions (Phase 1), then jump to Phase 2 with 2 approaches.
+- **Interactive**: quick brainstorm (3 pressure-test questions + 2 approaches)
+- **Auto**: self-interview with 6 Q&A pairs + 2 approaches
 
 ### Large (cross-cutting, vague requirements, multiple systems affected)
-- Run the **full brainstorm**: all phases, 3 approaches.
+- **Interactive**: full brainstorm (all phases, 3 approaches)
+- **Auto**: deep self-interview with 10+ Q&A pairs + 3 approaches + risk matrix
 
-Tell the user which tier you picked and why (one sentence).
+Tell the user which tier and mode. One sentence.
 
-## Phase 1: Pressure Test
+---
+
+## Interactive Mode (AUTO_MODE=false)
+
+Original behavior — ask user questions via `AskUserQuestion`.
+
+### Phase 1: Pressure Test
 
 Ask exactly 3 questions, **one at a time**, using `AskUserQuestion` for each.
 
@@ -81,22 +105,22 @@ Ask exactly 3 questions, **one at a time**, using `AskUserQuestion` for each.
 
 Wait for each answer before asking the next question.
 
-### Question 1: Who and why?
+#### Question 1: Who and why?
 > Who uses this? What's the specific pain point or motivation?
 
-### Question 2: Cost of inaction?
+#### Question 2: Cost of inaction?
 > What happens if we do nothing? What's the actual cost or risk?
 
-### Question 3: Simpler framing?
+#### Question 3: Simpler framing?
 > Is there a simpler version that delivers 80% of the value? What's the minimum viable version?
 
 After all 3 answers, summarize the key insights in 2-3 bullets before proceeding.
 
-## Phase 2: Approach Generation
+### Phase 2: Approach Generation
 
-Generate 2-3 concrete approaches based on the answers from Phase 1 and your codebase analysis.
+Generate 2-3 concrete approaches based on Phase 1 answers and codebase analysis.
 
-For each approach, provide:
+For each approach:
 
 | Field | Format |
 |-------|--------|
@@ -107,12 +131,115 @@ For each approach, provide:
 | **Pros** | 2-3 bullets |
 | **Cons** | 2-3 bullets |
 
-Present the approaches and ask the user (via `AskUserQuestion`):
+Ask (via `AskUserQuestion`):
 > Which approach do you prefer? (1/2/3, or "combine" to mix elements)
 
-## Phase 3: Requirements Output
+### Phase 3: Requirements Output
 
-Based on the chosen approach, write a requirements document:
+→ Jump to [Write Requirements Doc](#write-requirements-doc)
+
+---
+
+## Auto Mode (AUTO_MODE=true)
+
+AI self-interview — no `AskUserQuestion` calls. All answers derived from codebase analysis, best practices, and reasoning.
+
+**Output contract (auto mode):**
+1. Print Q&A pairs to **stdout** so the user sees the reasoning in conversation
+2. Embed Q&A pairs in the requirements doc under a `## Self-Interview Trace` section
+3. Requirements doc written to `.flow/specs/${SLUG}-requirements.md` (same as interactive)
+
+### Phase A1: Deep Code Analysis
+
+Before self-interview, gather evidence:
+
+1. **Affected surface**: Grep/Glob for all files related to the request. List them.
+2. **Current patterns**: How does the codebase currently handle similar functionality? Read 3-5 key files.
+3. **Dependencies**: What modules/packages/APIs are involved? Check imports, configs.
+4. **Test coverage**: Do tests exist for the affected area? What kind?
+5. **Recent history**: `git log --oneline -20` on affected files — who changed what, why?
+6. **Existing specs**: Check `.flow/specs/` and `.flow/epics/` for related prior work.
+
+### Phase A2: Self-Interview
+
+Ask and answer questions in structured Q&A format. Output each as a visible block:
+
+```
+### Q: <question>
+**A:** <answer with code evidence>
+```
+
+**Core questions (always ask all):**
+
+#### 1. Problem & Users
+> Q: Who uses this and what specific pain point does it solve?
+> A: Derive from codebase context — who calls the affected code, what user-facing behavior it impacts.
+
+#### 2. Cost of Inaction
+> Q: What happens if we do nothing? What breaks or degrades?
+> A: Check for open issues, error patterns, performance trends, tech debt signals in the code.
+
+#### 3. Simpler Framing
+> Q: Is there a simpler version that delivers 80% of the value?
+> A: Analyze the request — what's the minimum change that solves the core problem? What can be deferred?
+
+#### 4. Existing Patterns
+> Q: How does the codebase currently handle similar problems?
+> A: Cite specific files, functions, patterns found in Phase A1. Quote code if relevant.
+
+#### 5. Integration Points
+> Q: What other systems/modules will this touch? What contracts must be preserved?
+> A: List APIs, shared types, database schemas, config files that are affected.
+
+#### 6. Edge Cases & Failure Modes
+> Q: What can go wrong? What are the boundary conditions?
+> A: Analyze error handling in current code, identify missing cases, concurrency risks.
+
+**Extended questions (Large tier only):**
+
+#### 7. Performance Impact
+> Q: Will this change affect latency, memory, or throughput?
+> A: Analyze hot paths, data volume, caching layers in affected code.
+
+#### 8. Security Surface
+> Q: Does this introduce or modify authentication, authorization, or data handling?
+> A: Check for auth middleware, input validation, sensitive data flows.
+
+#### 9. Migration & Compatibility
+> Q: Are there breaking changes? Do we need data migration or feature flags?
+> A: Check API contracts, database schemas, config formats for backwards compatibility.
+
+#### 10. Testing Strategy
+> Q: What test types are needed and what's the current coverage gap?
+> A: Analyze existing test files for the affected area, identify missing test categories.
+
+**Adaptive follow-ups**: If any answer reveals unexpected complexity (e.g., a shared module with 10+ consumers, no test coverage, concurrency issues), add 1-2 follow-up Q&A pairs to drill into that specific area. Cap at 15 total Q&A pairs.
+
+### Phase A3: Approach Generation
+
+Same as interactive Phase 2, but **AI picks the best approach** instead of asking user:
+
+Generate 2-3 approaches with the same table format (Name/Summary/Effort/Risk/Pros/Cons).
+
+**Auto-select logic** — pick the approach that:
+1. Aligns best with existing codebase patterns (don't fight the codebase)
+2. Has lowest risk for the effort level
+3. Maximizes reuse of existing code
+
+Output: "**Selected: Approach N** — <one-line reason based on code evidence>"
+
+If approaches are genuinely close (risk/effort within one level), flag it:
+> "Approaches N and M are close calls. Defaulting to N (<reason>). Override by re-running without --auto."
+
+### Phase A4: Requirements Output
+
+→ Jump to [Write Requirements Doc](#write-requirements-doc)
+
+---
+
+## Write Requirements Doc
+
+Based on the chosen/selected approach, write a requirements document:
 
 ```bash
 # Generate slug from the idea
@@ -124,16 +251,16 @@ mkdir -p .flow/specs
 # Write requirements doc
 ```
 
-Write to `.flow/specs/${SLUG}-requirements.md` with this format:
+Write to `.flow/specs/${SLUG}-requirements.md`:
 
 ```markdown
 # Requirements: <Title>
 
 ## Problem
-<1-2 sentences from pressure test answers>
+<1-2 sentences — from user answers (interactive) or code-derived analysis (auto)>
 
 ## Users
-<Who uses this, from Q1>
+<Who uses this — from Q1 answer>
 
 ## Chosen Approach
 <Name and summary of selected approach>
@@ -150,9 +277,27 @@ Write to `.flow/specs/${SLUG}-requirements.md` with this format:
 ## Constraints
 - <Technical or business constraints identified during brainstorm>
 
+## Evidence
+<Auto mode only — key files and patterns that informed decisions>
+- `path/to/file.rs:42` — <what it shows>
+- `path/to/other.rs` — <pattern found>
+
+## Self-Interview Trace
+<Auto mode only — full Q&A pairs for auditability>
+
+### Q: <question 1>
+**A:** <answer with code evidence>
+
+### Q: <question 2>
+**A:** <answer with code evidence>
+
+...
+
 ## Open Questions
 - <Anything unresolved that /flow-code:plan should address>
 ```
+
+**Interactive mode**: omit Evidence and Self-Interview Trace sections.
 
 After writing the file, tell the user:
 
@@ -161,6 +306,8 @@ Requirements written to .flow/specs/<slug>-requirements.md
 
 Next step: Run /flow-code:plan .flow/specs/<slug>-requirements.md
 ```
+
+**Auto mode additionally**: show a one-paragraph summary of the self-interview findings and the selected approach, so the user can quickly validate without reading the full doc.
 
 ## Common Rationalizations
 
@@ -173,6 +320,7 @@ Next step: Run /flow-code:plan .flow/specs/<slug>-requirements.md
 | "Requirements are already in the ticket" | Tickets describe what someone wants, not what should be built. Brainstorming translates desire into actionable constraints. |
 | "Let's just start and iterate" | Iteration without direction is wandering. Brainstorming sets the constraints that make iteration productive. |
 | "This is too small to brainstorm" | Small scope doesn't mean small risk. A 5-minute pressure test on a "simple" feature often reveals hidden complexity. |
+| "Auto mode can't know business context" | True — but it knows code context deeply. Use auto for technical refinement, interactive for business discovery. |
 
 ## Red Flags
 
@@ -182,3 +330,4 @@ Next step: Run /flow-code:plan .flow/specs/<slug>-requirements.md
 - "Open Questions" section is empty (every problem has unknowns)
 - Brainstorm output restates the original request without adding new insight
 - User's actual problem never identified (solution proposed without understanding need)
+- Auto mode answers not grounded in code evidence (speculation without file references)

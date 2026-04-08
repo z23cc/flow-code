@@ -1,6 +1,7 @@
 ---
 name: flow-code-export-context
 description: "Use when you want to review code or plans with an external model (ChatGPT, Claude web, etc.). Triggers on /flow-code:export-context."
+tier: 1
 ---
 
 # Export Context Mode

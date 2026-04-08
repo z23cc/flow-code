@@ -39,6 +39,33 @@ You execute phases one at a time via flowctl commands.
 5. Repeat from step 1 until response has `all_done: true`
 
 Do NOT skip phases. Do NOT execute phases out of order. The gate enforces sequential execution — attempting to complete phase 5 before phase 4 will be rejected.
+
+## Phase Model Mapping
+
+The project has two phase models that operate at different levels:
+
+**Epic-level phases** (managed by `flowctl phase next/done`):
+Plan → PlanReview → Work → ImplReview → Close
+
+**Worker-level phases** (managed by `flowctl worker-phase next/done`):
+Phases 1-12 execute WITHIN the epic "Work" phase. Each worker processes one task through all 12 phases while the epic remains in "Work" phase.
+
+| Worker Phase | Purpose | Epic Phase |
+|-------------|---------|------------|
+| 1: Verify Config | Check flowctl, git state | Work |
+| 2: Re-anchor | Read spec, inject memory | Work |
+| 3: Investigation | Explore codebase, gather context | Work |
+| 4: TDD (optional) | Write tests first | Work |
+| 5: Implementation | Write code | Work |
+| 6: Self-review | Guard + diff review | Work |
+| 7: Commit | Stage and commit changes | Work |
+| 8: Evidence | Capture workspace_changes | Work |
+| 9: Goal verification | Re-read acceptance criteria | Work |
+| 10: Memory | Save lessons learned | Work |
+| 11: Complete | flowctl done with evidence | Work |
+| 12: Cleanup | Branch merge prep | Work |
+
+The two systems are independent — epic phases gate the overall pipeline, worker phases gate individual task execution within the Work epic phase.
 <!-- /section:core -->
 
 <!-- section:team -->
@@ -51,7 +78,7 @@ When `TEAM_MODE: true`, you are a teammate in a Claude Code Agent Team. The main
 **File locking**: Before editing, your files are locked via `flowctl lock`. You may ONLY edit files listed in `OWNED_FILES`. If you need to modify a file not in your ownership set:
 1. Do NOT edit it
 2. Send an access request message (see below)
-3. Wait for "Access granted:" or "Access denied:" response (timeout: 60s — if no response, skip the file and note it in your completion message)
+3. Wait for "Access granted:" or "Access denied:" response (timeout: 120s — if no response, skip the file and note it in your completion message)
 4. On grant, the lead will update the lock registry for you
 
 ### Protocol Messages (plain text via SendMessage)
@@ -69,8 +96,12 @@ SendMessage(to: "coordinator", summary: "Task complete: <TASK_ID>",
 2. **Spec conflict** — when spec is wrong/incomplete/contradicts codebase:
 ```
 SendMessage(to: "coordinator", summary: "Spec conflict: <TASK_ID>",
-  message: "Spec conflict in <TASK_ID>.\nDetails: <what spec says vs reality>\nAffected files: <path1>, <path2>")
+  message: "Spec conflict in <TASK_ID>.\nDetails: <what spec says vs reality>\nAffected files: <path1>, <path2>\nSuggested fix: <how to correct the spec>")
 ```
+**After sending**: leave task `in_progress` (do NOT call `flowctl done`). Wait for coordinator response:
+- **"Spec updated: <TASK_ID>"** → re-anchor (re-read spec via Phase 2) and resume implementation
+- **"Task skipped: <TASK_ID>"** → stop immediately, coordinator has marked the task as skipped
+- **No response within 120s** → mark blocked: `$FLOWCTL block <TASK_ID> "Spec conflict unresolved"` and return via Phase 12
 
 3. **Blocked** — when a dependency or external factor prevents progress:
 ```
@@ -85,18 +116,23 @@ SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
    APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind file_access \
      --payload '{"files": ["<path>"], "reason": "<why needed>", "current_owner": "<task-id>"}' \
      --json | jq -r .id)
-   $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 600 --json
+   $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 120 --json
    ```
    - On `status: approved` → proceed with the edit.
-   - On `status: rejected` → emit a `Blocked:` summary and skip the file.
-   - On timeout → mark task as blocked: `$FLOWCTL block <TASK_ID> "Approval timeout: requested access to <path>"` and continue with alternative approach.
+   - On `status: rejected` → find an alternative approach that stays within OWNED_FILES. If no alternative exists, mark blocked and **STOP** (see below).
+   - On timeout (600s) → mark task as blocked and **STOP**:
+     ```bash
+     $FLOWCTL block <TASK_ID> "Approval timeout: requested access to <path>"
+     ```
+     Then send a Blocked message to coordinator and **return immediately** (Phase 12). Do NOT continue implementing — a blocked task must not produce partial commits.
 
    **Via SendMessage (non-Teams mode):**
    ```
    SendMessage(to: "coordinator", summary: "Need file access: <file>",
      message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id>")
    ```
-   Wait for "Access granted:" or "Access denied:" summary-prefix response.
+   Wait for "Access granted:" or "Access denied:" summary-prefix response (timeout: 120s).
+   - On timeout → mark task as blocked and **STOP** (same as API timeout above).
 
 5. **Mutation request** — when the task should be split, skipped, or dependencies changed:
 
@@ -105,7 +141,7 @@ SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
    APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind mutation \
      --payload '{"type": "split|skip|dep_change", "details": "<why>", "action": "<suggested>"}' \
      --json | jq -r .id)
-   $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 600 --json
+   $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 300 --json
    ```
 
    **Via SendMessage (non-Teams mode):**
@@ -384,7 +420,7 @@ If more files remain (tests, docs, config), repeat: parallel read → checkpoint
         APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind file_access \
           --payload '{"files": ["<path>"], "reason": "<why>", "current_owner": "<task-id>"}' \
           --json | jq -r .id)
-        $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 600 --json
+        $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 120 --json
         ```
         Fallback (no daemon): send a SendMessage summary-prefix request:
         ```
@@ -392,8 +428,8 @@ If more files remain (tests, docs, config), repeat: parallel read → checkpoint
           message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id if known>")
         ```
      2. Wait for `status: approved`/`rejected` (API) or "Access granted:"/"Access denied:" (fallback)
-     3. If timeout, mark task as blocked: `$FLOWCTL block <TASK_ID> "Approval timeout: requested access to <path>"` and continue with alternative approach
-     4. On rejected/denied, find an alternative approach that stays within your owned files
+     3. If timeout, mark task as blocked and **STOP immediately**: `$FLOWCTL block <TASK_ID> "Approval timeout: requested access to <path>"` — send Blocked message to coordinator and return (Phase 12). Do NOT continue with partial implementation.
+     4. On rejected/denied, find an alternative approach that stays within your owned files. If no alternative exists, mark blocked and STOP.
 
 **This is not optional.** Do not bypass this check even if you believe the lock system will catch violations. Self-enforcement is the primary guard; hooks are the backup.
 <!-- /section:team -->
@@ -735,7 +771,7 @@ If you catch yourself thinking any of these, stop and follow the correct action:
 | Thought | Reality |
 |---------|---------|
 | "I need to edit a file not in OWNED_FILES" | Create a `flowctl approval create --kind file_access` (or fallback "Need file access:" message) and WAIT. Do not edit. |
-| "The coordinator isn't responding" | `approval show --wait --timeout 600` blocks ≤10min; on fallback path wait 60s. If timeout, call `$FLOWCTL block <TASK_ID> "Approval timeout: requested access to <file>"` and continue with alternative approach. |
+| "The coordinator isn't responding" | Approval timeouts: file access 120s, spec conflict 120s, mutation 300s. On any timeout: `$FLOWCTL block <TASK_ID> "Approval timeout"` and **STOP immediately** — return via Phase 12. Do NOT continue with partial work. |
 | "I'll just edit it, the lock check will catch it" | Don't rely on hooks. Self-enforce OWNED_FILES. |
 | "TEAM_MODE doesn't matter for this task" | If TEAM_MODE=true is set, follow the protocol. Always. |
 | "It's a small edit, nobody will notice" | Ownership violations break parallel safety for everyone. |

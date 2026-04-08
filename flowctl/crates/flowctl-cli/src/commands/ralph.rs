@@ -104,7 +104,7 @@ fn find_active_run(run_id: Option<&str>) -> (String, PathBuf) {
 
     match runs.len() {
         0 => error_exit("No active runs"),
-        1 => runs.into_iter().next().unwrap(),
+        1 => runs.into_iter().next().expect("runs.len() == 1 so next() must succeed"),
         _ => {
             let ids: Vec<_> = runs.iter().map(|(n, _)| n.as_str()).collect();
             error_exit(&format!("Multiple active runs, specify --run: {}", ids.join(", ")));
@@ -120,9 +120,9 @@ fn parse_progress(run_dir: &Path) -> (Option<i64>, Option<String>, Option<String
         Err(_) => return (None, None, None),
     };
 
-    let iter_re = Regex::new(r"(?i)iteration[:\s]+(\d+)").unwrap();
-    let epic_re = Regex::new(r"(?i)epic[:\s]+(fn-[\w-]+)").unwrap();
-    let task_re = Regex::new(r"(?i)task[:\s]+(fn-[\w.-]+\.\d+)").unwrap();
+    let iter_re = Regex::new(r"(?i)iteration[:\s]+(\d+)").expect("static regex must compile");
+    let epic_re = Regex::new(r"(?i)epic[:\s]+(fn-[\w-]+)").expect("static regex must compile");
+    let task_re = Regex::new(r"(?i)task[:\s]+(fn-[\w.-]+\.\d+)").expect("static regex must compile");
 
     let iteration = iter_re.captures(&content).and_then(|c| c[1].parse().ok());
     let epic = epic_re.captures(&content).map(|c| c[1].to_string());

@@ -76,7 +76,7 @@ pub fn cmd_commit_gate() {
         std::process::exit(0);
     }
     // More precise: must be "git commit" (not "git show commit" etc.)
-    let git_commit_re = Regex::new(r"\bgit\s+commit\b").unwrap();
+    let git_commit_re = Regex::new(r"\bgit\s+commit\b").expect("static regex must compile");
     if !git_commit_re.is_match(command) {
         std::process::exit(0);
     }

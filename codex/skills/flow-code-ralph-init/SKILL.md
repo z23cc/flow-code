@@ -1,6 +1,7 @@
 ---
 name: flow-code-ralph-init
 description: "Use when user wants to set up the Ralph autonomous loop. Triggers on /flow-code:ralph-init."
+tier: 3
 user-invocable: false
 ---
 

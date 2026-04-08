@@ -1,6 +1,7 @@
 ---
 name: flow-code-work
 description: "Use when implementing a plan or working through a spec. Triggers on /flow-code:work with Flow IDs."
+tier: 3
 user-invocable: false
 ---
 
@@ -115,6 +116,20 @@ mutations via a two-tier protocol:
 
 See `agents/worker.md` for the full protocol.
 
+## Handling Worker Messages
+
+When workers send messages via SendMessage, the coordinator (this skill) handles them by summary prefix:
+
+| Worker Summary Prefix | Coordinator Action |
+|----------------------|-------------------|
+| **"Task complete: fn-N.M"** | Verify via `$FLOWCTL show <id> --json` (status=done). Unlock files. Update wave progress. |
+| **"Blocked: fn-N.M"** | Log reason. Move to next wave. Task stays blocked for manual review. |
+| **"Spec conflict: fn-N.M"** | Read the conflict details. Then either: (a) fix the spec and reply `SendMessage(summary: "Spec updated: fn-N.M", message: "<what changed>")` — worker re-anchors and resumes; or (b) skip the task via `$FLOWCTL task skip <id> --reason "<why>"` and reply `SendMessage(summary: "Task skipped: fn-N.M")` — worker stops. |
+| **"Need file access: path"** | Check lock registry. Grant or deny via `SendMessage(summary: "Access granted: path")` or `SendMessage(summary: "Access denied: path")`. |
+| **"Need mutation: fn-N.M"** | Evaluate the mutation request. Execute via `$FLOWCTL task split/skip/dep rm` if appropriate, then reply with result. |
+
+**Spec conflict resolution is NOT optional.** If a worker reports a spec conflict, the coordinator must respond within 120s or the worker will self-block.
+
 ## Recovery
 
 If a task fails or needs to be re-done after completion:
@@ -128,6 +143,33 @@ $FLOWCTL restart <task-id> --dry-run
 # Force restart even if task is in_progress
 $FLOWCTL restart <task-id> --force
 ```
+
+## Review Backend Resolution
+
+All review phases use the same priority chain to determine which backend to use:
+
+1. `--review=<backend>` flag (highest priority, overrides everything)
+2. `FLOW_REVIEW_BACKEND` environment variable
+3. `.flow/config.json` → `review.backend` setting
+4. Default: `none` (skip review)
+
+| Review Phase | Supported Backends | Notes |
+|-------------|-------------------|-------|
+| Plan Review | rp, codex, export, none | RP uses context_builder; Codex uses codex CLI |
+| Impl Review | rp, codex, none | Per-task review during work phase |
+| Epic Review | rp, codex, none | Adversarial review at epic completion |
+
+The `--no-review` flag is equivalent to `--review=none` and always wins over config settings.
+
+### Review Circuit Breakers
+
+| Review Phase | Max Iterations | Rationale |
+|-------------|---------------|-----------|
+| Plan Review | 2 | Plans are high-level; 2 rounds suffice for spec alignment |
+| Impl Review | 3 | Code fixes may need multiple passes for correctness |
+| Epic Review | 2 | Adversarial review catches systemic issues; fixes are broad |
+
+After max iterations, the pipeline proceeds with a warning. This prevents infinite NEEDS_WORK loops.
 
 ## Guardrails
 

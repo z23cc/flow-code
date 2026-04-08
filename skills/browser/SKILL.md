@@ -2,6 +2,7 @@
 name: browser
 description: Browser automation via agent-browser CLI. Use when you need to navigate websites, verify deployed UI, test web apps, read online documentation, scrape data, fill forms, capture baseline screenshots before design work, or inspect current page state. Triggers on "check the page", "verify UI", "test the site", "read docs at", "look up API", "visit URL", "browse", "screenshot", "scrape", "e2e test", "login flow", "capture baseline", "see how it looks", "inspect current", "before redesign".
 tier: 1
+user-invocable: true
 ---
 
 # Browser Automation

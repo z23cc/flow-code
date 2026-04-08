@@ -27,18 +27,35 @@ Scouts run with:
 
 ## Output Format Contract (common)
 
-Every scout's output MUST include these three sections (domain-specific sections may be added alongside):
+### Output Format
 
-```markdown
-## <Scout name> Findings
-[scout-specific content]
+All scouts MUST include these Markdown sections:
+- `## <Scout Name> Findings` — main findings
+- `## References` — file:line references found
+- `## Gaps` — what wasn't found or needs investigation
 
-## References
-- `path/to/file.ext:line` — [what it shows, why relevant]
-
-## Gaps
-- [What was searched but not found, or areas that need deeper analysis by another agent]
+**Recommended:** Include a structured JSON summary block at the end for machine parsing:
+````markdown
+```json:scout-summary
+{
+  "scout": "<name>",
+  "references": [{"file": "path", "line": N, "context": "..."}],
+  "reusable_code": [{"file": "path", "symbol": "name", "why": "..."}],
+  "conventions": ["..."],
+  "gaps": ["..."]
+}
 ```
+````
+
+If the JSON block is missing, the plan skill falls back to parsing the Markdown sections directly. New scouts SHOULD include the JSON block for better integration.
+
+**Rules for the JSON summary:**
+- `references`: max 10 entries — most relevant file:line pairs
+- `reusable_code`: code that MUST be reused (don't reinvent)
+- `conventions`: project patterns discovered (naming, structure, error handling)
+- `gaps`: what was searched but not found
+
+The plan skill parses this block to auto-populate task specs (investigation targets, reuse notes, gaps). The Markdown sections above remain for human readability.
 
 ## Rules (common, ≤6)
 

@@ -4,6 +4,8 @@
 //! fundamental data structures, enums, and validation logic used by all
 //! other flowctl crates.
 
+#![forbid(unsafe_code)]
+
 pub mod approvals;
 pub mod changes;
 pub mod codex_sync;

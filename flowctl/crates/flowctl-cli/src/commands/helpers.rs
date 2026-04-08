@@ -180,7 +180,7 @@ pub fn maybe_apply_changes(
             "dry_run": true,
             "changes": changes,
         });
-        println!("{}", serde_json::to_string(&preview).unwrap());
+        println!("{}", serde_json::to_string(&preview).expect("JSON serialization of dry-run preview should not fail"));
         return 0;
     }
     apply_changes(flow_dir, changes)

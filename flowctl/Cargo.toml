@@ -29,6 +29,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # Regex
 regex = "1"
 
+# File locking
+fs2 = "0.4"
+
 # Hashing
 sha2 = "0.10"
 
@@ -59,6 +62,7 @@ flowctl-core = { path = "crates/flowctl-core" }
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 redundant_closure_for_method_calls = "warn"
+unsafe_code = "forbid"
 # CLI handlers receive owned Strings from clap; suppress pass-by-value noise
 needless_pass_by_value = "allow"
 

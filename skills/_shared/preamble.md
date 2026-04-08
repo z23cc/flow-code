@@ -38,7 +38,25 @@ Memory levels:
 
 If memory returns critical-severity pitfalls, **pause and review them** before proceeding.
 
-## Step 4: Session context
+## Step 4: Review backend health check
+
+Verify review backends are reachable before entering work/review phases:
+
+```bash
+# Check configured review backend
+REVIEW_BACKEND=$($FLOWCTL review-backend 2>/dev/null || echo "none")
+
+if [ "$REVIEW_BACKEND" = "rp" ]; then
+  # Check if rp-cli or RP MCP is available
+  which rp-cli >/dev/null 2>&1 || echo "WARNING: review backend is 'rp' but rp-cli not found. Reviews will fail. Set to 'none' via: $FLOWCTL config set review.backend none"
+elif [ "$REVIEW_BACKEND" = "codex" ]; then
+  which codex >/dev/null 2>&1 || echo "WARNING: review backend is 'codex' but codex CLI not found. Reviews will fail."
+fi
+```
+
+If backend is misconfigured, warn early — don't wait until mid-epic to discover reviews can't run.
+
+## Step 5: Session context
 - Current branch: `git branch --show-current`
 - Active epic: check `.flow/` for in-progress epics
 - Plugin version: read from plugin.json

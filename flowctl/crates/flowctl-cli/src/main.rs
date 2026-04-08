@@ -3,6 +3,8 @@
 //! Clap 4 derive-based CLI matching the full Python flowctl command surface.
 //! All commands are registered as stubs that return "not yet implemented".
 
+#![forbid(unsafe_code)]
+
 mod commands;
 mod output;
 

@@ -1,6 +1,7 @@
 ---
 name: flow-code-plan-review
 description: "Use when reviewing Flow epic specs or design docs. Triggers on /flow-code:plan-review."
+tier: 3
 user-invocable: false
 ---
 

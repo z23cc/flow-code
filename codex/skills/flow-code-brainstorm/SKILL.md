@@ -1,6 +1,7 @@
 ---
 name: flow-code-brainstorm
 description: "Use when exploring requirements before planning. Pressure-tests ideas, generates approaches, and outputs a requirements doc for /flow-code:plan."
+tier: 3
 user-invocable: false
 ---
 

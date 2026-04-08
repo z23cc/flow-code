@@ -37,6 +37,31 @@ rp-cli -w W -e 'tree --folders'
 
 **All subsequent commands need `-w W`** to target that window.
 
+### Auto-recovery on window errors
+
+If any rp-cli command fails (window closed, ID changed, timeout):
+
+```bash
+MAX_RETRIES=3
+RETRY=0
+while [ $RETRY -lt $MAX_RETRIES ]; do
+  OUTPUT=$(rp-cli -w $WINDOW_ID -e 'tree --folders' 2>&1) && break
+  RETRY=$((RETRY + 1))
+  echo "rp-cli failed (attempt $RETRY/$MAX_RETRIES), re-discovering window..."
+  # Re-discover window ID
+  WINDOW_ID=$(rp-cli -e 'windows' 2>/dev/null | head -1 | awk '{print $1}')
+  if [ -z "$WINDOW_ID" ]; then
+    echo "No RepoPrompt windows found — falling back to standard tools (Grep/Glob/Read)"
+    break
+  fi
+done
+```
+
+**If all retries fail**, fall back to standard tools and report:
+```
+RP unavailable after 3 retries. Using Grep/Glob/Read fallback. Results may be less comprehensive.
+```
+
 ### If project not in any window:
 
 ```bash

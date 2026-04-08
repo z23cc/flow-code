@@ -1,6 +1,7 @@
 ---
 name: flow-code-epic-review
 description: "Use when all epic tasks are done and need a final review before closing. Triggers on /flow-code:epic-review."
+tier: 3
 user-invocable: false
 ---
 

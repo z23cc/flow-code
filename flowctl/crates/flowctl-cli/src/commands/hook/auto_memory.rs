@@ -220,7 +220,7 @@ fn summarize_with_gemini(text: &str) -> Vec<Memory> {
     }
 
     // Extract JSON array from output (may have surrounding text)
-    let re = Regex::new(r"(?s)\[.*\]").unwrap();
+    let re = Regex::new(r"(?s)\[.*\]").expect("static regex must compile");
     let json_str = match re.find(&output) {
         Some(m) => m.as_str(),
         None => return Vec::new(),
@@ -261,26 +261,26 @@ fn extract_by_pattern(text: &str) -> Vec<Memory> {
 
     let patterns: Vec<(Regex, &str)> = vec![
         (
-            Regex::new(r"(?i)(?:decided|chose|chose to|went with|using .+ instead of|switched to)\s+(.{20,150})").unwrap(),
+            Regex::new(r"(?i)(?:decided|chose|chose to|went with|using .+ instead of|switched to)\s+(.{20,150})").expect("static regex must compile"),
             "decision",
         ),
         (
-            Regex::new(r"(?i)(?:found that|discovered|turns out|learned that|realized)\s+(.{20,150})").unwrap(),
+            Regex::new(r"(?i)(?:found that|discovered|turns out|learned that|realized)\s+(.{20,150})").expect("static regex must compile"),
             "convention",
         ),
         (
-            Regex::new(r#"(?i)(?:don'?t|avoid|careful with|gotcha|warning|bug:|issue:|never)\s+(.{20,150})"#).unwrap(),
+            Regex::new(r#"(?i)(?:don'?t|avoid|careful with|gotcha|warning|bug:|issue:|never)\s+(.{20,150})"#).expect("static regex must compile"),
             "pitfall",
         ),
         (
-            Regex::new(r"(?i)(?:fixed by|solved by|the (?:issue|problem|bug) was|root cause)\s+(.{20,150})").unwrap(),
+            Regex::new(r"(?i)(?:fixed by|solved by|the (?:issue|problem|bug) was|root cause)\s+(.{20,150})").expect("static regex must compile"),
             "pitfall",
         ),
     ];
 
     let mut memories = Vec::new();
     let mut seen = HashSet::new();
-    let ws_re = Regex::new(r"\s+").unwrap();
+    let ws_re = Regex::new(r"\s+").expect("static regex must compile");
 
     for line in text.lines() {
         let trimmed = line.trim();

@@ -2,41 +2,55 @@
 
 Skills are organized into **core** (essential workflow) and **extensions** (optional capabilities).
 
-## Core Skills (4)
+## Core Skills (7)
 
 These skills form the primary workflow. They ship with the plugin.
 
+| Skill | Command | Purpose | Location |
+|-------|---------|---------|----------|
+| `flow-code-go` | `/flow-code:go` | **Full autopilot** — brainstorm → plan → work → review → close → PR | `skills/` |
+| `flow-code-run` | `/flow-code:run` | Unified phase loop (plan → review → work → close) | `skills/` |
+| `flow-code-plan` | `/flow-code:plan` | Research codebase and create epic with tasks | `codex/skills/` |
+| `flow-code-work` | `/flow-code:work` | Execute tasks with re-anchoring, reviews, wave checkpoints | `codex/skills/` |
+| `flow-code` | `/flow-code` | Task/epic management entry point (list, create, status) | `skills/` |
+| `flow-code-setup` | `/flow-code:setup` | Install flowctl CLI and configure project | `skills/` |
+| `flow-code-map` | `/flow-code:map` | Generate codebase architecture maps | `skills/` |
+
+## Extension Skills (26)
+
+Optional capabilities that extend the core workflow.
+
+### Review & Quality (codex/skills/)
+
 | Skill | Command | Purpose |
 |-------|---------|---------|
-| `flow-code-run` | `/flow-code:run` | **Primary entry point** — unified phase loop (plan → review → work → close) |
-| `flow-code` | `/flow-code` | Task/epic management entry point (list, create, status) |
-| `flow-code-setup` | `/flow-code:setup` | Install flowctl CLI and configure project |
-| `flow-code-map` | `/flow-code:map` | Generate codebase architecture maps |
-
-## Extension Skills (22)
-
-Optional capabilities that extend the core workflow. Install as needed.
+| `flow-code-plan-review` | Internal | Cross-model plan validation (RP or Codex) |
+| `flow-code-impl-review` | Internal | Per-task implementation review with fix loop |
+| `flow-code-epic-review` | Internal | Epic completion adversarial gate |
 
 ### Development Extensions
 
 | Skill | Command | Purpose |
 |-------|---------|---------|
+| `flow-code-brainstorm` | `/flow-code:brainstorm` | Explore and pressure-test ideas (interactive or `--auto` self-interview) |
 | `flow-code-debug` | `/flow-code:debug` | Systematic debugging with root cause investigation |
 | `flow-code-auto-improve` | `/flow-code:auto-improve` | Autonomous code quality improvement loops |
 | `flow-code-django` | `/flow-code:django` | Django-specific patterns, security, and testing |
 | `flow-code-deps` | `/flow-code:deps` | Dependency graph visualization and execution order |
 | `flow-code-api-design` | `/flow-code:api-design` | API design and module boundary review |
-| `flow-code-brainstorm` | `/flow-code:brainstorm` | Explore and pressure-test ideas before planning |
 | `flow-code-performance` | `/flow-code:performance` | Performance investigation, optimization, and benchmarks |
 
 ### Workflow Extensions
 
 | Skill | Command | Purpose |
 |-------|---------|---------|
-| `flow-code-interview` | `/flow-code:interview` | Refine specs through structured Q&A |
+| `flow-code-interview` | `/flow-code:interview` | Refine specs through structured Q&A (40+ questions) |
 | `flow-code-sync` | `/flow-code:sync` | Sync downstream task specs after implementation drift |
 | `flow-code-retro` | `/flow-code:retro` | Post-epic retrospective and lessons learned |
-| `flow-code-prime` | `/flow-code:prime` | Assess codebase readiness for agent work |
+| `flow-code-prime` | `/flow-code:prime` | Assess codebase readiness for agent work (8 pillars, 48 criteria) |
+| `flow-code-autoplan` | `/flow-code:autoplan` | Multi-perspective auto-review pipeline (CEO, eng, design, DX) |
+| `flow-code-qa` | `/flow-code:qa` | Visual QA testing with browser automation |
+| `flow-code-design-review` | `/flow-code:design-review` | Visual design audit with browser automation |
 
 ### Tooling Extensions
 
@@ -60,9 +74,15 @@ For a new project:
 
 1. `/flow-code:setup` — install and configure
 2. `/flow-code:prime` — assess codebase readiness
-3. `/flow-code:run "description"` — plan, review, execute, and close (all-in-one)
+3. `/flow-code:go "idea"` — full autopilot: brainstorm → plan → work → review → close → PR
 
-That's it — `/flow-code:run` handles the full plan → review → work → review → close pipeline.
+Or for more control:
+
+1. `/flow-code:brainstorm --auto "idea"` — AI self-interview, produces requirements doc
+2. `/flow-code:plan .flow/specs/<slug>-requirements.md` — research + create tasks
+3. `/flow-code:work fn-N` — execute tasks
+
+`/flow-code:run` handles plan → work → close (skips brainstorm).
 
 ## Tier Classification
 
@@ -101,8 +121,11 @@ Skills that involve planning, design, or interactive multi-step workflows.
 
 | Skill | Purpose |
 |-------|---------|
+| `flow-code-go` | Full autopilot (brainstorm → plan → work → review → close) |
 | `flow-code-run` | Unified pipeline entry point (plan, review, work, close) |
-| `flow-code-brainstorm` | Explore and pressure-test ideas before planning |
+| `flow-code-plan` | Research codebase and create epic with tasks |
+| `flow-code-work` | Execute tasks with re-anchoring and wave checkpoints |
+| `flow-code-brainstorm` | Explore and pressure-test ideas (interactive or --auto) |
 | `flow-code-interview` | Refine specs through structured Q&A |
 | `flow-code-api-design` | API design and module boundary review |
 | `flow-code-cicd` | CI/CD pipeline setup and deployment automation |
@@ -112,6 +135,12 @@ Skills that involve planning, design, or interactive multi-step workflows.
 | `flow-code-sync` | Sync downstream task specs after implementation drift |
 | `flow-code-ralph-init` | Scaffold autonomous Ralph harness |
 | `flow-code-deprecation` | Feature and API deprecation workflows |
+| `flow-code-plan-review` | Cross-model plan validation |
+| `flow-code-impl-review` | Per-task implementation review |
+| `flow-code-epic-review` | Epic completion adversarial gate |
+| `flow-code-qa` | Visual QA testing with browser |
+| `flow-code-design-review` | Visual design audit with browser |
+| `flow-code-autoplan` | Multi-perspective auto-review pipeline |
 
 ### Tier 4 — Final Decisions & Execution
 

@@ -1,6 +1,7 @@
 ---
 name: flow-code-interview
 description: "Use when user wants to flesh out a spec, refine requirements, or clarify a feature before building. Triggers on /flow-code:interview with Flow IDs or file paths."
+tier: 3
 user-invocable: false
 ---
 

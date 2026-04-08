@@ -48,6 +48,32 @@ $FLOWCTL init --json
 
 > **Note — opt-in interactive refinement:** If the user passed `--interactive`, BEFORE running Step 1 (Context Analysis in SKILL.md), invoke `/flow-code:interview` with the raw request text. The interview returns refined-spec markdown with Problem / Scope / Acceptance / Open Questions sections; use that refined text as the effective request for Context Analysis and all subsequent steps. Without the flag, skip this entirely — Step 2 below remains an automated internal brainstorm and is **not** interactive. Do not add any auto-trigger heuristic (length, punctuation, verb detection); interview must be opt-in only to preserve the zero-interaction contract (AGENTS.md:99).
 
+## Step 1.5: Check for prior brainstorm output
+
+Before doing any research, check if `/flow-code:brainstorm` (or `/flow-code:go` Phase 0) already produced a requirements doc:
+
+```bash
+# If input is a file path to a requirements doc, use it directly
+if [[ "$INPUT" == *.md ]] && [[ -f "$INPUT" ]]; then
+  BRAINSTORM_DOC="$INPUT"
+# Otherwise check .flow/specs/ for a matching requirements doc
+elif ls .flow/specs/*-requirements.md 1>/dev/null 2>&1; then
+  # Find the most recent requirements doc
+  BRAINSTORM_DOC=$(ls -t .flow/specs/*-requirements.md 2>/dev/null | head -1)
+fi
+```
+
+**If a brainstorm requirements doc exists**, read it and use as enriched context:
+- Extract `## Problem`, `## Requirements`, `## Constraints`, `## Non-Goals` sections
+- Use `## Chosen Approach` to guide scout research direction
+- Use `## Evidence` file references as starting points for repo-scout
+- Use `## Open Questions` as specific research targets for scouts
+- Pass `## Self-Interview Trace` (if present) as additional context for deep RP analysis
+
+This means `/flow-code:brainstorm` → `/flow-code:plan` flows seamlessly: brainstorm output directly enriches plan research instead of being orphaned.
+
+**If no brainstorm doc exists**, proceed normally — Step 2 does its own mini clarity check.
+
 ## Step 2: Clarity Check (auto — no human input)
 
 **Clear?** (specific behavior, bug with repro, existing pattern, has acceptance criteria) → skip to Step 4.
@@ -91,7 +117,7 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
   - **Tier 1** (MCP available): direct `context_builder(response_type:"plan")` call — best quality, automatic workspace binding
   - **Tier 2** (rp-cli available, no MCP): `rp-cli -e 'builder "<request + repo-scout findings>" --response-type plan'` (timeout: 300s)
   - **Tier 3** (neither available): `context-scout` subagent (existing behavior, unchanged)
-- **Add when needed**: `practice-scout` for security/auth/payments/concurrency. `docs-scout` for external APIs/libraries. `github-scout` for novel patterns (requires scouts.github). `epic-scout` if 2+ open epics. `docs-gap-scout` if user-facing changes.
+- **Add when needed**: `practice-scout` for security/auth/payments/concurrency. `docs-scout` for external APIs/libraries. `github-scout` for novel patterns (requires scouts.github). `epic-scout` if 2+ open epics. `docs-gap-scout` if user-facing changes. `flow-gap-analyst` — maps user flows, edge cases, and missing requirements from the spec.
 - **Constraints**: min 1 (repo-scout required), max 7. Run ALL selected scouts in ONE parallel Agent/Task call. Deep context (Tier 1/2/3) runs AFTER repo-scout returns — it uses repo-scout findings as input.
 
 Must capture:
@@ -104,6 +130,19 @@ Must capture:
 - Epic dependencies (from epic-scout)
 - Doc updates needed (from docs-gap-scout) - add to task acceptance criteria
 - Capability gaps (from capability-scout) - persist in Step 10 (see below)
+
+### Scout output parsing
+
+Each scout returns Markdown with a `json:scout-summary` block at the end. Parse this block to extract structured data:
+
+```
+references[]     → populate task Investigation targets (Required files)
+reusable_code[]  → add to task Key context ("Reuse: path/export — usage")
+conventions[]    → apply to epic spec Project Conventions section
+gaps[]           → feed to gap analyst, add to Open Questions
+```
+
+If a scout returns no `json:scout-summary` block (legacy format), fall back to parsing Markdown sections manually (References, Reusable Code, Gaps).
 
 ### Step 5: Deep context via RP (after repo-scout)
 
@@ -147,6 +186,8 @@ Scan the L1 index for entries relevant to this plan's domain. If relevant entrie
 # Fetch details for relevant entries
 $FLOWCTL memory search "<keyword matching this plan's domain>"
 ```
+
+> **Deduplication note:** Memory is injected here at plan time for research context. Workers also inject memory in Phase 2, but scoped to their specific task domain via `--tags`. Plan-phase injection is broad (full domain scan); worker injection is narrow (task-specific tags). This is intentional — plan needs wide context, workers need focused context. No deduplication is needed because the scopes differ.
 
 **Apply lessons to plan design:**
 - **Pitfalls** → add as explicit warnings in task specs or acceptance criteria ("Verify X does not regress Y")
@@ -428,3 +469,5 @@ $FLOWCTL epic auto-exec <epic-id> --pending --json
 ```
 
 Invoke `/flow-code:work <epic-id> --no-review` directly (Teams mode handles parallelism regardless of task count).
+
+> **Flag precedence:** `--no-review` passed here overrides any `review.backend` config setting. This is intentional — when plan auto-executes work, per-task review is skipped because the plan was already reviewed. Epic-level review still runs at completion unless explicitly disabled.

@@ -304,17 +304,17 @@ fn extract_root_paths(win: &serde_json::Value) -> Vec<String> {
 
 /// Parse builder output for tab ID.
 fn parse_builder_tab(output: &str) -> Option<String> {
-    let re = Regex::new(r"Tab:\s*([A-Za-z0-9-]+)").unwrap();
+    let re = Regex::new(r"Tab:\s*([A-Za-z0-9-]+)").expect("static regex must compile");
     re.captures(output).map(|c| c[1].to_string())
 }
 
 /// Parse chat ID from output.
 fn parse_chat_id(output: &str) -> Option<String> {
-    let re1 = Regex::new(r#"Chat\s*:\s*`([^`]+)`"#).unwrap();
+    let re1 = Regex::new(r#"Chat\s*:\s*`([^`]+)`"#).expect("static regex must compile");
     if let Some(c) = re1.captures(output) {
         return Some(c[1].to_string());
     }
-    let re2 = Regex::new(r#""chat_id"\s*:\s*"([^"]+)""#).unwrap();
+    let re2 = Regex::new(r#""chat_id"\s*:\s*"([^"]+)""#).expect("static regex must compile");
     re2.captures(output).map(|c| c[1].to_string())
 }
 
@@ -439,7 +439,7 @@ fn cmd_ensure_workspace(_json_mode: bool, window: i64, repo_root: &str) {
         .to_string();
 
     // List workspaces
-    let list_payload = serde_json::to_string(&json!({"action": "list"})).unwrap();
+    let list_payload = serde_json::to_string(&json!({"action": "list"})).expect("static JSON serialization should not fail");
     let list_expr = format!("call manage_workspaces {list_payload}");
     let win_str = window.to_string();
     let (stdout, _) = run_rp_cli(&["--raw-json", "-w", &win_str, "-e", &list_expr], None);
@@ -457,7 +457,7 @@ fn cmd_ensure_workspace(_json_mode: bool, window: i64, repo_root: &str) {
             "action": "create",
             "name": ws_name,
             "folder_path": real_root,
-        })).unwrap();
+        })).expect("static JSON serialization should not fail");
         let create_expr = format!("call manage_workspaces {create_payload}");
         run_rp_cli(&["-w", &win_str, "-e", &create_expr], None);
     }
@@ -467,7 +467,7 @@ fn cmd_ensure_workspace(_json_mode: bool, window: i64, repo_root: &str) {
         "action": "switch",
         "workspace": ws_name,
         "window_id": window,
-    })).unwrap();
+    })).expect("static JSON serialization should not fail");
     let switch_expr = format!("call manage_workspaces {switch_payload}");
     run_rp_cli(&["-w", &win_str, "-e", &switch_expr], None);
 }
@@ -565,7 +565,7 @@ fn cmd_prompt_get(window: i64, tab: &str) {
 fn cmd_prompt_set(window: i64, tab: &str, message_file: &str) {
     let message = fs::read_to_string(message_file)
         .unwrap_or_else(|e| error_exit(&format!("Failed to read message file: {e}")));
-    let payload = serde_json::to_string(&json!({"op": "set", "text": message})).unwrap();
+    let payload = serde_json::to_string(&json!({"op": "set", "text": message})).expect("JSON serialization of prompt payload should not fail");
     let expr = format!("call prompt {payload}");
     let win_str = window.to_string();
     let (stdout, _) = run_rp_cli(&["-w", &win_str, "-t", tab, "-e", &expr], None);
@@ -695,7 +695,7 @@ fn cmd_setup_review(
         }
     }
 
-    let win_id = win_id.unwrap();
+    let win_id = win_id.expect("win_id verified as Some above or error_exit called");
 
     // Write state file for ralph-guard
     let mut hasher = Sha256::new();

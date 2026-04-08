@@ -93,10 +93,48 @@ fn strip_compact(val: &mut Value) {
     }
 }
 
+/// Convert an array of objects to columnar format: {"headers": [...], "rows": [[...], ...]}.
+/// Saves ~80% tokens on lists with 10+ items by eliminating key repetition.
+fn to_columnar(arr: &[Value]) -> Option<Value> {
+    if arr.is_empty() {
+        return None;
+    }
+    // Extract headers from the first object
+    let first = arr.first()?.as_object()?;
+    let headers: Vec<String> = first.keys().cloned().collect();
+    let rows: Vec<Vec<Value>> = arr
+        .iter()
+        .map(|item| {
+            headers
+                .iter()
+                .map(|h| {
+                    item.get(h).cloned().unwrap_or(Value::Null)
+                })
+                .collect()
+        })
+        .collect();
+    Some(json!({
+        "headers": headers,
+        "rows": rows,
+        "count": rows.len(),
+    }))
+}
+
 /// Print a successful JSON response with additional data fields merged in.
+/// In compact mode, arrays of 10+ objects are auto-converted to columnar format.
 pub fn json_output(data: Value) {
     let mut obj = match data {
         Value::Object(map) => map,
+        Value::Array(ref arr) if is_compact() && arr.len() >= 10 && arr.first().map_or(false, |v| v.is_object()) => {
+            let mut m = serde_json::Map::new();
+            if let Some(columnar) = to_columnar(arr) {
+                m.insert("data".to_string(), columnar);
+                m.insert("format".to_string(), json!("columnar"));
+            } else {
+                m.insert("data".to_string(), data);
+            }
+            m
+        }
         _ => {
             let mut m = serde_json::Map::new();
             m.insert("data".to_string(), data);
@@ -108,7 +146,7 @@ pub fn json_output(data: Value) {
     if COMPACT.load(Ordering::Relaxed) {
         strip_compact(&mut val);
     }
-    println!("{}", serde_json::to_string(&val).unwrap());
+    println!("{}", serde_json::to_string(&val).expect("JSON serialization of output value should not fail"));
 }
 
 /// Print an error JSON response and exit with code 1.
@@ -118,6 +156,6 @@ pub fn error_exit(message: &str) -> ! {
         "success": false,
         "error": message,
     });
-    eprintln!("{}", serde_json::to_string(&out).unwrap());
+    eprintln!("{}", serde_json::to_string(&out).expect("JSON serialization of error output should not fail"));
     std::process::exit(1);
 }

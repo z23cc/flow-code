@@ -57,19 +57,45 @@ Read the relevant files. Note actual:
 - Data structures created
 - Patterns followed
 
-## Phase 3: Identify Drift
+## Phase 3: Automated Drift Detection
 
-Compare spec vs implementation:
+### Step 3a: Extract spec-declared symbols
 
-| Aspect | Spec Said | Actually Built |
-|--------|-----------|----------------|
-| Names | `UserAuth` | `authService` |
-| API | `login(user, pass)` | `authenticate(credentials)` |
-| Return | `boolean` | `{success, token}` |
+From the completed task spec (Phase 1), extract all referenced symbols:
+- Function/method names (e.g., `UserAuth.login()`)
+- Type/class names (e.g., `UserAuth`, `AuthResult`)
+- API endpoints (e.g., `POST /api/login`)
+- File paths (e.g., `src/auth/handler.ts`)
+- Config keys, env vars, constants
 
-Drift exists if implementation differs from spec in ways that downstream tasks reference.
+### Step 3b: Grep for actual implementation
 
-## Phase 4: Check Downstream Tasks
+For each spec-declared symbol, verify it exists in the codebase:
+
+```bash
+# For each function/type name from spec:
+grep -rn "<spec_symbol>" --include="*.ts" --include="*.py" --include="*.rs" src/
+
+# For each file path from spec:
+ls -la <spec_file_path> 2>/dev/null || echo "DRIFT: file not found"
+```
+
+### Step 3c: Build drift table
+
+Compare spec vs grep results:
+
+| Aspect | Spec Declared | Grep Result | Drift? |
+|--------|--------------|-------------|--------|
+| Names | `UserAuth` | not found; `authService` found instead | YES |
+| API | `login(user, pass)` | `authenticate(credentials: Credentials)` | YES |
+| Return | `boolean` | `AuthResult { success, token }` | YES |
+| File | `src/auth.ts` | exists at `src/auth/service.ts` | YES |
+
+**Drift exists if**: any spec-declared symbol is not found in grep, OR is found with a different signature/name/location.
+
+**No drift if**: all spec symbols match actual code exactly. → Skip to Phase 6 (return quickly).
+
+## Phase 4: Check Downstream Tasks (Automated)
 
 For each task in DOWNSTREAM_TASK_IDS:
 
@@ -77,13 +103,28 @@ For each task in DOWNSTREAM_TASK_IDS:
 <FLOWCTL> cat <task-id>
 ```
 
-Look for references to:
-- Names/APIs from completed task spec (now stale)
-- Assumptions about data structures
-- Integration points that changed
-- File paths in `## Investigation targets` sections — if the completed task renamed or moved files that are listed as Required/Optional targets in downstream tasks, those paths are now stale
+### Step 4a: Automated reference scan
 
-Flag tasks that need updates.
+For each drifted symbol from Phase 3 (the "Spec Declared" column), grep the downstream task spec for references:
+
+```bash
+# For each downstream task spec file:
+SPEC_CONTENT=$(<FLOWCTL> cat <task-id>)
+# Check if spec references any stale symbol
+for STALE_SYMBOL in <list of drifted spec symbols>; do
+  echo "$SPEC_CONTENT" | grep -q "$STALE_SYMBOL" && echo "STALE: <task-id> references $STALE_SYMBOL"
+done
+```
+
+### Step 4b: Flag affected tasks
+
+A downstream task needs updating if its spec contains ANY of:
+- Names/APIs from completed task spec that drifted (now stale)
+- Assumptions about data structures that changed
+- Integration points that were renamed/moved
+- File paths in `## Investigation targets` sections that no longer exist (completed task renamed or moved files)
+
+**Skip tasks with zero stale references** — no edit needed.
 
 ## Phase 4b: Check Other Epics (if CROSS_EPIC is "true")
 
@@ -109,10 +150,26 @@ Look for:
 ## Phase 5: Update Affected Tasks
 
 **If DRY_RUN is "true":**
-Report what would be changed without using Edit tool:
+Report what would be changed without using Edit tool. Use structured JSON for machine readability:
 
+```json
+{
+  "drift_detected": true,
+  "completed_task": "<COMPLETED_TASK_ID>",
+  "drift_items": [
+    {"spec_symbol": "UserAuth", "actual_symbol": "authService", "type": "rename"},
+    {"spec_symbol": "login(user, pass)", "actual_symbol": "authenticate(credentials)", "type": "signature_change"}
+  ],
+  "would_update": [
+    {"task_id": "fn-1.3", "stale_refs": ["UserAuth.login()"], "replacement": "authService.authenticate()"},
+    {"task_id": "fn-1.5", "stale_refs": ["boolean"], "replacement": "AuthResult"}
+  ]
+}
 ```
-Would update:
+
+Also print a human-readable summary:
+```
+Would update (DRY RUN):
 - fn-1.3: Change `UserAuth.login()` → `authService.authenticate()`
 - fn-1.5: Change return type `boolean` → `AuthResult`
 ```

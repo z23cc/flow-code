@@ -1,6 +1,7 @@
 ---
 name: flow-code-debug
 description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+tier: 2
 ---
 
 # Systematic Debugging

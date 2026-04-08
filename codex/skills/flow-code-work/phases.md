@@ -137,6 +137,44 @@ $FLOWCTL start <task-id-1> --json
 $FLOWCTL start <task-id-2> --json
 ```
 
+### Step 5.5. Stale Lock Recovery
+
+Stale lock detection runs at TWO points:
+1. **Wave start** (before spawning workers) — catches locks from previous wave crashes
+2. **Worker completion** (when any worker finishes) — catches mid-wave crashes from sibling workers
+
+Detection criteria: lock owner task has status `done`, `failed`, `blocked`, or `skipped` but lock still held.
+
+Recovery action:
+```bash
+# Check for stale locks
+$FLOWCTL lock-check --stale --json
+
+# Release stale locks
+$FLOWCTL unlock --stale
+```
+
+**Wave start detection:**
+
+```bash
+# Check for any existing locks
+EXISTING_LOCKS=$($FLOWCTL lock-check --all --json 2>/dev/null || echo "[]")
+```
+
+For each locked file, check if the owning task is still `in_progress`:
+```bash
+# If owning task is done/failed/blocked but lock was not released → stale lock
+OWNER_STATUS=$($FLOWCTL show <owner-task-id> --json | jq -r .status)
+if [[ "$OWNER_STATUS" != "in_progress" ]]; then
+  echo "Releasing stale lock: <file> was locked by <owner-task-id> (status: $OWNER_STATUS)"
+  $FLOWCTL unlock --task <owner-task-id>
+fi
+```
+
+If stale locks are found mid-wave, the coordinator releases them immediately. This prevents single-wave deadlocks where a crashed worker holds locks needed by sibling workers.
+
+**Why**: If a worker crashes between lock and unlock (OOM, timeout, network), the lock persists. Without cleanup, the next wave deadlocks waiting for a lock that will never be released. The `TaskCompleted` hook auto-unlocks on normal completion, but crashes bypass hooks.
+
 ### Step 6. File Ownership & Locking (Teams mode)
 
 For each ready task, read file ownership from the task spec and lock:
@@ -219,6 +257,16 @@ Spawn ALL ready task workers in a SINGLE message with multiple Agent tool calls.
 
 **Worker returns**: Summary of implementation, files changed, test results, review verdict.
 
+### Worker Timeout
+
+Workers have a maximum execution time of **30 minutes** per task (configurable via `.flow/config.json` → `worker.timeout_minutes`). If a worker does not complete within this time:
+
+1. The coordinator logs the timeout: `$FLOWCTL task fail <task-id> --reason "worker timeout after 30m"`
+2. The task is marked as `failed`
+3. File locks held by the timed-out worker are released: `$FLOWCTL unlock --task <task-id>`
+4. The wave continues with remaining workers
+5. Failed tasks can be retried in a subsequent wave via `$FLOWCTL restart <task-id>`
+
 ### Step 8. Wait for Workers & Merge Back
 
 Wait for all workers to complete.
@@ -283,6 +331,18 @@ $FLOWCTL invariants check
 ```
 
 If guards or invariants fail, identify which task's changes caused the regression and report to user.
+
+### Guard Execution Points
+
+Guard (`$FLOWCTL guard`) runs at these specific points:
+
+| When | Where | On Failure |
+|------|-------|------------|
+| Worker Phase 6 (self-review) | Per-task, after implementation | Worker retries fix (max 2 attempts), then marks task as failed |
+| Wave checkpoint (Step 10) | After all wave workers complete | Stop pipeline — do not advance to next wave |
+| Close phase | Final validation before PR | Block close until guard passes |
+
+Guard auto-detects the project stack and runs: linter, type checker, and test suite. It does NOT run on every git commit automatically — it runs at the phase boundaries listed above.
 
 **Sub-step 3 — Wave Summary:**
 Output a concise checkpoint report:
@@ -350,6 +410,11 @@ DOWNSTREAM=$($FLOWCTL tasks --epic <epic-id> --status todo --json | jq -r '[.[].
 
 Note: Only sync to `todo` tasks. `in_progress` tasks are already being worked on - updating them mid-flight could cause confusion.
 
+Check cross-epic sync setting:
+```bash
+CROSS_EPIC=$($FLOWCTL config get planSync.crossEpic --json 2>/dev/null | jq -r '.value // false')
+```
+
 Use the Task tool to spawn the `plan-sync` subagent with this prompt:
 
 ```
@@ -359,11 +424,29 @@ COMPLETED_TASK_ID: fn-X.Y
 EPIC_ID: fn-X
 FLOWCTL: /path/to/flowctl
 DOWNSTREAM_TASK_IDS: fn-X.3,fn-X.4,fn-X.5
+CROSS_EPIC: $CROSS_EPIC
 
 Follow your phases in plan-sync.md exactly.
 ```
 
-Plan-sync returns summary. Log it but don't block - task updates are best-effort.
+**Cross-epic sync** (disabled by default): When `planSync.crossEpic` is `true`, plan-sync also checks other open epics for stale references to the completed task's APIs. Enable via:
+```bash
+$FLOWCTL config set planSync.crossEpic true
+```
+Use for multi-epic projects where epics share APIs. Disable for single-epic work (default) to save tokens.
+
+Plan-sync returns a summary. **Check the result before advancing:**
+
+- **"Drift detected: yes"** with updates applied → log changes, proceed to Step 13.
+- **"Drift detected: no"** → proceed to Step 13 (no drift = fast path).
+- **Plan-sync fails or times out** → **STOP the wave**. Do NOT advance to next wave with stale specs. Log the failure and report to user:
+  ```
+  Plan-sync failed after <COMPLETED_TASK_ID>. Downstream specs may be stale.
+  Manual fix: run /flow-code:sync <EPIC_ID> or inspect specs manually.
+  ```
+  This prevents implementation drift from silently propagating to downstream tasks.
+
+**Why not best-effort?** If plan-sync fails, downstream workers read stale specs → implement against wrong assumptions → produce broken code → review catches it too late → expensive rework. Blocking early is cheaper.
 
 ### Step 13. Loop or Finish
 

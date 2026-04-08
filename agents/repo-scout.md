@@ -56,6 +56,8 @@ git log --oneline --all -- "*/auth*" | head -5  # history of similar features
 
 Alongside base Findings/References/Gaps: `### Project Conventions`, `### Reusable Code (DO NOT DUPLICATE)`, `### Test Patterns`, `### Gotchas`.
 
+**End with a `json:scout-summary` block** (see scout-base.md Output Format Contract). The plan skill parses this to auto-populate task specs.
+
 ## Domain Rules
 
 - Flag code that MUST be reused (don't reinvent)

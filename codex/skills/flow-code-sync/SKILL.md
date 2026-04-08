@@ -1,6 +1,7 @@
 ---
 name: flow-code-sync
 description: "Use when code changes outpace specs and downstream task specs need updating. Triggers on /flow-code:sync."
+tier: 3
 user-invocable: false
 ---
 

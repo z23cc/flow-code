@@ -243,7 +243,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 fn next_entry_id(entries_dir: &Path) -> i64 {
     let mut max_id: i64 = 0;
     if let Ok(entries) = fs::read_dir(entries_dir) {
-        let re = Regex::new(r"^(\d+)-").unwrap();
+        let re = Regex::new(r"^(\d+)-").expect("static regex must compile");
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
@@ -277,7 +277,7 @@ fn load_index(index_path: &Path) -> Vec<serde_json::Value> {
 fn save_index(index_path: &Path, entries: &[serde_json::Value]) {
     let lines: Vec<String> = entries
         .iter()
-        .map(|e| serde_json::to_string(e).unwrap())
+        .map(|e| serde_json::to_string(e).expect("index entry serialization should not fail"))
         .collect();
     let content = if lines.is_empty() {
         String::new()
@@ -312,7 +312,7 @@ fn save_stats(stats_path: &Path, stats: &serde_json::Value) {
     if let Some(parent) = stats_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let content = serde_json::to_string_pretty(stats).unwrap();
+    let content = serde_json::to_string_pretty(stats).expect("stats JSON serialization should not fail");
     if let Err(e) = fs::write(stats_path, &content) {
         error_exit(&format!(
             "Failed to write {}: {}",
@@ -332,7 +332,7 @@ fn bump_refs(stats_path: &Path, entry_ids: &[String]) {
     for eid in entry_ids {
         let entry = stats
             .as_object_mut()
-            .unwrap()
+            .expect("stats is always a JSON object")
             .entry(eid.clone())
             .or_insert_with(|| json!({"refs": 0, "last_ref": ""}));
         let refs = entry

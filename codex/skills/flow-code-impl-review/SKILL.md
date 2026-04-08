@@ -1,6 +1,7 @@
 ---
 name: flow-code-impl-review
 description: "Use when reviewing code changes, PRs, or implementations. Triggers on /flow-code:impl-review."
+tier: 3
 user-invocable: false
 ---
 

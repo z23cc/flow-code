@@ -91,7 +91,7 @@ pub fn run_flowctl(flowctl: &Path, args: &[&str]) -> Option<Value> {
 pub fn normalize_command(cmd: &str) -> String {
     let mut s = cmd.replace('\t', " ");
     s = s.replace("\"\"", "").replace("''", "");
-    let ws_re = regex::Regex::new(r" {2,}").unwrap();
+    let ws_re = regex::Regex::new(r" {2,}").expect("static regex must compile");
     ws_re.replace_all(&s, " ").trim().to_string()
 }
 

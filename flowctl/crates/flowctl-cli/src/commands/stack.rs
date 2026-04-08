@@ -105,7 +105,7 @@ fn load_config() -> serde_json::Value {
 /// Save config.json.
 fn save_config(config: &serde_json::Value) {
     let config_path = get_flow_dir().join(CONFIG_FILE);
-    let content = serde_json::to_string_pretty(config).unwrap();
+    let content = serde_json::to_string_pretty(config).expect("config JSON serialization should not fail");
     if let Err(e) = fs::write(&config_path, &content) {
         error_exit(&format!("Failed to write config.json: {}", e));
     }
@@ -631,10 +631,10 @@ fn cmd_invariants_check(json_mode: bool) {
     });
 
     // Strip HTML comments before parsing
-    let comment_re = regex::Regex::new(r"(?s)<!--.*?-->").unwrap();
+    let comment_re = regex::Regex::new(r"(?s)<!--.*?-->").expect("static regex must compile");
     let content_clean = comment_re.replace_all(&content, "");
 
-    let verify_re = regex::Regex::new(r"`([^`]+)`").unwrap();
+    let verify_re = regex::Regex::new(r"`([^`]+)`").expect("static regex must compile");
     let repo_root = get_repo_root();
 
     let mut results: Vec<serde_json::Value> = Vec::new();

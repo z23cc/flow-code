@@ -55,7 +55,18 @@ Prompt: "Extract the key security recommendations for [feature]"
 
 ## GitHub Code Search
 
-Find how real projects implement this feature:
+**Rate limit check (REQUIRED before any gh API calls):**
+```bash
+RATE_REMAINING=$(gh api rate_limit --jq '.resources.search.remaining' 2>/dev/null || echo "0")
+if [ "$RATE_REMAINING" -lt 5 ]; then
+  echo "GitHub search rate limit low ($RATE_REMAINING remaining) — skipping code search. Using web search fallback."
+  # Fall back to WebSearch for GitHub examples instead of gh CLI
+else
+  echo "GitHub rate: $RATE_REMAINING searches remaining"
+fi
+```
+
+**If rate limit OK**, search for real-world implementations:
 
 ```bash
 # Search for implementations (exclude tests/examples for production patterns)
@@ -67,6 +78,8 @@ gh search code "[pattern]" --owner vercel --owner facebook --json repository,pat
 # Find examples specifically
 gh search code "[pattern]" path:examples/ --json repository,path -L 5
 ```
+
+**Cap at 5 gh search calls per scout run.** Each `gh search code` costs 1 search API request. If you need more, consolidate patterns into compound queries (`pattern1|pattern2`).
 
 ### Source Quality Heuristics
 

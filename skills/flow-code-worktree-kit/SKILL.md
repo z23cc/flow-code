@@ -2,6 +2,7 @@
 name: flow-code-worktree-kit
 description: Manage git worktrees (create/list/switch/cleanup) and copy .env files. Use for parallel feature work, isolated review, clean workspace, or when user mentions worktrees.
 tier: 1
+user-invocable: true
 ---
 
 # Worktree kit

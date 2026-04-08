@@ -1,6 +1,7 @@
 ---
 name: flow-code
 description: "Manage .flow/ tasks and epics. Triggers: 'show me my tasks', 'list epics', 'what tasks are there', 'add a task', 'create task', 'what's ready', 'task status', 'show fn-1-add-oauth'. NOT for /flow-code:plan or /flow-code:work."
+tier: 4
 ---
 
 # Flow-Code Task Management

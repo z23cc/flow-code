@@ -13,9 +13,11 @@
 //! - `.state/approvals.json` — approval records
 //! - `memory/entries.jsonl` — append-only memory entries
 
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+
+use fs2::FileExt;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -458,6 +460,24 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Acquire an exclusive advisory file lock for read-modify-write operations.
+/// Returns the lock file handle (lock is released when handle is dropped).
+fn acquire_lock(path: &Path) -> Result<File> {
+    let lock_path = path.with_extension("lock");
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&lock_path)?;
+    lock_file.lock_exclusive().map_err(|e| {
+        StoreError::Io(std::io::Error::new(
+            e.kind(),
+            format!("failed to acquire lock on {}: {}", lock_path.display(), e),
+        ))
+    })?;
+    Ok(lock_file)
+}
+
 // ── Events (.flow/.state/events.jsonl) ─────────────────────────────
 
 fn events_path(flow_dir: &Path) -> PathBuf {
@@ -510,10 +530,15 @@ pub fn pipeline_read(flow_dir: &Path, epic_id: &str) -> Result<Option<String>> {
     Ok(map.get(epic_id).and_then(|v| v.as_str()).map(String::from))
 }
 
-/// Set the pipeline phase for an epic (read-modify-write with atomic rename).
+/// Set the pipeline phase for an epic (read-modify-write with file lock + atomic rename).
+///
+/// Uses advisory file locking via `fs2` to prevent race conditions when
+/// multiple processes call this concurrently. The lock is held for the
+/// entire read-modify-write cycle and released when `_lock` is dropped.
 pub fn pipeline_write(flow_dir: &Path, epic_id: &str, phase: &str) -> Result<()> {
     ensure_dir(&flow_dir.join(STATE_DIR))?;
     let path = pipeline_path(flow_dir);
+    let _lock = acquire_lock(&path)?;
     let mut map: serde_json::Map<String, serde_json::Value> = if path.exists() {
         let content = fs::read_to_string(&path)?;
         serde_json::from_str(&content)?
@@ -548,10 +573,11 @@ pub fn phases_completed(flow_dir: &Path, task_id: &str) -> Result<Vec<String>> {
     }
 }
 
-/// Mark a phase as done for a task.
+/// Mark a phase as done for a task (file-locked read-modify-write).
 pub fn phase_mark_done(flow_dir: &Path, task_id: &str, phase: &str) -> Result<()> {
     ensure_dir(&flow_dir.join(STATE_DIR))?;
     let path = phases_path(flow_dir);
+    let _lock = acquire_lock(&path)?;
     let mut map: serde_json::Map<String, serde_json::Value> = if path.exists() {
         let content = fs::read_to_string(&path)?;
         serde_json::from_str(&content)?
@@ -572,12 +598,13 @@ pub fn phase_mark_done(flow_dir: &Path, task_id: &str, phase: &str) -> Result<()
     Ok(())
 }
 
-/// Reset all phase progress for a task.
+/// Reset all phase progress for a task (file-locked read-modify-write).
 pub fn phases_reset(flow_dir: &Path, task_id: &str) -> Result<()> {
     let path = phases_path(flow_dir);
     if !path.exists() {
         return Ok(());
     }
+    let _lock = acquire_lock(&path)?;
     let content = fs::read_to_string(&path)?;
     let mut map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)?;
     map.remove(task_id);
@@ -612,10 +639,11 @@ pub fn locks_read(flow_dir: &Path) -> Result<Vec<LockEntry>> {
     Ok(locks)
 }
 
-/// Acquire a lock on a file for a task.
+/// Acquire a lock on a file for a task (file-locked read-modify-write).
 pub fn lock_acquire(flow_dir: &Path, file_path: &str, task_id: &str, mode: &str) -> Result<()> {
     ensure_dir(&flow_dir.join(STATE_DIR))?;
     let path = locks_path(flow_dir);
+    let _flock = acquire_lock(&path)?;
     let mut locks = locks_read(flow_dir)?;
     // Remove existing lock by same task on same file (idempotent)
     locks.retain(|l| !(l.file_path == file_path && l.task_id == task_id));
@@ -630,12 +658,13 @@ pub fn lock_acquire(flow_dir: &Path, file_path: &str, task_id: &str, mode: &str)
     Ok(())
 }
 
-/// Release all locks held by a task. Returns number released.
+/// Release all locks held by a task. Returns number released (file-locked).
 pub fn lock_release_task(flow_dir: &Path, task_id: &str) -> Result<u32> {
     let path = locks_path(flow_dir);
     if !path.exists() {
         return Ok(0);
     }
+    let _flock = acquire_lock(&path)?;
     let mut locks = locks_read(flow_dir)?;
     let before = locks.len();
     locks.retain(|l| l.task_id != task_id);

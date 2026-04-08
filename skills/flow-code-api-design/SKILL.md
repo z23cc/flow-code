@@ -2,6 +2,7 @@
 name: flow-code-api-design
 description: "Use when designing or modifying APIs, module boundaries, CLI interfaces, library public surfaces, RPC contracts, or event schemas"
 tier: 3
+user-invocable: true
 ---
 
 # API and Interface Design

@@ -13,7 +13,7 @@
 
 **A production-grade harness for Claude Code. Full-auto development from idea to PR.**
 
-**Zero external dependencies. Zero questions asked.**
+**Zero Claude Code dependencies. Zero questions asked.**
 
 </div>
 
@@ -37,7 +37,7 @@ A **harness** wraps around an AI coding agent to handle everything the model can
 | Full-auto (zero questions) | ✅ AI decides branch/review/depth | ❌ | ❌ | ❌ |
 | Context preservation | ✅ PreCompact hook | ❌ | ✅ embedding + RAG | ❌ |
 | Auto draft PR | ✅ | ❌ | ❌ | ❌ |
-| Zero dependencies | ✅ single Rust binary + Bash skills | ❌ Node.js | ❌ ChromaDB | ❌ Node.js |
+| Minimal dependencies | ✅ single Rust binary + git/jq/gh | ❌ Node.js | ❌ ChromaDB | ❌ Node.js |
 
 ---
 
@@ -66,7 +66,8 @@ A **harness** wraps around an AI coding agent to handle everything the model can
 Flow-Code is a **harness engineering framework** for Claude Code. One command goes from idea to draft PR — planning, parallel implementation, three-layer quality gates, and cross-model adversarial review, all fully automated.
 
 ```
-/flow-code:plan "Add OAuth login"
+/flow-code:go "Add OAuth login"
+  → AI self-interview (auto-brainstorm)
   → AI research (adaptive scouts)
   → RP plan-review (code-aware)
   → Teams parallel workers (file locking)
@@ -113,11 +114,14 @@ Rationale: keeps the system simple, improves re-anchoring, makes automation (Ral
 Say one sentence. Flow-Code plans, implements, tests, commits, and opens a draft PR — zero questions asked. AI reads git state and `.flow/` config to make all decisions (branch, review backend, research depth) autonomously.
 
 ```bash
-# Full auto: plan → implement → test → commit → draft PR
-/flow-code:plan "add OAuth support"
+# Full autopilot: brainstorm → plan → implement → test → commit → draft PR
+/flow-code:go "add OAuth support"
+
+# Skip brainstorm: plan → implement → review → close
+/flow-code:run "add OAuth support"
 
 # Resume anytime — reads .flow state and continues from where it left off
-/flow-code:work fn-1
+/flow-code:run fn-1
 
 # One task at a time for maximum control
 /flow-code:work fn-1.1
@@ -164,6 +168,12 @@ Guard is deterministic. RP validates against existing code. Codex (GPT) tries to
 ---
 
 ## Quick Start
+
+### Prerequisites
+
+Required: `git`, `jq`, `gh` (GitHub CLI), `curl`
+
+Optional: `rp-cli` (for Layer 2 plan-review), `codex` (for Layer 3 adversarial review)
 
 ### 1. Install
 
@@ -284,6 +294,7 @@ Best for: bug fixes, small features, well-scoped changes that don't need task sp
 
 | Starting point | Recommended sequence |
 |----------------|---------------------|
+| **Just ship it (zero effort)** | **`/flow-code:go "idea"`** — full autopilot, brainstorm to PR |
 | New feature, want solid spec first | Spec → Interview/Plan → Work |
 | Vague idea, rough notes | Interview → Plan → Work |
 | Detailed spec/PRD | Plan → Interview → Work |
@@ -1271,13 +1282,16 @@ Config lives in `.flow/config.json`, separate from Ralph's `scripts/ralph/config
 
 ## Commands
 
-Ten commands, complete workflow:
+Twenty commands, complete workflow:
 
 | Command | What It Does |
 |---------|--------------|
+| `/flow-code:go <idea>` | **Full autopilot**: brainstorm → plan → work → review → close → PR (zero input) |
+| `/flow-code:run <idea\|fn-N>` | Pipeline: plan → work → review → close (skips brainstorm) |
+| `/flow-code:brainstorm <idea>` | Explore and pressure-test ideas before planning (`--auto` for AI self-interview) |
 | `/flow-code:plan <idea>` | Research the codebase, create epic with dependency-ordered tasks |
 | `/flow-code:work <id\|file>` | Execute epic, task, or spec file, re-anchoring before each |
-| `/flow-code:interview <id>` | Deep interview to flesh out a spec before planning |
+| `/flow-code:interview <id>` | Deep interview to flesh out a spec before planning (40+ questions) |
 | `/flow-code:plan-review <id>` | Carmack-level plan review via RepoPrompt |
 | `/flow-code:impl-review` | Carmack-level impl review of current branch |
 | `/flow-code:epic-review <id>` | Epic-completion review: verify implementation matches spec |
@@ -1287,6 +1301,9 @@ Ten commands, complete workflow:
 | `/flow-code:ralph-init` | Scaffold repo-local Ralph harness (`scripts/ralph/`) |
 | `/flow-code:retro` | Post-epic retrospective: what worked, what didn't, lessons → memory |
 | `/flow-code:django` | Django patterns: architecture, DRF, security, testing, verification |
+| `/flow-code:qa` | Visual QA testing with browser automation |
+| `/flow-code:design-review` | Visual design audit with browser automation |
+| `/flow-code:autoplan` | Multi-perspective auto-review (CEO, eng, design, DX) |
 | `/flow-code:skill-create` | TDD-based skill creation: baseline test → write → bulletproof |
 | `/flow-code:setup` | Optional: install flowctl locally + add docs (for power users) |
 | `/flow-code:uninstall` | Remove flow-code from project (keeps tasks if desired) |
@@ -1320,7 +1337,9 @@ Natural language also works:
 
 | Command | Available Flags |
 |---------|-----------------|
-| `/flow-code:plan` | `--research=rp\|grep`, `--depth=short\|standard\|deep`, `--review=rp\|codex\|export\|none`, `--plan-only` |
+| `/flow-code:go` | `--plan-only`, `--no-pr` |
+| `/flow-code:brainstorm` | `--auto` (AI self-interview, zero human input) |
+| `/flow-code:plan` | `--research=rp\|grep`, `--depth=short\|standard\|deep`, `--review=rp\|codex\|export\|none`, `--plan-only`, `--interactive` |
 | `/flow-code:work` | `--branch=current\|worktree\|new`, `--review=rp\|codex\|none`, `--no-review`, `--interactive`, `--tdd`, `--no-pr` |
 | `/flow-code:plan-review` | `--review=rp\|codex\|export` |
 | `/flow-code:impl-review` | `--review=rp\|codex\|export` |
@@ -1330,6 +1349,33 @@ Natural language also works:
 ### Command Reference
 
 Detailed input documentation for each command.
+
+#### `/flow-code:go`
+
+```
+/flow-code:go <idea> [--plan-only] [--no-pr]
+```
+
+| Input | Description |
+|-------|-------------|
+| `<idea>` | Free-form feature description ("Add OAuth login") |
+| `--plan-only` | Skip brainstorm, plan only, stop after planning |
+| `--no-pr` | Skip draft PR creation at close |
+
+Full autopilot: auto-brainstorm (AI self-interview) → plan → plan-review → work → impl-review → close → push + draft PR. Zero human input. Use `/flow-code:run fn-N` to resume an interrupted epic.
+
+#### `/flow-code:brainstorm`
+
+```
+/flow-code:brainstorm [--auto] <idea>
+```
+
+| Input | Description |
+|-------|-------------|
+| `<idea>` | Feature or problem description |
+| `--auto` | AI self-interview mode — no human questions, all answers derived from codebase analysis |
+
+Produces `.flow/specs/<slug>-requirements.md`. Next step: `/flow-code:plan .flow/specs/<slug>-requirements.md`.
 
 #### `/flow-code:plan`
 

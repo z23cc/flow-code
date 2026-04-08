@@ -43,7 +43,7 @@ If memory returns critical-severity pitfalls, **pause and review them** before p
 Verify review backends are reachable before entering work/review phases:
 
 ```bash
-# Check configured review backend
+# Check configured review backend (returns "rp", "codex", "none", or "ASK")
 REVIEW_BACKEND=$($FLOWCTL review-backend 2>/dev/null || echo "none")
 
 if [ "$REVIEW_BACKEND" = "rp" ]; then
@@ -51,6 +51,8 @@ if [ "$REVIEW_BACKEND" = "rp" ]; then
   which rp-cli >/dev/null 2>&1 || echo "WARNING: review backend is 'rp' but rp-cli not found. Reviews will fail. Set to 'none' via: $FLOWCTL config set review.backend none"
 elif [ "$REVIEW_BACKEND" = "codex" ]; then
   which codex >/dev/null 2>&1 || echo "WARNING: review backend is 'codex' but codex CLI not found. Reviews will fail."
+elif [ "$REVIEW_BACKEND" = "ASK" ] || [ "$REVIEW_BACKEND" = "none" ]; then
+  echo "INFO: No review backend configured. Reviews will be skipped. To enable: $FLOWCTL config set review.backend rp"
 fi
 ```
 

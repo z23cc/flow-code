@@ -70,29 +70,31 @@ Detect input type to decide whether to execute or skip:
 
 ### Plan (plan)
 1. Spawn research scouts in parallel (repo-scout, context-scout, practice-scout)
-2. Write epic spec via $FLOWCTL epic plan
-3. Create tasks via $FLOWCTL task create with dependencies
+2. Write epic spec via `$FLOWCTL epic plan $EPIC_ID --spec "..." --json` (ID is positional, not a flag)
+3. Create tasks via `$FLOWCTL task create --epic $EPIC_ID --title "..." --deps "task1,task2" --json` (use `--deps` for dependencies, `--epic` is required)
 4. Validate: $FLOWCTL validate --epic $EPIC_ID --json
 
 ### Plan Review (plan_review)
-1. Detect review backend: $FLOWCTL review-backend
-2. Run review via RP context_builder or Codex
-3. Fix issues until SHIP verdict (max 3 iterations)
-4. If backend is none, skip and advance
+1. Detect review backend: `$FLOWCTL review-backend` (returns "rp", "codex", "none", or "ASK")
+2. If backend is "none" or "ASK", skip review and advance with `$FLOWCTL phase done`
+3. Otherwise run review via RP context_builder or Codex
+4. Fix issues until SHIP verdict (max 3 iterations)
 
 ### Work (work)
-1. Find ready tasks: $FLOWCTL ready $EPIC_ID --json
-2. Start tasks: $FLOWCTL start <task-id> --json
-3. Lock files: $FLOWCTL lock --task <id> --files "<files>"
+1. Find ready tasks: `$FLOWCTL ready $EPIC_ID --json`
+2. Start tasks: `$FLOWCTL start <task-id> --json`
+3. Lock files: `$FLOWCTL lock --task <task-id> --files "file1,file2" --json`
 4. Spawn ALL ready workers in ONE parallel Agent call with isolation worktree and team_name
 5. Wait for workers, merge worktree branches back
-6. Wave checkpoint: verify done, run guards
-7. Repeat waves until no ready tasks remain
+6. Mark tasks complete: `$FLOWCTL done <task-id> --summary "what was done" --json`
+7. Wave checkpoint: verify done, run guards
+8. Repeat waves until no ready tasks remain
 
 ### Impl Review (impl_review)
-1. Run adversarial review via Codex or RP
-2. Fix issues until SHIP (max 2 iterations)
-3. If no review backend, skip and advance
+1. Detect review backend: `$FLOWCTL review-backend` (same as plan_review)
+2. If backend is "none" or "ASK", skip review and advance with `$FLOWCTL phase done`
+3. Otherwise run adversarial review via Codex or RP
+4. Fix issues until SHIP (max 2 iterations)
 
 ### Close (close)
 1. Validate: $FLOWCTL validate --epic $EPIC_ID --json

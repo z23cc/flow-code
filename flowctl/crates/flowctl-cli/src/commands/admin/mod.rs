@@ -16,9 +16,9 @@ fn get_default_config() -> serde_json::Value {
     json!({
         "memory": {"enabled": true},
         "outputs": {"enabled": true},
-        "planSync": {"enabled": true, "crossEpic": false},
-        "review": {"backend": null},
-        "scouts": {"github": false},
+        "planSync": {"enabled": true, "crossEpic": true},
+        "review": {"backend": "rp"},
+        "scouts": {"github": true},
         "stack": {},
     })
 }

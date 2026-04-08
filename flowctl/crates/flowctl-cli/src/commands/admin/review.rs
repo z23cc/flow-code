@@ -9,18 +9,23 @@ use crate::output::{error_exit, json_output};
 
 use flowctl_core::types::{CONFIG_FILE, REVIEWS_DIR};
 
-use super::{deep_merge, get_default_config, get_flow_dir};
+use super::{get_default_config, get_flow_dir};
 
 // ── Review-backend command ─────────────────────────────────────────
 
 pub fn cmd_review_backend(json_mode: bool, compare: Option<String>, epic: Option<String>) {
-    // Priority: FLOW_REVIEW_BACKEND env > config > ASK
+    // Priority: FLOW_REVIEW_BACKEND env > config (non-null) > default config
+    let default_backend = get_default_config()
+        .pointer("/review/backend")
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_else(|| "rp".to_string());
+
     let (backend, source) = if let Ok(env_val) = std::env::var("FLOW_REVIEW_BACKEND") {
         let trimmed = env_val.trim().to_string();
         if ["rp", "codex", "none"].contains(&trimmed.as_str()) {
             (trimmed, "env".to_string())
         } else {
-            ("ASK".to_string(), "none".to_string())
+            (default_backend.clone(), "default".to_string())
         }
     } else {
         let flow_dir = get_flow_dir();
@@ -29,16 +34,16 @@ pub fn cmd_review_backend(json_mode: bool, compare: Option<String>, epic: Option
             let config = if config_path.exists() {
                 match fs::read_to_string(&config_path) {
                     Ok(content) => {
-                        let raw = serde_json::from_str::<serde_json::Value>(&content)
-                            .unwrap_or(json!({}));
-                        deep_merge(&get_default_config(), &raw)
+                        serde_json::from_str::<serde_json::Value>(&content)
+                            .unwrap_or(json!({}))
                     }
-                    Err(_) => get_default_config(),
+                    Err(_) => json!({}),
                 }
             } else {
-                get_default_config()
+                json!({})
             };
 
+            // Read from user config; if null or missing, fall back to default
             let cfg_val = config
                 .pointer("/review/backend")
                 .and_then(|v| v.as_str())
@@ -46,10 +51,10 @@ pub fn cmd_review_backend(json_mode: bool, compare: Option<String>, epic: Option
             if ["rp", "codex", "none"].contains(&cfg_val) {
                 (cfg_val.to_string(), "config".to_string())
             } else {
-                ("ASK".to_string(), "none".to_string())
+                (default_backend, "default".to_string())
             }
         } else {
-            ("ASK".to_string(), "none".to_string())
+            (default_backend, "default".to_string())
         }
     };
 

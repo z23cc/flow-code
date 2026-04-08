@@ -1317,6 +1317,42 @@ flowctl import [--json]
 
 Rebuilds the DB from `.flow/` Markdown files.
 
+### write-file
+
+Write content to a file. Pipeline helper that bypasses Claude Code permission prompts.
+
+```bash
+# Inline content
+flowctl write-file --path "path/to/file.md" --content "content here" --json
+
+# Stdin (for long content via heredoc)
+cat <<'EOF' | flowctl write-file --path "path/to/file.md" --stdin --json
+Long content here...
+EOF
+
+# Append mode
+flowctl write-file --path "path/to/file.md" --content "new line" --append --json
+```
+
+Options:
+- `--path` (required) — Target file path. Creates parent directories if needed.
+- `--content` — Inline content string
+- `--stdin` — Read content from stdin
+- `--append` — Append instead of overwrite
+
+### checklist
+
+Structured Definition of Done checklists for tasks. 8 default items across 4 categories (context, implementation, testing, documentation).
+
+Subcommands:
+- `checklist init --task <id>` — Create default DoD checklist for a task
+- `checklist check --task <id> --item <key>` — Mark item as checked
+- `checklist uncheck --task <id> --item <key>` — Unmark item
+- `checklist verify --task <id>` — Verify all items; exits 1 if any missing
+- `checklist show --task <id>` — Display current checklist state
+
+Storage: `.flow/checklists/<task-id>.json`
+
 ### completions
 
 Generate shell completions.

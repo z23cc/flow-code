@@ -157,7 +157,7 @@ compound-engineering's multi-platform conversion system is a significant differe
 
 ### Analysis
 
-flow-code provides richer CLI tooling (37 commands with JSON output), more autonomous operation by default, and specialized tools (debug, map, prime, auto-improve) that compound lacks. compound-engineering provides better interactive workflows, universal planning for non-software tasks, and structured ideation.
+flow-code provides richer CLI tooling (39 commands with JSON output), more autonomous operation by default, and specialized tools (debug, map, prime, auto-improve) that compound lacks. compound-engineering provides better interactive workflows, universal planning for non-software tasks, and structured ideation.
 
 ---
 
@@ -245,7 +245,7 @@ flow-code provides richer CLI tooling (37 commands with JSON output), more auton
 | **Quality** | 3 layers + circuit breaker | 20+ personas + autofix routing |
 | **Knowledge** | Auto-capture + staleness check | Compounding + dual-track schemas |
 | **Platforms** | Claude + Codex sync | 10+ platform targets |
-| **CLI** | 37 commands with --json | No CLI (converter only) |
+| **CLI** | 39 commands with --json | No CLI (converter only) |
 | **Safety** | File locking + invariants + gaps | Convention-based |
 | **Learning** | Retro + memory + auto-improve | Compound + refresh |
 | **Rollout** | No beta framework | Beta skills + safe rollouts |

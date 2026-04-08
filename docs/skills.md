@@ -16,17 +16,18 @@ These skills form the primary workflow. They ship with the plugin.
 | `flow-code-setup` | `/flow-code:setup` | Install flowctl CLI and configure project | `skills/` |
 | `flow-code-map` | `/flow-code:map` | Generate codebase architecture maps | `skills/` |
 
-## Extension Skills (26)
+## Extension Skills (47)
 
-Optional capabilities that extend the core workflow.
+Optional capabilities that extend the core workflow. Skills live in `skills/` and/or `codex/skills/` (54 unique skills total, 7 core + 47 extension).
 
-### Review & Quality (codex/skills/)
+### Review & Quality
 
 | Skill | Command | Purpose |
 |-------|---------|---------|
 | `flow-code-plan-review` | Internal | Cross-model plan validation (RP or Codex) |
 | `flow-code-impl-review` | Internal | Per-task implementation review with fix loop |
 | `flow-code-epic-review` | Internal | Epic completion adversarial gate |
+| `flow-code-code-review` | Internal | Five-axis scoring with severity labels (Worker Phase 6, impl-review, PR review) |
 
 ### Development Extensions
 
@@ -39,6 +40,28 @@ Optional capabilities that extend the core workflow.
 | `flow-code-deps` | `/flow-code:deps` | Dependency graph visualization and execution order |
 | `flow-code-api-design` | `/flow-code:api-design` | API design and module boundary review |
 | `flow-code-performance` | `/flow-code:performance` | Performance investigation, optimization, and benchmarks |
+| `flow-code-tdd` | `/flow-code:tdd` | Test-first methodology, Prove-It Pattern, coverage strategy |
+| `flow-code-incremental` | Internal | Vertical slicing, incremental commits, Implement-Test-Verify-Commit cycle |
+| `flow-code-simplify` | `/flow-code:simplify` | Reduce code complexity while preserving exact behavior |
+| `flow-code-frontend-ui` | `/flow-code:frontend-ui` | Production-quality UI: components, layouts, state, accessibility |
+
+### Architecture & Infrastructure Skills
+
+| Skill | Command | Purpose |
+|-------|---------|---------|
+| `flow-code-security` | Internal | OWASP Top 10, three-tier security boundaries |
+| `flow-code-auth` | Internal | Authentication, authorization, OAuth, JWT, RBAC, session management |
+| `flow-code-database` | Internal | Schema design, migrations, query optimization, ORM patterns |
+| `flow-code-caching` | Internal | HTTP cache, CDN, Redis, in-memory, cache invalidation strategy |
+| `flow-code-containerization` | Internal | Dockerfiles, docker-compose, Kubernetes, image optimization |
+| `flow-code-microservices` | Internal | Service boundaries, inter-service communication, saga, event-driven |
+| `flow-code-realtime` | Internal | WebSocket, SSE, long-polling, connection management, scaling |
+| `flow-code-state-management` | Internal | Frontend/full-stack state architecture, tool selection, patterns |
+| `flow-code-error-handling` | Internal | Error classification, retry logic, circuit breakers, graceful degradation |
+| `flow-code-i18n` | Internal | Multi-language support, locale formatting, RTL layouts |
+| `flow-code-monitoring` | Internal | Dashboards, SLOs/SLIs, alerting rules, on-call runbooks |
+| `flow-code-observability` | Internal | Logging, tracing, metrics, health endpoints |
+| `flow-code-documentation` | Internal | ADRs, API docs, READMEs, changelogs, doc-as-code workflow |
 
 ### Workflow Extensions
 
@@ -51,6 +74,7 @@ Optional capabilities that extend the core workflow.
 | `flow-code-autoplan` | `/flow-code:autoplan` | Multi-perspective auto-review pipeline (CEO, eng, design, DX) |
 | `flow-code-qa` | `/flow-code:qa` | Visual QA testing with browser automation |
 | `flow-code-design-review` | `/flow-code:design-review` | Visual design audit with browser automation |
+| `flow-code-guide` | Internal | Skill discovery flowchart — helps select the right skill |
 
 ### Tooling Extensions
 
@@ -99,6 +123,7 @@ Simple utilities and wrappers that perform a single focused action.
 | `flow-code-export-context` | Export context for external model review |
 | `flow-code-deps` | Dependency graph visualization |
 | `flow-code-loop-status` | Monitor running loops |
+| `flow-code-guide` | Skill discovery flowchart |
 | `browser` | Browser automation via agent-browser CLI |
 | `flow-code-rp-explorer` | RepoPrompt-powered codebase exploration |
 
@@ -114,6 +139,9 @@ Skills that gather information, analyze codebases, or provide monitoring and gui
 | `flow-code-performance` | Performance investigation and benchmarks |
 | `flow-code-prompt-eng` | Prompt engineering guidance for review agents |
 | `flow-code-debug` | Systematic debugging with root cause investigation |
+| `flow-code-monitoring` | Dashboards, SLOs/SLIs, alerting rules |
+| `flow-code-observability` | Logging, tracing, metrics, health endpoints |
+| `flow-code-documentation` | ADRs, API docs, changelogs, doc-as-code |
 
 ### Tier 3 — Interactive Decision-Making
 
@@ -138,9 +166,24 @@ Skills that involve planning, design, or interactive multi-step workflows.
 | `flow-code-plan-review` | Cross-model plan validation |
 | `flow-code-impl-review` | Per-task implementation review |
 | `flow-code-epic-review` | Epic completion adversarial gate |
+| `flow-code-code-review` | Five-axis scoring with severity labels |
 | `flow-code-qa` | Visual QA testing with browser |
 | `flow-code-design-review` | Visual design audit with browser |
 | `flow-code-autoplan` | Multi-perspective auto-review pipeline |
+| `flow-code-tdd` | Test-first methodology, Prove-It Pattern |
+| `flow-code-incremental` | Vertical slicing, incremental commits |
+| `flow-code-simplify` | Reduce complexity while preserving behavior |
+| `flow-code-frontend-ui` | Production-quality UI components and layouts |
+| `flow-code-security` | OWASP Top 10, security boundaries |
+| `flow-code-auth` | Authentication, authorization, OAuth, JWT, RBAC |
+| `flow-code-database` | Schema design, migrations, query optimization |
+| `flow-code-caching` | HTTP cache, CDN, Redis, cache invalidation |
+| `flow-code-containerization` | Docker, Kubernetes, image optimization |
+| `flow-code-microservices` | Service boundaries, saga, event-driven patterns |
+| `flow-code-realtime` | WebSocket, SSE, connection management |
+| `flow-code-state-management` | Frontend/full-stack state architecture |
+| `flow-code-error-handling` | Error classification, retry, circuit breakers |
+| `flow-code-i18n` | Multi-language support, locale formatting, RTL |
 
 ### Tier 4 — Final Decisions & Execution
 

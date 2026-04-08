@@ -45,7 +45,7 @@ Every epic passes through three independent, non-overlapping review gates:
 | **2. RP Plan-Review** | RP context_builder or Codex | Plan phase | Spec-code misalignment, missing requirements |
 | **3. Codex Adversarial** | `flowctl codex adversarial` | Epic completion | Security, concurrency, edge cases (different model family) |
 
-All three must pass (or be skipped via `flowctl config set review.backend none`). Layers are complementary — guard catches syntax, RP catches spec drift, Codex catches blind spots.
+All three must pass (or be skipped via `flowctl config set review.backend none`). Layers are complementary — guard catches syntax, RP catches spec drift, Codex catches blind spots. **Zero-findings-halt rule**: review cycles stop immediately when no findings remain, eliminating unnecessary re-review iterations. Conversely, zero findings from an adversarial review triggers re-analysis (review may be insufficient).
 
 ## Command Flags
 

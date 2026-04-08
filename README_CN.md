@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
 
-[![Version](https://img.shields.io/badge/Version-0.1.42-green)](../../CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.1.43-green)](../../CHANGELOG.md)
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](../../CHANGELOG.md)
 
@@ -29,13 +29,24 @@
 
 | 能力 | Flow-Code | [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (12.5K⭐) | [claude-mem](https://github.com/thedotmack/claude-mem) (44K⭐) | [superpowers](https://github.com/anthropics/claude-plugins-official) |
 |---|---|---|---|---|
-| Task DAG + 状态机 | ✅ 37 命令，依赖图，split/skip | ❌ | ❌ | ❌ |
+| Task DAG + 状态机 | ✅ 39 命令，依赖图，split/skip | ❌ | ❌ | ❌ |
 | Teams 并行 + 文件锁 | ✅ Agent Teams，原子锁 | ❌ | ❌ | ✅ 并行 agents（无锁） |
 | 三层质量体系 | ✅ guard + RP + Codex 对抗 | ❌ | ❌ | ❌ |
 | 运行时 DAG 变更 | ✅ 执行中 split/skip/dep rm | ❌ | ❌ | ❌ |
 | 跨模型对抗审查 | ✅ GPT 试图破坏 Claude 的代码 | ❌ | ❌ | ❌ |
 | 全自动（零问题） | ✅ AI 决定 branch/review/depth | ❌ | ❌ | ❌ |
 | 零依赖 | ✅ 单 Rust 二进制 + Bash 技能 | ❌ Node.js | ❌ ChromaDB | ❌ Node.js |
+
+### v0.1.43 新增功能
+
+- **`write-file` 命令** — 流水线辅助工具，写入文件内容，绕过权限提示
+- **`checklist` 命令** — 为 epic 提供结构化的完成定义检查清单
+- **`project-context.md`** — 自动生成的项目上下文文档，用于入职和 agent 定向
+- **Step-file 架构** — 模块化步骤文件取代单体 skill 定义，支持逐步覆盖和组合
+- **三层并行代码审查** — guard、RP plan-review 和 Codex 对抗审查现在可以并行运行
+- **零发现即停止规则** — 当没有剩余发现时，审查循环立即停止，消除不必要的重复审查
+- **Quick-dev 快速路径** — 小型、范围明确的变更跳过完整规划开销，直接执行
+- **高级需求引导** — 在头脑风暴和访谈阶段通过结构化探针改进需求提取
 
 ---
 

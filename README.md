@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
 
-[![Version](https://img.shields.io/badge/Version-0.1.42-green)](https://github.com/z23cc/flow-code/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.43-green)](https://github.com/z23cc/flow-code/releases)
 
 [![Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)](https://github.com/z23cc/flow-code/releases)
 
@@ -29,7 +29,7 @@ A **harness** wraps around an AI coding agent to handle everything the model can
 
 | Capability | Flow-Code | [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (12.5K⭐) | [claude-mem](https://github.com/thedotmack/claude-mem) (44K⭐) | [superpowers](https://github.com/anthropics/claude-plugins-official) |
 |---|---|---|---|---|
-| Task DAG + state machine | ✅ 37 commands, deps, split/skip | ❌ | ❌ | ❌ |
+| Task DAG + state machine | ✅ 39 commands, deps, split/skip | ❌ | ❌ | ❌ |
 | Parallel Teams + file lock | ✅ Agent Teams, atomic locks | ❌ | ❌ | ✅ parallel agents (no locks) |
 | Three-layer quality | ✅ guard + RP + Codex adversarial | ❌ | ❌ | ❌ |
 | Runtime DAG mutation | ✅ split/skip/dep rm mid-execution | ❌ | ❌ | ❌ |
@@ -38,6 +38,17 @@ A **harness** wraps around an AI coding agent to handle everything the model can
 | Context preservation | ✅ PreCompact hook | ❌ | ✅ embedding + RAG | ❌ |
 | Auto draft PR | ✅ | ❌ | ❌ | ❌ |
 | Minimal dependencies | ✅ single Rust binary + git/jq/gh | ❌ Node.js | ❌ ChromaDB | ❌ Node.js |
+
+### What's New in v0.1.43
+
+- **`write-file` command** — pipeline helper that writes content to files, bypassing permission prompts
+- **`checklist` command** — structured Definition of Done checklists for epics
+- **`project-context.md`** — auto-generated project context document for onboarding and agent orientation
+- **Step-file architecture** — modular step files replace monolithic skill definitions, enabling per-step overrides and composition
+- **3-layer parallel code review** — guard, RP plan-review, and Codex adversarial now run concurrently where possible
+- **Zero-findings-halt rule** — review cycles stop immediately when no findings remain, eliminating unnecessary re-review iterations
+- **Quick-dev fast path** — small, well-scoped changes skip full planning overhead and execute directly
+- **Advanced elicitation** — improved requirement extraction via structured probing during brainstorm and interview phases
 
 ---
 

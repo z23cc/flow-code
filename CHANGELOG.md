@@ -4,6 +4,27 @@ All notable changes to Flow-Code are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Semantic Versioning](https://semver.org/).
 
+## [0.1.43] - 2026-04-08
+
+### Added
+- **7 BMAD-METHOD patterns** adopted from deep analysis of BMAD-METHOD v6.2.2
+- `flowctl write-file` — Pipeline file I/O command (bypasses Claude Code permission prompts for zero-interaction pipelines)
+- `flowctl checklist` — Structured Definition of Done with init/check/uncheck/verify/show subcommands (8 default items across 4 categories)
+- `project-context.md` support — Shared technical standards document auto-loaded by Worker Phase 2 re-anchoring (template in `templates/`)
+- Zero-findings-halt review rule — Reviewers must find issues; zero findings triggers NEEDS_REANALYSIS
+- Three-layer parallel code review — Blind Hunter (diff-only) + Edge Case Hunter (boundary analysis) + Acceptance Auditor (spec compliance)
+- Advanced elicitation methods in brainstorm — Pre-mortem, First Principles, Inversion, Red Team, Constraint Removal, Stakeholder Mapping
+- `--quick` flag for `/flow-code:go` — Fast path skipping brainstorm/plan for trivial changes
+- Step-file architecture — 15 step files across plan (5), work (5), brainstorm (5) for JIT loading
+- 3 deep comparison documents: flow-code vs compound-engineering, flow-code vs BMAD-METHOD, BMAD lessons analysis
+
+### Changed
+- Skills now use step-file workflow (JIT loading) instead of monolithic steps.md/phases.md
+- Removed legacy workflow files (steps.md, phases.md, examples.md) in favor of steps/ directories
+- `flowctl parse-findings` now detects zero findings and returns NEEDS_REANALYSIS verdict
+- Worker agent Phase 2 now reads `.flow/project-context.md` if present
+- `flowctl init` now hints about project-context.md template
+
 ## [0.1.42] - 2026-04-08
 
 ### Added

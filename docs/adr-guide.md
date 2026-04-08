@@ -19,9 +19,9 @@ Use `docs/decisions/` with sequential numbering:
 
 ```
 docs/decisions/
-  ADR-001-json-file-based-storage.md
-  ADR-002-wave-checkpoint-execution-model.md
-  ADR-003-teams-file-locking-protocol.md
+  ADR-001-pure-file-based-state.md
+  ADR-002-three-layer-quality-gates.md
+  ADR-003-rust-single-binary.md
 ```
 
 Use the template at `references/adr-template.md` as your starting point.

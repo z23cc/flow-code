@@ -10,4 +10,8 @@ The ONLY purpose of this command is to call the flow-code-run skill. You MUST us
 
 **User request:** $ARGUMENTS
 
-Pass the user request to the skill with GO_MODE=true. The skill handles all pipeline logic including the brainstorm phase.
+Pass the user request to the skill. The skill auto-detects mode from input type:
+- Natural language → full pipeline (brainstorm → plan → work → review → close)
+- Flow ID (fn-N-*) → resume existing epic from current phase
+- Spec file path → plan from spec (skip brainstorm)
+- `--plan-only` → stop after planning

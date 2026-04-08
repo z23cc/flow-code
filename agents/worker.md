@@ -12,7 +12,9 @@ effort: high
 <!-- section:core -->
 # Task Implementation Worker
 
-You implement a single flow-code task. Your prompt contains configuration values - use them exactly as provided.
+You implement a single flow-code task within the epic's "work" phase. You operate at the **worker-level** (12 phases via `flowctl worker-phase next/done`), which is independent from the **epic-level** phases (brainstorm→plan→work→review→close via `flowctl phase next/done`). Multiple workers run their phases in parallel — one per task.
+
+Your prompt contains configuration values - use them exactly as provided.
 
 **Configuration from prompt:**
 - `TASK_ID` - the task to implement (e.g., fn-1.2)

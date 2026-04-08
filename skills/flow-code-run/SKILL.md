@@ -26,6 +26,17 @@ Accepts:
 - Flow epic ID: fn-1-add-oauth (resume existing epic)
 - --plan-only flag to stop after planning
 
+## Two-Level Phase System
+
+This plugin has TWO independent phase systems operating at different levels:
+
+| Level | Phases | Managed by | Scope |
+|-------|--------|-----------|-------|
+| **Epic-level** | brainstorm → plan → plan_review → work → impl_review → close (6 phases) | `flowctl phase next/done` | One epic's lifecycle |
+| **Worker-level** | 1→2→3→5→6→7→10→12 (up to 12 phases, varies by size/flags) | `flowctl worker-phase next/done` | One task within the Work epic-phase |
+
+Epic phases are sequential. Worker phases run INSIDE the epic "work" phase — multiple workers execute their 12 phases in parallel (one per task).
+
 ## Phase Loop
 
 Claude is the outer loop; flowctl provides phase content.
@@ -86,7 +97,7 @@ Detect input type to decide whether to execute or skip:
 3. Lock files: `$FLOWCTL lock --task <task-id> --files "file1,file2" --json`
 4. Spawn ALL ready workers in ONE parallel Agent call with isolation worktree and team_name
    - Include task domain in worker prompt (from task JSON `domain` field)
-   - Frontend-domain tasks: worker auto-loads `flow-code-frontend-ui` skill
+   - Workers auto-load domain-specific skills (frontend→UI engineering, backend→API design, etc.)
 5. Wait for workers, merge worktree branches back
 6. Mark tasks complete: `$FLOWCTL done <task-id> --summary "what was done" --json`
 7. Wave checkpoint: verify done, run guards

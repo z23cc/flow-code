@@ -72,8 +72,8 @@ fn compute_dep_add(
         .unwrap_or_else(|_| error_exit(&format!("Cannot parse epic from dep ID: {}", depends_on)));
     if task_epic != dep_epic {
         error_exit(&format!(
-            "Dependencies must be within the same epic. Task {} is in {}, dependency {} is in {}",
-            task_id, task_epic, depends_on, dep_epic
+            "Dependencies must be within the same epic. Task {} is in {}, dependency {} is in {}.\nHint: use the full task ID format: {}.N",
+            task_id, task_epic, depends_on, dep_epic, task_epic
         ));
     }
 
@@ -99,6 +99,15 @@ fn compute_dep_add(
 
 fn cmd_dep_add(json: bool, task_id: &str, depends_on: &str, dry_run: bool) {
     let flow_dir = ensure_flow_exists();
+
+    // Auto-expand short IDs: if task_id is a full ID, use its epic to expand depends_on
+    let task_epic_str = epic_id_from_task(task_id).unwrap_or_default();
+    let expanded_dep = if !task_epic_str.is_empty() {
+        flowctl_core::id::expand_dep_id(depends_on, &task_epic_str)
+    } else {
+        depends_on.to_string()
+    };
+    let depends_on = expanded_dep.as_str();
 
     let (task, _added, changes) = compute_dep_add(&flow_dir, task_id, depends_on);
 

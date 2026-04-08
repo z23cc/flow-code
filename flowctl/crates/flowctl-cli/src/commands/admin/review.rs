@@ -1,8 +1,9 @@
-//! Review-backend and parse-findings commands.
+//! Review-backend, parse-findings, and review-merge commands.
 
 use std::fs;
 use std::path::Path;
 
+use clap::Subcommand;
 use serde_json::json;
 
 use crate::output::{error_exit, json_output};
@@ -10,6 +11,18 @@ use crate::output::{error_exit, json_output};
 use flowctl_core::types::{CONFIG_FILE, REVIEWS_DIR};
 
 use super::{get_default_config, get_flow_dir};
+
+// ── Review subcommand group ───────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum ReviewCmd {
+    /// Merge findings from multiple review JSON files.
+    Merge {
+        /// Comma-separated list of review JSON file paths.
+        #[arg(long)]
+        files: String,
+    },
+}
 
 // ── Review-backend command ─────────────────────────────────────────
 
@@ -350,6 +363,10 @@ pub fn cmd_parse_findings(
                         requires_verification,
                         suggested_fix,
                         why_it_matters,
+                        reviewer: item
+                            .get("reviewer")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
                     });
                 }
 
@@ -408,6 +425,177 @@ pub fn cmd_parse_findings(
                 "  [{}] {} \u{2014} {} (confidence: {:.0}%)",
                 f.severity, f.description, loc, f.confidence * 100.0
             );
+        }
+    }
+}
+
+// ── Review merge command ──────────────────────────────────────────
+
+pub fn dispatch_review(cmd: &ReviewCmd, json_mode: bool) {
+    match cmd {
+        ReviewCmd::Merge { files } => cmd_review_merge(json_mode, files),
+    }
+}
+
+/// Merge findings from multiple review JSON files using the merge pipeline.
+///
+/// Each file may contain either:
+/// - A bare JSON array of findings: `[{...}, {...}]`
+/// - A JSON object with a `findings` key: `{"findings": [{...}, {...}]}`
+fn cmd_review_merge(json_mode: bool, files_arg: &str) {
+    use flowctl_core::review_protocol::{
+        merge_findings, partition_findings, ReviewFinding,
+    };
+
+    let file_paths: Vec<&str> = files_arg.split(',').map(|s| s.trim()).collect();
+    if file_paths.is_empty() {
+        error_exit("--files requires at least one file path");
+    }
+
+    let mut all_findings: Vec<ReviewFinding> = Vec::new();
+    let mut file_count = 0;
+
+    for file_path in &file_paths {
+        if file_path.is_empty() {
+            continue;
+        }
+        let path = Path::new(file_path);
+        if !path.exists() {
+            error_exit(&format!("Review file not found: {}", file_path));
+        }
+
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                error_exit(&format!("Failed to read {}: {}", file_path, e));
+            }
+        };
+
+        let parsed: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                error_exit(&format!("Invalid JSON in {}: {}", file_path, e));
+            }
+        };
+
+        // Accept bare array or object with "findings" key
+        let findings_val = if parsed.is_array() {
+            parsed
+        } else if let Some(arr) = parsed.get("findings") {
+            arr.clone()
+        } else {
+            error_exit(&format!(
+                "File {} must contain a JSON array or an object with a \"findings\" key",
+                file_path
+            ));
+        };
+
+        let findings: Vec<ReviewFinding> = match serde_json::from_value(findings_val) {
+            Ok(f) => f,
+            Err(e) => {
+                error_exit(&format!("Failed to parse findings from {}: {}", file_path, e));
+            }
+        };
+
+        all_findings.extend(findings);
+        file_count += 1;
+    }
+
+    if file_count == 0 {
+        error_exit("No valid files provided to --files");
+    }
+
+    // Run the merge pipeline
+    let merge_result = merge_findings(all_findings);
+
+    // Partition the merged findings
+    let partition = partition_findings(merge_result.findings.clone());
+
+    if json_mode {
+        let findings_json: Vec<serde_json::Value> = merge_result
+            .findings
+            .iter()
+            .map(|f| serde_json::to_value(f).unwrap_or(json!({})))
+            .collect();
+        let pre_existing_json: Vec<serde_json::Value> = merge_result
+            .pre_existing
+            .iter()
+            .map(|f| serde_json::to_value(f).unwrap_or(json!({})))
+            .collect();
+
+        json_output(json!({
+            "findings": findings_json,
+            "pre_existing": pre_existing_json,
+            "partition": {
+                "fixer_queue": partition.fixer_queue.len(),
+                "residual_queue": partition.residual_queue.len(),
+                "report_only": partition.report_only.len(),
+            },
+            "stats": {
+                "total_input": merge_result.stats.total_input,
+                "suppressed": merge_result.stats.suppressed,
+                "deduplicated": merge_result.stats.deduplicated,
+                "boosted": merge_result.stats.boosted,
+                "pre_existing_count": merge_result.stats.pre_existing_count,
+            },
+        }));
+    } else {
+        println!(
+            "Merged {} findings from {} files:",
+            merge_result.findings.len(),
+            file_count
+        );
+        println!(
+            "  Total input: {} | Suppressed: {} | Deduped: {} | Boosted: {} | Pre-existing: {}",
+            merge_result.stats.total_input,
+            merge_result.stats.suppressed,
+            merge_result.stats.deduplicated,
+            merge_result.stats.boosted,
+            merge_result.stats.pre_existing_count,
+        );
+        println!();
+        println!(
+            "  Fixer queue (safe_auto): {} findings",
+            partition.fixer_queue.len()
+        );
+        println!(
+            "  Residual queue (gated_auto + manual): {} findings",
+            partition.residual_queue.len()
+        );
+        println!(
+            "  Report only (advisory): {} findings",
+            partition.report_only.len()
+        );
+
+        if !merge_result.findings.is_empty() {
+            println!();
+            println!("Findings:");
+            for f in &merge_result.findings {
+                let loc = f
+                    .file
+                    .as_deref()
+                    .map(|fp| {
+                        if let Some(ln) = f.line {
+                            format!("{}:{}", fp, ln)
+                        } else {
+                            fp.to_string()
+                        }
+                    })
+                    .unwrap_or_default();
+                let reviewer_str = f
+                    .reviewer
+                    .as_deref()
+                    .map(|r| format!(", reviewer: {}", r))
+                    .unwrap_or_default();
+                println!(
+                    "  [{}] {} \u{2014} {} (confidence: {:.0}%{})",
+                    f.severity,
+                    f.description,
+                    loc,
+                    f.confidence * 100.0,
+                    reviewer_str,
+                );
+            }
         }
     }
 }

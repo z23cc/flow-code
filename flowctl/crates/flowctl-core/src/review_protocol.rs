@@ -41,6 +41,18 @@ impl Severity {
     }
 }
 
+impl Severity {
+    /// Numeric sort key for ordering (P0=0 is highest priority).
+    pub fn sort_key(&self) -> u8 {
+        match self {
+            Severity::P0 => 0,
+            Severity::P1 => 1,
+            Severity::P2 => 2,
+            Severity::P3 => 3,
+        }
+    }
+}
+
 impl std::fmt::Display for Severity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -66,6 +78,19 @@ pub enum AutofixClass {
     Manual,
     /// Informational only, surfaced in report but no code change expected.
     Advisory,
+}
+
+impl AutofixClass {
+    /// Restrictiveness order for conservative routing (higher = more restrictive).
+    /// SafeAuto(0) < GatedAuto(1) < Manual(2) < Advisory(3).
+    pub fn restrictiveness(&self) -> u8 {
+        match self {
+            AutofixClass::SafeAuto => 0,
+            AutofixClass::GatedAuto => 1,
+            AutofixClass::Manual => 2,
+            AutofixClass::Advisory => 3,
+        }
+    }
 }
 
 impl std::fmt::Display for AutofixClass {
@@ -147,6 +172,9 @@ pub struct ReviewFinding {
     /// Impact and failure mode — what breaks, not what is wrong.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub why_it_matters: Option<String>,
+    /// Name of the reviewer persona that produced this finding (e.g., "correctness-reviewer").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewer: Option<String>,
 }
 
 fn default_confidence() -> f64 {
@@ -176,6 +204,182 @@ pub fn filter_by_confidence(findings: Vec<ReviewFinding>) -> Vec<ReviewFinding> 
         .into_iter()
         .filter(|f| f.confidence >= f.severity.min_confidence())
         .collect()
+}
+
+// ── Fingerprint & dedup ─────────────────────────────────────────────
+
+impl ReviewFinding {
+    /// Generate a dedup fingerprint: normalized(file) + line_bucket(line, +/-3) + normalized(title).
+    /// Two findings with the same fingerprint are considered duplicates.
+    pub fn fingerprint(&self) -> String {
+        let file_part = self.file.as_deref().unwrap_or("_unknown_");
+        let line_bucket = self.line.map(|l| l / 6 * 6).unwrap_or(0); // ±3 bucket
+        let title_normalized = self
+            .description
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("{}:{}:{}", file_part, line_bucket, title_normalized)
+    }
+}
+
+// ── Merge pipeline ─────────────────────────────────────────────────
+
+/// Result of the merge pipeline.
+#[derive(Debug, Clone)]
+pub struct MergeResult {
+    /// Deduplicated, calibrated findings (sorted: P0 first, confidence desc).
+    pub findings: Vec<ReviewFinding>,
+    /// Findings flagged as pre-existing (separated from actionable findings).
+    pub pre_existing: Vec<ReviewFinding>,
+    /// Statistics about the merge process.
+    pub stats: MergeStats,
+}
+
+/// Statistics from the merge pipeline.
+#[derive(Debug, Clone)]
+pub struct MergeStats {
+    /// Total findings received as input.
+    pub total_input: usize,
+    /// Findings suppressed by confidence gate.
+    pub suppressed: usize,
+    /// Findings removed by deduplication.
+    pub deduplicated: usize,
+    /// Findings whose confidence was boosted by cross-reviewer agreement.
+    pub boosted: usize,
+    /// Findings separated as pre-existing.
+    pub pre_existing_count: usize,
+}
+
+/// Merge findings from multiple reviewers into a deduplicated, calibrated list.
+///
+/// Pipeline steps:
+/// 1. Confidence gate (filter_by_confidence)
+/// 2. Deduplicate by fingerprint, keeping highest-confidence finding per fingerprint
+/// 3. Conservative routing: on fingerprint collision, keep most restrictive autofix_class
+/// 4. Cross-reviewer boost: if 2+ reviewers produced same fingerprint, boost confidence +0.10 (cap 1.0)
+/// 5. Separate pre_existing findings
+/// 6. Sort: P0 first, then confidence descending, then file, then line
+pub fn merge_findings(all_findings: Vec<ReviewFinding>) -> MergeResult {
+    let total_input = all_findings.len();
+
+    // Step 1: Confidence gate
+    let after_gate = filter_by_confidence(all_findings);
+    let suppressed = total_input - after_gate.len();
+
+    // Step 2-4: Group by fingerprint for dedup + boost + conservative routing
+    let mut fingerprint_groups: std::collections::HashMap<String, Vec<ReviewFinding>> =
+        std::collections::HashMap::new();
+    for finding in after_gate {
+        let fp = finding.fingerprint();
+        fingerprint_groups.entry(fp).or_default().push(finding);
+    }
+
+    let mut deduplicated_count = 0;
+    let mut boosted_count = 0;
+    let mut merged: Vec<ReviewFinding> = Vec::new();
+
+    for (_fp, mut group) in fingerprint_groups {
+        // Count distinct reviewers for this fingerprint
+        let distinct_reviewers: std::collections::HashSet<String> = group
+            .iter()
+            .filter_map(|f| f.reviewer.clone())
+            .collect();
+        let multi_reviewer = distinct_reviewers.len() >= 2;
+
+        // Keep the finding with highest confidence
+        group.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Track dedup count (all but the winner)
+        deduplicated_count += group.len() - 1;
+
+        let mut winner = group.remove(0);
+
+        // Conservative routing: keep most restrictive autofix_class from the group
+        for other in &group {
+            if other.autofix_class.restrictiveness() > winner.autofix_class.restrictiveness() {
+                winner.autofix_class = other.autofix_class.clone();
+            }
+        }
+
+        // Cross-reviewer boost
+        if multi_reviewer {
+            winner.confidence = (winner.confidence + 0.10).min(1.0);
+            boosted_count += 1;
+        }
+
+        merged.push(winner);
+    }
+
+    // Step 5: Separate pre_existing
+    let (pre_existing, actionable): (Vec<_>, Vec<_>) =
+        merged.into_iter().partition(|f| f.pre_existing);
+    let pre_existing_count = pre_existing.len();
+
+    // Step 6: Sort actionable findings
+    let mut findings = actionable;
+    findings.sort_by(|a, b| {
+        a.severity
+            .sort_key()
+            .cmp(&b.severity.sort_key())
+            .then(b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal))
+            .then(a.file.cmp(&b.file))
+            .then(a.line.cmp(&b.line))
+    });
+
+    MergeResult {
+        findings,
+        pre_existing,
+        stats: MergeStats {
+            total_input,
+            suppressed,
+            deduplicated: deduplicated_count,
+            boosted: boosted_count,
+            pre_existing_count,
+        },
+    }
+}
+
+// ── Partition findings ─────────────────────────────────────────────
+
+/// Findings partitioned by autofix class for downstream routing.
+#[derive(Debug, Clone)]
+pub struct PartitionedFindings {
+    /// SafeAuto findings routed to review-fixer for automatic application.
+    pub fixer_queue: Vec<ReviewFinding>,
+    /// GatedAuto + Manual findings routed to downstream-resolver.
+    pub residual_queue: Vec<ReviewFinding>,
+    /// Advisory findings included in report only; no code change expected.
+    pub report_only: Vec<ReviewFinding>,
+}
+
+/// Partition merged findings by autofix class for downstream routing.
+///
+/// - `safe_auto` → fixer_queue (review-fixer)
+/// - `gated_auto` | `manual` → residual_queue (downstream-resolver)
+/// - `advisory` → report_only
+pub fn partition_findings(findings: Vec<ReviewFinding>) -> PartitionedFindings {
+    let mut fixer_queue = Vec::new();
+    let mut residual_queue = Vec::new();
+    let mut report_only = Vec::new();
+
+    for f in findings {
+        match f.autofix_class {
+            AutofixClass::SafeAuto => fixer_queue.push(f),
+            AutofixClass::GatedAuto | AutofixClass::Manual => residual_queue.push(f),
+            AutofixClass::Advisory => report_only.push(f),
+        }
+    }
+
+    PartitionedFindings {
+        fixer_queue,
+        residual_queue,
+        report_only,
+    }
 }
 
 // ── ReviewVerdict ───────────────────────────────────────────────────
@@ -340,6 +544,7 @@ mod tests {
             requires_verification: false,
             suggested_fix: None,
             why_it_matters: None,
+            reviewer: None,
         }
     }
 
@@ -512,6 +717,7 @@ mod tests {
             requires_verification: true,
             suggested_fix: Some("Use parameterized query".to_string()),
             why_it_matters: Some("Allows arbitrary SQL execution".to_string()),
+            reviewer: None,
         };
         let json_str = serde_json::to_string(&finding).unwrap();
         let roundtripped: ReviewFinding = serde_json::from_str(&json_str).unwrap();
@@ -542,6 +748,7 @@ mod tests {
             requires_verification: false,
             suggested_fix: None,
             why_it_matters: None,
+            reviewer: None,
         };
         let json = serde_json::to_value(&finding).unwrap();
         assert_eq!(json["severity"], "P1");
@@ -573,6 +780,7 @@ mod tests {
             requires_verification: false,
             suggested_fix: None,
             why_it_matters: None,
+            reviewer: None,
         };
         let json = serde_json::to_value(&finding).unwrap();
         assert_eq!(json["severity"], "P3");
@@ -619,6 +827,7 @@ mod tests {
                     requires_verification: true,
                     suggested_fix: Some("Change <= to <".to_string()),
                     why_it_matters: Some("Buffer overread".to_string()),
+                    reviewer: None,
                 },
                 ReviewFinding {
                     severity: Severity::P2,
@@ -634,6 +843,7 @@ mod tests {
                     requires_verification: false,
                     suggested_fix: None,
                     why_it_matters: None,
+                    reviewer: None,
                 },
             ],
         );
@@ -747,5 +957,315 @@ mod tests {
         assert!((Severity::P1.min_confidence() - 0.6).abs() < 0.001);
         assert!((Severity::P2.min_confidence() - 0.6).abs() < 0.001);
         assert!((Severity::P3.min_confidence() - 0.6).abs() < 0.001);
+    }
+
+    // ── Severity sort_key tests ────────────────────────────────────────
+
+    #[test]
+    fn test_severity_sort_key() {
+        assert_eq!(Severity::P0.sort_key(), 0);
+        assert_eq!(Severity::P1.sort_key(), 1);
+        assert_eq!(Severity::P2.sort_key(), 2);
+        assert_eq!(Severity::P3.sort_key(), 3);
+    }
+
+    // ── AutofixClass restrictiveness tests ─────────────────────────────
+
+    #[test]
+    fn test_autofix_class_restrictiveness() {
+        assert_eq!(AutofixClass::SafeAuto.restrictiveness(), 0);
+        assert_eq!(AutofixClass::GatedAuto.restrictiveness(), 1);
+        assert_eq!(AutofixClass::Manual.restrictiveness(), 2);
+        assert_eq!(AutofixClass::Advisory.restrictiveness(), 3);
+        // Verify ordering
+        assert!(AutofixClass::SafeAuto.restrictiveness() < AutofixClass::Manual.restrictiveness());
+        assert!(AutofixClass::Manual.restrictiveness() < AutofixClass::Advisory.restrictiveness());
+    }
+
+    // ── Fingerprint tests ──────────────────────────────────────────────
+
+    fn make_finding_full(
+        severity: Severity,
+        confidence: f64,
+        file: Option<&str>,
+        line: Option<u32>,
+        description: &str,
+        reviewer: Option<&str>,
+        autofix_class: AutofixClass,
+        pre_existing: bool,
+    ) -> ReviewFinding {
+        ReviewFinding {
+            severity,
+            category: "test".to_string(),
+            description: description.to_string(),
+            file: file.map(|s| s.to_string()),
+            line,
+            confidence,
+            autofix_class,
+            owner: FindingOwner::ReviewFixer,
+            evidence: vec!["evidence".to_string()],
+            pre_existing,
+            requires_verification: false,
+            suggested_fix: None,
+            why_it_matters: None,
+            reviewer: reviewer.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn test_fingerprint_same_file_line_title() {
+        let a = make_finding_full(Severity::P1, 0.8, Some("src/main.rs"), Some(10), "Buffer overflow", None, AutofixClass::Manual, false);
+        let b = make_finding_full(Severity::P2, 0.7, Some("src/main.rs"), Some(10), "Buffer overflow", None, AutofixClass::SafeAuto, false);
+        assert_eq!(a.fingerprint(), b.fingerprint());
+    }
+
+    #[test]
+    fn test_fingerprint_line_bucket_within_3() {
+        // Lines 10 and 11 are in the same bucket (10/6*6 = 6, 11/6*6 = 6)
+        let a = make_finding_full(Severity::P1, 0.8, Some("src/main.rs"), Some(10), "issue", None, AutofixClass::Manual, false);
+        let b = make_finding_full(Severity::P1, 0.8, Some("src/main.rs"), Some(11), "issue", None, AutofixClass::Manual, false);
+        assert_eq!(a.fingerprint(), b.fingerprint());
+    }
+
+    #[test]
+    fn test_fingerprint_different_bucket() {
+        // Lines 5 and 12 are in different buckets (5/6*6=0, 12/6*6=12)
+        let a = make_finding_full(Severity::P1, 0.8, Some("src/main.rs"), Some(5), "issue", None, AutofixClass::Manual, false);
+        let b = make_finding_full(Severity::P1, 0.8, Some("src/main.rs"), Some(12), "issue", None, AutofixClass::Manual, false);
+        assert_ne!(a.fingerprint(), b.fingerprint());
+    }
+
+    #[test]
+    fn test_fingerprint_normalizes_case_and_punctuation() {
+        let a = make_finding_full(Severity::P1, 0.8, Some("f.rs"), Some(1), "Buffer Overflow!", None, AutofixClass::Manual, false);
+        let b = make_finding_full(Severity::P1, 0.8, Some("f.rs"), Some(1), "buffer overflow", None, AutofixClass::Manual, false);
+        assert_eq!(a.fingerprint(), b.fingerprint());
+    }
+
+    #[test]
+    fn test_fingerprint_no_file() {
+        let a = make_finding_full(Severity::P1, 0.8, None, None, "issue", None, AutofixClass::Manual, false);
+        let b = make_finding_full(Severity::P1, 0.8, None, None, "issue", None, AutofixClass::Manual, false);
+        assert_eq!(a.fingerprint(), b.fingerprint());
+        assert!(a.fingerprint().starts_with("_unknown_:"));
+    }
+
+    // ── Dedup tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_dedup_same_fingerprint_keeps_one() {
+        let findings = vec![
+            make_finding_full(Severity::P1, 0.8, Some("f.rs"), Some(10), "issue", Some("r1"), AutofixClass::Manual, false),
+            make_finding_full(Severity::P1, 0.7, Some("f.rs"), Some(10), "issue", Some("r1"), AutofixClass::Manual, false),
+        ];
+        let result = merge_findings(findings);
+        assert_eq!(result.findings.len(), 1);
+        // Should keep the higher-confidence one
+        assert!((result.findings[0].confidence - 0.8).abs() < 0.001 ||
+                // If boosted (same reviewer won't boost, so 0.8)
+                (result.findings[0].confidence - 0.8).abs() < 0.001);
+        assert_eq!(result.stats.deduplicated, 1);
+    }
+
+    // ── Cross-reviewer boost tests ─────────────────────────────────────
+
+    #[test]
+    fn test_boost_two_reviewers_same_fingerprint() {
+        let findings = vec![
+            make_finding_full(Severity::P1, 0.8, Some("f.rs"), Some(10), "issue", Some("reviewer-a"), AutofixClass::Manual, false),
+            make_finding_full(Severity::P1, 0.7, Some("f.rs"), Some(10), "issue", Some("reviewer-b"), AutofixClass::Manual, false),
+        ];
+        let result = merge_findings(findings);
+        assert_eq!(result.findings.len(), 1);
+        // Highest confidence was 0.8, boosted by +0.10 = 0.9
+        assert!((result.findings[0].confidence - 0.9).abs() < 0.001);
+        assert_eq!(result.stats.boosted, 1);
+    }
+
+    #[test]
+    fn test_boost_caps_at_1_0() {
+        let findings = vec![
+            make_finding_full(Severity::P1, 0.95, Some("f.rs"), Some(10), "issue", Some("reviewer-a"), AutofixClass::Manual, false),
+            make_finding_full(Severity::P1, 0.7, Some("f.rs"), Some(10), "issue", Some("reviewer-b"), AutofixClass::Manual, false),
+        ];
+        let result = merge_findings(findings);
+        assert_eq!(result.findings.len(), 1);
+        // 0.95 + 0.10 = 1.05 capped to 1.0
+        assert!((result.findings[0].confidence - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_no_boost_single_reviewer() {
+        let findings = vec![
+            make_finding_full(Severity::P1, 0.8, Some("f.rs"), Some(10), "issue", Some("reviewer-a"), AutofixClass::Manual, false),
+            make_finding_full(Severity::P1, 0.7, Some("f.rs"), Some(10), "issue", Some("reviewer-a"), AutofixClass::Manual, false),
+        ];
+        let result = merge_findings(findings);
+        assert_eq!(result.findings.len(), 1);
+        // Same reviewer, no boost: confidence stays 0.8
+        assert!((result.findings[0].confidence - 0.8).abs() < 0.001);
+        assert_eq!(result.stats.boosted, 0);
+    }
+
+    // ── Conservative routing tests ─────────────────────────────────────
+
+    #[test]
+    fn test_conservative_routing_keeps_most_restrictive() {
+        let findings = vec![
+            make_finding_full(Severity::P1, 0.8, Some("f.rs"), Some(10), "issue", Some("r1"), AutofixClass::SafeAuto, false),
+            make_finding_full(Severity::P1, 0.7, Some("f.rs"), Some(10), "issue", Some("r2"), AutofixClass::Manual, false),
+        ];
+        let result = merge_findings(findings);
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].autofix_class, AutofixClass::Manual);
+    }
+
+    // ── Merge pipeline end-to-end tests ────────────────────────────────
+
+    #[test]
+    fn test_merge_separates_pre_existing() {
+        let findings = vec![
+            make_finding_full(Severity::P1, 0.8, Some("f.rs"), Some(10), "new issue", None, AutofixClass::Manual, false),
+            make_finding_full(Severity::P2, 0.8, Some("g.rs"), Some(20), "old issue", None, AutofixClass::Manual, true),
+        ];
+        let result = merge_findings(findings);
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.pre_existing.len(), 1);
+        assert_eq!(result.pre_existing[0].description, "old issue");
+        assert_eq!(result.stats.pre_existing_count, 1);
+    }
+
+    #[test]
+    fn test_merge_sort_order_p0_first_then_confidence_desc() {
+        let findings = vec![
+            make_finding_full(Severity::P2, 0.9, Some("a.rs"), Some(1), "low sev high conf", None, AutofixClass::Manual, false),
+            make_finding_full(Severity::P0, 0.7, Some("b.rs"), Some(1), "high sev low conf", None, AutofixClass::Manual, false),
+            make_finding_full(Severity::P1, 0.85, Some("c.rs"), Some(1), "mid sev mid conf", None, AutofixClass::Manual, false),
+            make_finding_full(Severity::P1, 0.9, Some("d.rs"), Some(1), "mid sev high conf", None, AutofixClass::Manual, false),
+        ];
+        let result = merge_findings(findings);
+        assert_eq!(result.findings.len(), 4);
+        // P0 first
+        assert_eq!(result.findings[0].severity, Severity::P0);
+        // Then P1s sorted by confidence desc
+        assert_eq!(result.findings[1].severity, Severity::P1);
+        assert!((result.findings[1].confidence - 0.9).abs() < 0.001);
+        assert_eq!(result.findings[2].severity, Severity::P1);
+        assert!((result.findings[2].confidence - 0.85).abs() < 0.001);
+        // Then P2
+        assert_eq!(result.findings[3].severity, Severity::P2);
+    }
+
+    #[test]
+    fn test_merge_suppresses_low_confidence() {
+        let findings = vec![
+            make_finding_full(Severity::P1, 0.3, Some("f.rs"), Some(10), "low conf", None, AutofixClass::Manual, false),
+            make_finding_full(Severity::P1, 0.8, Some("g.rs"), Some(20), "high conf", None, AutofixClass::Manual, false),
+        ];
+        let result = merge_findings(findings);
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].description, "high conf");
+        assert_eq!(result.stats.suppressed, 1);
+    }
+
+    #[test]
+    fn test_merge_empty_input() {
+        let result = merge_findings(vec![]);
+        assert!(result.findings.is_empty());
+        assert!(result.pre_existing.is_empty());
+        assert_eq!(result.stats.total_input, 0);
+    }
+
+    #[test]
+    fn test_merge_full_pipeline() {
+        // 5 findings: 1 low-confidence (suppressed), 2 duplicates (deduped+boosted), 1 pre-existing, 1 unique
+        let findings = vec![
+            // Suppressed by confidence gate
+            make_finding_full(Severity::P1, 0.3, Some("a.rs"), Some(1), "too low", None, AutofixClass::Manual, false),
+            // Two duplicates from different reviewers (will be deduped + boosted)
+            make_finding_full(Severity::P0, 0.8, Some("b.rs"), Some(10), "critical bug", Some("r1"), AutofixClass::SafeAuto, false),
+            make_finding_full(Severity::P0, 0.7, Some("b.rs"), Some(10), "critical bug", Some("r2"), AutofixClass::Manual, false),
+            // Pre-existing
+            make_finding_full(Severity::P2, 0.8, Some("c.rs"), Some(20), "old code", None, AutofixClass::Manual, true),
+            // Unique finding
+            make_finding_full(Severity::P1, 0.9, Some("d.rs"), Some(30), "unique issue", None, AutofixClass::GatedAuto, false),
+        ];
+        let result = merge_findings(findings);
+
+        assert_eq!(result.stats.total_input, 5);
+        assert_eq!(result.stats.suppressed, 1);
+        assert_eq!(result.stats.deduplicated, 1);
+        assert_eq!(result.stats.boosted, 1);
+        assert_eq!(result.stats.pre_existing_count, 1);
+
+        // Actionable: critical bug (boosted) + unique issue
+        assert_eq!(result.findings.len(), 2);
+        // P0 first
+        assert_eq!(result.findings[0].severity, Severity::P0);
+        // Boosted: 0.8 + 0.1 = 0.9
+        assert!((result.findings[0].confidence - 0.9).abs() < 0.001);
+        // Conservative routing: SafeAuto + Manual → Manual
+        assert_eq!(result.findings[0].autofix_class, AutofixClass::Manual);
+
+        assert_eq!(result.findings[1].severity, Severity::P1);
+        assert_eq!(result.pre_existing.len(), 1);
+    }
+
+    // ── Partition tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_partition_routes_by_autofix_class() {
+        let findings = vec![
+            make_finding_full(Severity::P1, 0.8, Some("a.rs"), Some(1), "safe fix", None, AutofixClass::SafeAuto, false),
+            make_finding_full(Severity::P1, 0.8, Some("b.rs"), Some(1), "gated fix", None, AutofixClass::GatedAuto, false),
+            make_finding_full(Severity::P1, 0.8, Some("c.rs"), Some(1), "manual fix", None, AutofixClass::Manual, false),
+            make_finding_full(Severity::P1, 0.8, Some("d.rs"), Some(1), "advisory", None, AutofixClass::Advisory, false),
+        ];
+        let partitioned = partition_findings(findings);
+        assert_eq!(partitioned.fixer_queue.len(), 1);
+        assert_eq!(partitioned.fixer_queue[0].description, "safe fix");
+        assert_eq!(partitioned.residual_queue.len(), 2);
+        assert_eq!(partitioned.report_only.len(), 1);
+        assert_eq!(partitioned.report_only[0].description, "advisory");
+    }
+
+    #[test]
+    fn test_partition_empty_input() {
+        let partitioned = partition_findings(vec![]);
+        assert!(partitioned.fixer_queue.is_empty());
+        assert!(partitioned.residual_queue.is_empty());
+        assert!(partitioned.report_only.is_empty());
+    }
+
+    // ── Reviewer field serialization test ──────────────────────────────
+
+    #[test]
+    fn test_reviewer_field_serialization() {
+        let mut finding = make_finding(Severity::P1, 0.8);
+        // None → field absent in JSON
+        let json = serde_json::to_value(&finding).unwrap();
+        assert!(json.get("reviewer").is_none());
+
+        // Some → field present
+        finding.reviewer = Some("correctness-reviewer".to_string());
+        let json = serde_json::to_value(&finding).unwrap();
+        assert_eq!(json["reviewer"], "correctness-reviewer");
+
+        // Roundtrip
+        let json_str = serde_json::to_string(&finding).unwrap();
+        let rt: ReviewFinding = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(rt.reviewer.as_deref(), Some("correctness-reviewer"));
+    }
+
+    #[test]
+    fn test_reviewer_field_deserialization_absent() {
+        // JSON without reviewer field should deserialize fine (None)
+        let json_str = r#"{
+            "severity": "P1",
+            "category": "test",
+            "description": "test"
+        }"#;
+        let finding: ReviewFinding = serde_json::from_str(json_str).unwrap();
+        assert!(finding.reviewer.is_none());
     }
 }

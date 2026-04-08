@@ -159,6 +159,55 @@ For highest quality, use cross-model review:
 
 This catches blind spots that same-model review misses.
 
+## Multi-Persona Review Mode
+
+For high-stakes reviews (impl-review, pre-merge) where broader coverage matters. Not needed for quick self-reviews in Worker Phase 6.
+
+### Persona Selection
+
+**Always-on** (every multi-persona review):
+- `correctness-reviewer` — logic errors, contract violations, edge cases
+- `testing-reviewer` — coverage gaps, assertion quality, missing scenarios
+- `maintainability-reviewer` — readability, naming, dead code, complexity
+
+**Conditional** (activate based on diff content):
+
+| Persona | Activate when diff touches... |
+|---------|-------------------------------|
+| `security-reviewer` | Auth, endpoints, input handling, permissions, secrets |
+| `performance-reviewer` | Queries, data transforms, caching, async, hot loops |
+| `architecture-reviewer` | Module boundaries, new dependencies, public API surface |
+
+All persona agents live in `agents/review/`. Each returns a JSON array of findings conforming to the schema in `docs/findings-schema.md`.
+
+### Dispatch Protocol
+
+```
+Step 1: Analyze the diff to determine which conditional reviewers to activate.
+Step 2: Spawn all selected reviewers in parallel using Agent tool.
+        Each reviewer receives: the diff, the file list, and its persona instructions.
+        Each returns: a JSON array of findings per docs/findings-schema.md.
+Step 3: Collect all reviewer outputs into temporary JSON files (one per reviewer).
+Step 4: Run:  flowctl review merge --files "r1.json,r2.json,..." --json
+Step 5: Present merged findings grouped by severity (P0 → P3).
+Step 6: Apply safe_auto fixes from fixer_queue automatically.
+Step 7: Present gated_auto and manual findings for human decision.
+```
+
+### Confidence Calibration
+
+The merge pipeline applies these calibration rules before presenting findings:
+
+- **Suppress threshold**: Drop findings below 0.60 confidence. Exception: P0 findings are kept at 0.50+.
+- **Cross-reviewer boost**: When two or more reviewers flag the same issue (same fingerprint), confidence increases by +0.10 (capped at 1.0) and the highest severity wins.
+- **Conservative routing**: When reviewers disagree on `autofix_class` for the same finding, the merge keeps the most restrictive class (e.g. if one says `safe_auto` and another says `gated_auto`, the result is `gated_auto`).
+
+### Output Format
+
+Merged output follows the canonical findings schema documented in `docs/findings-schema.md`. Each finding includes `severity`, `category`, `description`, `confidence`, `autofix_class`, `owner`, and the `reviewer` field indicating which persona produced it. When findings are boosted by cross-reviewer agreement, the `evidence` array includes entries from all agreeing reviewers.
+
+The merge pipeline deduplicates using a three-part fingerprint (file + line bucket + normalized description). See the Fingerprinting section in `docs/findings-schema.md` for details.
+
 ## Dead Code Hygiene
 
 During review, flag:

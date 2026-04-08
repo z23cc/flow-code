@@ -12,7 +12,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 
 use commands::{
-    admin::{self, ConfigCmd},
+    admin::{self, ConfigCmd, ReviewCmd},
     approval::ApprovalCmd,
     checkpoint::CheckpointCmd,
     codex::CodexCmd,
@@ -137,6 +137,12 @@ enum Commands {
         /// Output minimal bootstrap prompt (~200 tokens).
         #[arg(long)]
         bootstrap: bool,
+    },
+
+    /// Review commands (merge findings, etc.).
+    Review {
+        #[command(subcommand)]
+        cmd: ReviewCmd,
     },
 
     /// Render ASCII DAG of task dependencies.
@@ -537,6 +543,7 @@ fn main() {
             admin::cmd_worker_prompt(json, task, tdd, review)
         }
 
+        Commands::Review { cmd } => admin::dispatch_review(&cmd, json),
         Commands::Dag { id } => commands::stats::cmd_dag(json, Some(id)),
         Commands::Estimate { id, epic_flag } => {
             let epic = resolve_epic(id, epic_flag, "estimate");

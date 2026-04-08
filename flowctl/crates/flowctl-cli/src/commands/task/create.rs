@@ -54,11 +54,18 @@ fn compute_task_create(
         ));
     }
 
-    // Parse dependencies
+    // Parse dependencies and auto-expand short IDs
     let dep_list: Vec<String> = match deps {
         Some(d) if !d.is_empty() => d
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| {
+                let trimmed = s.trim().to_string();
+                if trimmed.is_empty() {
+                    return trimmed;
+                }
+                // Auto-expand short IDs (e.g., fn-42.1 → fn-42-full-slug.1)
+                flowctl_core::id::expand_dep_id(&trimmed, &epic_id)
+            })
             .filter(|s| !s.is_empty())
             .collect(),
         _ => vec![],
@@ -68,15 +75,15 @@ fn compute_task_create(
     for dep in &dep_list {
         if !is_task_id(dep) {
             error_exit(&format!(
-                "Invalid dependency ID: {}. Expected format: fn-N.M or fn-N-slug.M",
-                dep
+                "Invalid dependency ID: {}. Expected format: fn-N.M or fn-N-slug.M\nHint: for this epic, use {}.N",
+                dep, epic_id
             ));
         }
         if let Ok(dep_epic) = epic_id_from_task(dep) {
             if dep_epic != epic_id {
                 error_exit(&format!(
-                    "Dependency {} must be within the same epic ({})",
-                    dep, epic_id
+                    "Dependency {} is not in epic {}.\nHint: use the full task ID format: {}.N",
+                    dep, epic_id, epic_id
                 ));
             }
         }

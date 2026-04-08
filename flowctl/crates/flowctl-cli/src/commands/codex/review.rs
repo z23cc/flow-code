@@ -509,6 +509,10 @@ pub(super) fn parse_findings_from_output(output: &str) -> (Vec<ReviewFinding>, f
                         requires_verification,
                         suggested_fix,
                         why_it_matters,
+                        reviewer: item
+                            .get("reviewer")
+                            .and_then(|v| v.as_str())
+                            .map(String::from),
                     });
                 }
             }

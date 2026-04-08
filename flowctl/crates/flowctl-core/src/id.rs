@@ -168,6 +168,54 @@ pub fn epic_id_from_task(task_id: &str) -> Result<String, crate::error::CoreErro
     Ok(epic_part.to_string())
 }
 
+/// Expand a potentially short dependency ID to a full task ID within the given epic.
+///
+/// If `dep_id` is a short-form task ID (e.g., `fn-42.1`) whose epic number matches
+/// the epic number parsed from `epic_id`, expands it to `{epic_id}.{task_num}`.
+/// If `dep_id` is already a full task ID, returns it unchanged.
+///
+/// # Examples
+///
+/// ```
+/// use flowctl_core::id::expand_dep_id;
+///
+/// // Short ID expanded to full
+/// let result = expand_dep_id("fn-42.1", "fn-42-confidence-calibration");
+/// assert_eq!(result, "fn-42-confidence-calibration.1");
+///
+/// // Already full ID — returned unchanged
+/// let result = expand_dep_id("fn-42-confidence-calibration.1", "fn-42-confidence-calibration");
+/// assert_eq!(result, "fn-42-confidence-calibration.1");
+///
+/// // Different epic number — returned unchanged (caller handles error)
+/// let result = expand_dep_id("fn-99.1", "fn-42-confidence-calibration");
+/// assert_eq!(result, "fn-99.1");
+/// ```
+pub fn expand_dep_id(dep_id: &str, epic_id: &str) -> String {
+    // Parse both IDs to extract epic numbers
+    let dep_parsed = match parse_id(dep_id) {
+        Ok(p) => p,
+        Err(_) => return dep_id.to_string(),
+    };
+    let epic_parsed = match parse_id(epic_id) {
+        Ok(p) => p,
+        Err(_) => return dep_id.to_string(),
+    };
+
+    // Only expand if: dep is a task ID, epic numbers match, and dep is shorter (a short form)
+    if let Some(task_num) = dep_parsed.task {
+        if dep_parsed.epic == epic_parsed.epic {
+            let dep_epic = dep_id.rsplit_once('.').map(|(e, _)| e).unwrap_or(dep_id);
+            // If the dep's epic portion differs from the target epic, expand it
+            if dep_epic != epic_id {
+                return format!("{}.{}", epic_id, task_num);
+            }
+        }
+    }
+
+    dep_id.to_string()
+}
+
 /// Convert text to a URL-safe slug for epic IDs.
 ///
 /// Uses Django pattern (stdlib only): normalize unicode, strip non-alphanumeric,
@@ -716,5 +764,65 @@ mod tests {
                 "slugify({input:?}, {max_len}) mismatch"
             );
         }
+    }
+
+    // ── expand_dep_id tests ────────────────────────────────────────
+
+    #[test]
+    fn test_expand_short_id_to_full() {
+        assert_eq!(
+            expand_dep_id("fn-42.1", "fn-42-confidence-calibration"),
+            "fn-42-confidence-calibration.1"
+        );
+    }
+
+    #[test]
+    fn test_expand_already_full_id_unchanged() {
+        assert_eq!(
+            expand_dep_id("fn-42-confidence-calibration.1", "fn-42-confidence-calibration"),
+            "fn-42-confidence-calibration.1"
+        );
+    }
+
+    #[test]
+    fn test_expand_different_epic_number_unchanged() {
+        // Epic numbers don't match — return as-is
+        assert_eq!(
+            expand_dep_id("fn-99.1", "fn-42-confidence-calibration"),
+            "fn-99.1"
+        );
+    }
+
+    #[test]
+    fn test_expand_legacy_short_id() {
+        assert_eq!(
+            expand_dep_id("fn-5.3", "fn-5-add-auth"),
+            "fn-5-add-auth.3"
+        );
+    }
+
+    #[test]
+    fn test_expand_invalid_id_unchanged() {
+        assert_eq!(
+            expand_dep_id("invalid", "fn-42-slug"),
+            "invalid"
+        );
+    }
+
+    #[test]
+    fn test_expand_epic_id_not_task_unchanged() {
+        // Not a task ID (no .N) — return as-is
+        assert_eq!(
+            expand_dep_id("fn-42", "fn-42-slug"),
+            "fn-42"
+        );
+    }
+
+    #[test]
+    fn test_expand_short_suffix_to_long_suffix() {
+        assert_eq!(
+            expand_dep_id("fn-10-abc.5", "fn-10-flowctl-rust-platform-rewrite"),
+            "fn-10-flowctl-rust-platform-rewrite.5"
+        );
     }
 }

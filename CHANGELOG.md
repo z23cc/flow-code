@@ -4,6 +4,24 @@ All notable changes to Flow-Code are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Semantic Versioning](https://semver.org/).
 
+## [0.1.42] - 2026-04-08
+
+### Added
+- Confidence calibration review framework (CE-compatible multi-persona dispatch + merge pipeline)
+- `reviewer` field on ReviewFinding for persona attribution
+- `fingerprint()` method for finding deduplication (file + line_bucket +-3 + normalized title)
+- `merge_findings()` pipeline: confidence gate, dedup, cross-reviewer boost (+0.10), conservative routing, sort
+- `partition_findings()` for autofix routing (fixer_queue / residual_queue / report_only)
+- `flowctl review merge --files` CLI command to merge multi-reviewer outputs
+- 6 reviewer agent definitions: correctness, security, testing, performance, maintainability, architecture
+- Multi-Persona Review Mode section in code-review skill
+- Findings JSON schema reference doc (`docs/findings-schema.md`)
+- Integration test script with 14 tests / 32 assertions (`scripts/review_merge_test.sh`)
+
+### Fixed
+- `--deps` and `dep add` now auto-expand short IDs (e.g., `fn-42.1` → `fn-42-full-slug.1`)
+- Improved error messages with Hint showing correct full ID format
+
 ## [0.1.41] - 2026-04-08
 
 ### Added

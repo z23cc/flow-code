@@ -54,49 +54,29 @@ impl FlowPaths {
 
     // -- Convenience path getters ----------------------------------------
 
-    /// config.json: .flow-config/config.json (primary) -> .flow/config.json (fallback).
+    /// config.json lives in .flow-config/
     pub fn config_json(&self) -> PathBuf {
-        let primary = self.config_dir.join("config.json");
-        if primary.exists() {
-            return primary;
-        }
-        self.runtime_dir.join("config.json") // backward compat
+        self.config_dir.join("config.json")
     }
 
-    /// project-context.md: .flow-config/ (primary) -> .flow/ (fallback).
+    /// project-context.md lives in .flow-config/
     pub fn project_context(&self) -> PathBuf {
-        let primary = self.config_dir.join("project-context.md");
-        if primary.exists() {
-            return primary;
-        }
-        self.runtime_dir.join("project-context.md")
+        self.config_dir.join("project-context.md")
     }
 
-    /// invariants.md: .flow-config/ (primary) -> .flow/ (fallback).
+    /// invariants.md lives in .flow-config/
     pub fn invariants(&self) -> PathBuf {
-        let primary = self.config_dir.join("invariants.md");
-        if primary.exists() {
-            return primary;
-        }
-        self.runtime_dir.join("invariants.md")
+        self.config_dir.join("invariants.md")
     }
 
-    /// frecency.json: ~/.flow/projects/{slug}/ (primary) -> .flow/ (fallback).
+    /// frecency.json lives in ~/.flow/projects/{slug}/
     pub fn frecency(&self) -> PathBuf {
-        let primary = self.global_project_dir.join("frecency.json");
-        if primary.exists() {
-            return primary;
-        }
-        self.runtime_dir.join("frecency.json")
+        self.global_project_dir.join("frecency.json")
     }
 
-    /// memory directory: ~/.flow/projects/{slug}/memory/ (primary) -> .flow/memory/ (fallback).
+    /// memory directory lives in ~/.flow/projects/{slug}/memory/
     pub fn memory_dir(&self) -> PathBuf {
-        let primary = self.global_project_dir.join("memory");
-        if primary.exists() {
-            return primary;
-        }
-        self.runtime_dir.join("memory")
+        self.global_project_dir.join("memory")
     }
 }
 
@@ -269,44 +249,37 @@ mod tests {
     }
 
     #[test]
-    fn config_json_fallback_when_no_primary() {
+    fn config_json_always_in_config_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        let runtime = tmp.path().join(".flow");
         let config = tmp.path().join(".flow-config");
-        std::fs::create_dir_all(&runtime).unwrap();
-        // Do NOT create .flow-config/config.json
+        std::fs::create_dir_all(&config).unwrap();
 
         let paths = FlowPaths {
-            runtime_dir: runtime.clone(),
-            config_dir: config,
+            runtime_dir: tmp.path().join(".flow"),
+            config_dir: config.clone(),
             global_project_dir: tmp.path().join("global"),
             project_root: tmp.path().to_path_buf(),
             slug: "test".to_string(),
         };
 
-        assert_eq!(paths.config_json(), runtime.join("config.json"));
+        assert_eq!(paths.config_json(), config.join("config.json"));
     }
 
     #[test]
-    fn project_context_fallback() {
+    fn project_context_always_in_config_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        let runtime = tmp.path().join(".flow");
         let config = tmp.path().join(".flow-config");
-        std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::create_dir_all(&config).unwrap();
 
         let paths = FlowPaths {
-            runtime_dir: runtime.clone(),
-            config_dir: config,
+            runtime_dir: tmp.path().join(".flow"),
+            config_dir: config.clone(),
             global_project_dir: tmp.path().join("global"),
             project_root: tmp.path().to_path_buf(),
             slug: "test".to_string(),
         };
 
-        // No .flow-config/project-context.md -> falls back to .flow/
-        assert_eq!(
-            paths.project_context(),
-            runtime.join("project-context.md")
-        );
+        assert_eq!(paths.project_context(), config.join("project-context.md"));
     }
 
     #[test]
@@ -329,20 +302,19 @@ mod tests {
     }
 
     #[test]
-    fn frecency_fallback() {
+    fn frecency_always_in_global_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        let runtime = tmp.path().join(".flow");
-        std::fs::create_dir_all(&runtime).unwrap();
+        let global = tmp.path().join("global");
 
         let paths = FlowPaths {
-            runtime_dir: runtime.clone(),
+            runtime_dir: tmp.path().join(".flow"),
             config_dir: tmp.path().join(".flow-config"),
-            global_project_dir: tmp.path().join("nonexistent-global"),
+            global_project_dir: global.clone(),
             project_root: tmp.path().to_path_buf(),
             slug: "test".to_string(),
         };
 
-        assert_eq!(paths.frecency(), runtime.join("frecency.json"));
+        assert_eq!(paths.frecency(), global.join("frecency.json"));
     }
 
     #[test]

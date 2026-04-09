@@ -111,14 +111,14 @@ pub fn cmd_init(json: bool) {
         }
     }
 
-    // ── Migrate existing files to new locations (copy, not move) ───────
+    // ── Migrate existing files to new locations (MOVE, not copy) ────────
 
     // config.json → .flow-config/config.json
     let old_config = flow_dir.join("config.json");
     let new_config = config_dir.join("config.json");
     if old_config.exists() && !new_config.exists() {
-        if fs::copy(&old_config, &new_config).is_ok() {
-            actions.push("migrated config.json → .flow-config/".to_string());
+        if fs::rename(&old_config, &new_config).is_ok() {
+            actions.push("moved config.json → .flow-config/".to_string());
         }
     }
 
@@ -126,8 +126,8 @@ pub fn cmd_init(json: bool) {
     let old_pc = flow_dir.join("project-context.md");
     let new_pc = config_dir.join("project-context.md");
     if old_pc.exists() && !new_pc.exists() {
-        if fs::copy(&old_pc, &new_pc).is_ok() {
-            actions.push("migrated project-context.md → .flow-config/".to_string());
+        if fs::rename(&old_pc, &new_pc).is_ok() {
+            actions.push("moved project-context.md → .flow-config/".to_string());
         }
     }
 
@@ -135,8 +135,8 @@ pub fn cmd_init(json: bool) {
     let old_inv = flow_dir.join("invariants.md");
     let new_inv = config_dir.join("invariants.md");
     if old_inv.exists() && !new_inv.exists() {
-        if fs::copy(&old_inv, &new_inv).is_ok() {
-            actions.push("migrated invariants.md → .flow-config/".to_string());
+        if fs::rename(&old_inv, &new_inv).is_ok() {
+            actions.push("moved invariants.md → .flow-config/".to_string());
         }
     }
 
@@ -145,9 +145,13 @@ pub fn cmd_init(json: bool) {
         let old_frec = flow_dir.join("frecency.json");
         let new_frec = paths.global_project_dir.join("frecency.json");
         if old_frec.exists() && !new_frec.exists() {
-            if fs::copy(&old_frec, &new_frec).is_ok() {
-                actions.push("migrated frecency.json → global".to_string());
+            // rename may fail across filesystems, fall back to copy+delete
+            if fs::rename(&old_frec, &new_frec).is_err() {
+                if fs::copy(&old_frec, &new_frec).is_ok() {
+                    fs::remove_file(&old_frec).ok();
+                }
             }
+            actions.push("moved frecency.json → global".to_string());
         }
 
         let old_mem = flow_dir.join("memory");
@@ -158,7 +162,8 @@ pub fn cmd_init(json: bool) {
                     let dest = new_mem.join(entry.file_name());
                     fs::copy(entry.path(), &dest).ok();
                 }
-                actions.push("migrated memory/ → global".to_string());
+                fs::remove_dir_all(&old_mem).ok();
+                actions.push("moved memory/ → global".to_string());
             }
         }
     }
@@ -166,8 +171,7 @@ pub fn cmd_init(json: bool) {
     // Create project-context.md with auto-detected stack info if missing
     // Write to .flow-config/ (primary location) instead of .flow/
     let project_context_path = config_dir.join("project-context.md");
-    let fallback_context_path = flow_dir.join("project-context.md");
-    if !project_context_path.exists() && !fallback_context_path.exists() {
+    if !project_context_path.exists() {
         let content = generate_project_context(&cwd);
         if let Err(e) = fs::write(&project_context_path, content) {
             eprintln!("warning: failed to create project-context.md: {e}");
@@ -175,7 +179,7 @@ pub fn cmd_init(json: bool) {
             actions.push("created project-context.md (auto-detected stack)".to_string());
         }
     }
-    let has_project_context = project_context_path.exists() || fallback_context_path.exists();
+    let has_project_context = project_context_path.exists();
 
     // Build output
     let message = if actions.is_empty() {

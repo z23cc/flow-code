@@ -4,6 +4,31 @@ All notable changes to Flow-Code are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Semantic Versioning](https://semver.org/).
 
+## [0.1.45] - 2026-04-09
+
+### Added
+- **Code graph persistent index** (`flowctl graph build/update/refs/impact/map`) — 1407 symbols, 107K edges, bincode persistence to `.flow/graph.bin`, incremental update via git diff
+- **`flowctl find`** — intent-level search that auto-routes: regex → index regex, symbol → graph refs, literal → trigram, fallback → nucleo fuzzy
+- **`flowctl edit`** — intent-level edit: exact str::replacen first, fuzzy fudiff fallback
+- **`flowctl graph refs`** — find all references to a symbol (<16ms from cache)
+- **`flowctl graph impact`** — transitive impact analysis: what files break if you change this file (BFS depth 3)
+- **N-gram index optimized**: bincode serialization (6.2MB → 502KB, 12x smaller), memchr verification (2-5x faster), regex→trigram extraction for indexed regex search
+- **`flowctl index regex`** — indexed regex search via trigram pre-filtering (12ms)
+- **10 ADRs** with YAML frontmatter (verify + scope) and 5 invariant checks
+- **project-context.md maximized** — now read by all pipeline stages (brainstorm/plan/review/worker/close)
+- **Memory type classification** — `--type pitfall|convention|decision|general`, auto-capture pitfalls on NEEDS_WORK
+- **Quick Commands enforced** — Worker Phase 6 and close phase run epic smoke tests
+- **repo-map default unlimited** — outputs all ranked symbols by default
+- Deep comparison docs: flow-code vs flow-next, fff.nvim lessons, ADR strategy, Rust crate optimization research
+
+### Changed
+- Skills/agents updated to use intent-level API (`find`/`graph refs`/`graph impact`/`edit`) instead of raw tool commands
+- Tool priority: native Claude Code tools (Grep/Glob/Read/Edit) first, flowctl for unique capabilities only
+- Pipeline alignment fixes: checklist wired into Worker Phase 10 + close, memory docs corrected, frecency docs corrected
+
+### Dependencies
+- Added: `bincode` 2, `memchr` 2, `regex-syntax` 0.8
+
 ## [0.1.44] - 2026-04-09
 
 ### Added

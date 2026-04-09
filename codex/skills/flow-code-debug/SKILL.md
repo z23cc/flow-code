@@ -49,29 +49,14 @@ If you haven't completed Phase 1, you cannot propose fixes.
 
 **After Phase 1, before Pattern Analysis.** Uses RepoPrompt to gather cross-file context around the bug. Three-tier fallback — skip entirely if RP is unavailable.
 
+```bash
+# Detect RP tier (pass --mcp-hint if mcp__RepoPrompt__context_builder is in your tool list)
+RP_TIER=$($FLOWCTL rp tier)  # or: $FLOWCTL rp tier --mcp-hint
 ```
-IF mcp__RepoPrompt__context_builder is available (check your tool list):
-  Call context_builder with:
-    instructions: "Investigate bug: <symptoms from Phase 1>. Hypotheses: <your hypotheses>.
-      Trace the data flow, find related code paths, and identify likely root cause."
-    response_type: "question"
-  Timeout: 120 seconds. If no response within 120s, log:
-    "RP context_builder timed out after 120s, skipping RP investigation"
-  and proceed to Phase 2.
 
-ELIF rp-cli is available (check: which rp-cli >/dev/null 2>&1):
-  Run with 120s timeout:
-    timeout 120 rp-cli -e 'builder "Investigate bug: <symptoms>. Hypotheses: <hypotheses>.
-      Trace data flow, find related code paths, identify likely root cause."
-      --response-type question'
-  If timeout or failure, log:
-    "rp-cli builder timed out or failed, skipping RP investigation"
-  and proceed to Phase 2.
-
-ELSE (no RP available):
-  Skip Phase 1.5 entirely — proceed to Phase 2 (existing behavior, zero change).
-END
-```
+- **If RP_TIER is `mcp`**: Call `context_builder(instructions: "Investigate bug: <symptoms>. Hypotheses: <hypotheses>. Trace data flow, find related code paths, identify likely root cause.", response_type: "question")`. Timeout 120s.
+- **If RP_TIER is `cli`**: Run `timeout 120 rp-cli -e 'builder "Investigate bug: <symptoms>..." --response-type question'`
+- **If RP_TIER is `none`**: Skip Phase 1.5 entirely — proceed to Phase 2.
 
 **Use RP findings to guide Phase 2**: RP may surface related code, similar patterns, or architectural context that informs your pattern analysis. Feed these findings into Phase 2 as additional evidence alongside your own investigation.
 

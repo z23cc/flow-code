@@ -26,7 +26,7 @@ Use intent-level commands — they auto-route to the best backend:
 | **What breaks if I change this?** | `flowctl graph impact <path> --json` | Transitive dependents (BFS depth 3) |
 | **Project overview** | `flowctl graph map --json` | Cached repo map (instant) |
 
-For exact regex with context lines, use native `Grep`. For file pattern matching, use native `Glob`.
+When RP MCP is available, prefer `file_search` (combines content + path + regex in one call, ~80% fewer tokens). Fall back to native `Grep` for exact regex with context lines, or native `Glob` for file pattern matching.
 
 ## Search Strategy
 
@@ -37,7 +37,7 @@ For exact regex with context lines, use native `Grep`. For file pattern matching
    - package.json/pyproject.toml for deps and scripts
 
 2. **Find similar implementations**
-   - Grep for related keywords, function names, types
+   - `file_search` (RP MCP) or Grep (fallback) for related keywords, function names, types
    - Look for existing features that solve similar problems
    - Note file organization patterns (where do similar things live?)
 

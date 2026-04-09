@@ -102,24 +102,16 @@ If a scout returns no `json:scout-summary` block (legacy format), fall back to p
 
 ## Deep Context via RP (After Repo-Scout)
 
-After repo-scout returns, gather deep codebase context using the best available RP tier. **Exactly one RP-powered call per plan run** — do not call both context_builder and context-scout.
+After repo-scout returns, gather deep codebase context. **Exactly one RP-powered call per plan run** — do not call both context_builder and context-scout.
 
-**Tier 1 — RP MCP (preferred):**
-```
-context_builder(
-  instructions: "<request summary> + <repo-scout key findings>",
-  response_type: "plan"
-)
-```
-
-**Tier 2 — rp-cli (fallback when MCP unavailable):**
 ```bash
-rp-cli -e 'builder "<request summary> + <repo-scout key findings>" --response-type plan'
-# Timeout: 300s (builder can take minutes)
+# Detect RP tier (pass --mcp-hint if mcp__RepoPrompt__context_builder is in your tool list)
+RP_TIER=$($FLOWCTL rp tier)  # or: $FLOWCTL rp tier --mcp-hint
 ```
 
-**Tier 3 — context-scout subagent (fallback when neither MCP nor CLI available):**
-Run `context-scout` as a subagent (existing behavior, unchanged). This is the pre-existing path.
+- **If RP_TIER is `mcp`**: Call `context_builder(instructions: "<request summary> + <repo-scout key findings>", response_type: "plan")`
+- **If RP_TIER is `cli`**: Run `rp-cli -e 'builder "..." --response-type plan'` (timeout 300s)
+- **If RP_TIER is `none`**: Run `context-scout` as a subagent (pre-existing fallback path)
 
 **Skip condition:** If the request is trivial (clear bug fix, single-file change, S-size task), skip deep context — repo-scout alone is sufficient.
 

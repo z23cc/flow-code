@@ -46,9 +46,13 @@ Parse the spec for:
 
 Based on the done summary and evidence, find the actual code:
 
-```bash
-# Find files mentioned in evidence or likely locations
-grep -r "<key terms from done summary>" --include="*.ts" --include="*.py" -l
+Use `file_search` (RP MCP, preferred) or Grep (fallback) to find actual implementation:
+```
+# RP MCP (preferred):
+file_search(pattern: "<key terms from done summary>", filter: {extensions: [".ts", ".py", ".rs"]})
+
+# Fallback (native Grep):
+Grep(pattern: "<key terms from done summary>")
 ```
 
 Read the relevant files. Note actual:
@@ -68,13 +72,16 @@ From the completed task spec (Phase 1), extract all referenced symbols:
 - File paths (e.g., `src/auth/handler.ts`)
 - Config keys, env vars, constants
 
-### Step 3b: Grep for actual implementation
+### Step 3b: Search for actual implementation
 
-For each spec-declared symbol, verify it exists in the codebase:
+For each spec-declared symbol, verify it exists in the codebase using `file_search` (RP MCP, preferred) or Grep (fallback):
 
-```bash
-# For each function/type name from spec:
-grep -rn "<spec_symbol>" --include="*.ts" --include="*.py" --include="*.rs" src/
+```
+# RP MCP (preferred):
+file_search(pattern: "<spec_symbol>", filter: {extensions: [".ts", ".py", ".rs"]})
+
+# Fallback (native Grep):
+Grep(pattern: "<spec_symbol>", type: "rs")
 
 # For each file path from spec:
 ls -la <spec_file_path> 2>/dev/null || echo "DRIFT: file not found"
@@ -233,7 +240,7 @@ Updated tasks (cross-epic):  # Only if CROSS_EPIC enabled and found
 
 ## Rules
 
-- **Read-only exploration** - Use Grep/Glob/Read for codebase, never edit source
+- **Read-only exploration** - Use `file_search`/`read_file` (RP MCP) or Grep/Glob/Read (fallback) for codebase, never edit source
 - **Task specs only** - Edit tool restricted to `.flow/tasks/*.md`
 - **Preserve intent** - Update references, not requirements
 - **Minimal changes** - Only fix stale references, don't rewrite specs

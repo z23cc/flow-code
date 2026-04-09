@@ -13,7 +13,9 @@ use regex::Regex;
 use sha2::{Digest, Sha256};
 use serde_json::json;
 
+use crate::commands::helpers::get_flow_dir;
 use crate::output::{error_exit, json_output};
+use flowctl_core::types::CONFIG_FILE;
 
 #[derive(Subcommand, Debug)]
 pub enum RpCmd {
@@ -140,6 +142,14 @@ pub enum RpCmd {
         /// Create new RP window if none matches.
         #[arg(long)]
         create: bool,
+    },
+    /// Detect RP availability tier (mcp, cli, or none).
+    ///
+    /// Precedence: --mcp-hint flag > FLOW_RP_TIER env > config rp_context.tier > `which rp-cli` probe.
+    Tier {
+        /// Hint that MCP transport (mcp__RepoPrompt__context_builder) is available in the current session.
+        #[arg(long)]
+        mcp_hint: bool,
     },
     /// Prepare JSON for rp-cli chat_send.
     PrepChat {
@@ -376,6 +386,7 @@ pub fn dispatch(cmd: &RpCmd, json: bool) {
         RpCmd::PrepChat { id: _, message_file, mode, new_chat, chat_name, selected_paths, output } => {
             cmd_prep_chat(message_file, mode, *new_chat, chat_name.as_deref(), selected_paths.as_ref().map(std::vec::Vec::as_slice), output.as_deref());
         }
+        RpCmd::Tier { mcp_hint } => cmd_tier(json, *mcp_hint),
     }
 }
 
@@ -793,5 +804,54 @@ fn cmd_prep_chat(
         eprintln!("Wrote {out}");
     } else {
         println!("{json_str}");
+    }
+}
+
+// ── RP tier detection ──────────────────────────────────────────────
+
+fn cmd_tier(json_mode: bool, mcp_hint: bool) {
+    // Precedence: --mcp-hint > FLOW_RP_TIER env > config rp_context.tier > which rp-cli probe
+    let (tier, source) = if mcp_hint {
+        ("mcp".to_string(), "mcp-hint".to_string())
+    } else if let Ok(env_val) = env::var("FLOW_RP_TIER") {
+        let trimmed = env_val.trim().to_lowercase();
+        if ["mcp", "cli", "none"].contains(&trimmed.as_str()) {
+            (trimmed, "env".to_string())
+        } else {
+            eprintln!("warning: FLOW_RP_TIER={env_val} is invalid (expected mcp|cli|none), ignoring");
+            detect_rp_tier_from_config()
+        }
+    } else {
+        detect_rp_tier_from_config()
+    };
+
+    if json_mode {
+        json_output(json!({"tier": tier, "source": source}));
+    } else {
+        println!("{tier}");
+    }
+}
+
+fn detect_rp_tier_from_config() -> (String, String) {
+    let flow_dir = get_flow_dir();
+    let config_path = flow_dir.join(CONFIG_FILE);
+    if config_path.exists() {
+        if let Ok(content) = fs::read_to_string(&config_path) {
+            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(tier_val) = config.pointer("/rp_context/tier").and_then(|v| v.as_str()) {
+                    let t = tier_val.trim().to_lowercase();
+                    if ["mcp", "cli", "none"].contains(&t.as_str()) {
+                        return (t, "config".to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Probe: check if rp-cli is available
+    if which::which("rp-cli").is_ok() {
+        ("cli".to_string(), "which".to_string())
+    } else {
+        ("none".to_string(), "default".to_string())
     }
 }

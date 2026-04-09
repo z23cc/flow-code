@@ -11,7 +11,7 @@ FLOWCTL="$HOME/.flow/bin/flowctl"
    - `$FLOWCTL find "<key terms>" --json` — auto-routes to best search backend
    - `$FLOWCTL graph refs "<symbol>" --json` — if investigating a specific function/type
    - `$FLOWCTL graph map --json` — project overview (instant, cached)
-   - Grep/Glob for exact regex patterns (native tools)
+   - `file_search` (RP MCP) or Grep/Glob (fallback) for exact regex patterns
 2. Read git log for recent changes in relevant areas
 3. Check existing `.flow/` specs/epics for related work
 4. Read key config files, README, CLAUDE.md for project constraints

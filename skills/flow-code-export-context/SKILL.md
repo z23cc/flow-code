@@ -33,21 +33,14 @@ mkdir -p prompt-exports
 
 Build instructions from gathered context. Extract the real task from the request — strip meta-framing about exporting.
 
-**Tier 1 — RP MCP** (if `mcp__RepoPrompt__context_builder` available):
-```
-context_builder(instructions="<task><extracted task></task>\n<context><flowctl content></context>", response_type="clarify")
-prompt(op="export", path="<OUTPUT_FILE>", copy_preset="<plan|codeReview>")
-```
-
-**Tier 2 — rp-cli** (if `which rp-cli` succeeds):
 ```bash
-WINDOW_ID=$(rp-cli -e 'windows' | head -1 | awk '{print $1}')
-rp-cli -w "$WINDOW_ID" -e 'builder "<instructions>" --response-type clarify'
-rp-cli -w "$WINDOW_ID" -e "prompt export \"$OUTPUT_FILE\" --copy-preset <plan|codeReview>"
+# Detect RP tier (pass --mcp-hint if mcp__RepoPrompt__context_builder is in your tool list)
+RP_TIER=$($FLOWCTL rp tier)  # or: $FLOWCTL rp tier --mcp-hint
 ```
 
-**Tier 3 — Basic Markdown** (no RP available):
-Write gathered content directly to `$OUTPUT_FILE` as structured markdown with sections for context, specs, changed files, and focus areas.
+- **If RP_TIER is `mcp`**: Call `context_builder(instructions=..., response_type="clarify")`, then `prompt(op="export", path="<OUTPUT_FILE>", copy_preset="<plan|codeReview>")`
+- **If RP_TIER is `cli`**: Get window via `WINDOW_ID=$(rp-cli -e 'windows' | head -1 | awk '{print $1}')`, then run `rp-cli -w "$WINDOW_ID" -e 'builder ...'` and `rp-cli -w "$WINDOW_ID" -e "prompt export ..."`
+- **If RP_TIER is `none`**: Write gathered content directly to `$OUTPUT_FILE` as structured markdown.
 
 Preset mapping: plan -> `plan`, impl -> `codeReview`.
 

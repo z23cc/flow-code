@@ -82,7 +82,7 @@ FLOWCTL="$HOME/.flow/bin/flowctl"
 **Always run (both modes):** Read relevant code, git log, and project structure to understand scope.
 
 **In auto mode, gather deep context:**
-1. Search for files related to the request (Grep/Glob for key terms)
+1. Search for files related to the request (`file_search` via RP MCP, or Grep/Glob as fallback)
 2. Read git log for recent changes in relevant areas
 3. Check existing `.flow/` specs/epics for related work
 4. Read key config files, README, CLAUDE.md for project constraints
@@ -166,7 +166,7 @@ AI self-interview — no `AskUserQuestion` calls. All answers derived from codeb
 
 Before self-interview, gather evidence:
 
-1. **Affected surface**: Grep/Glob for all files related to the request. List them.
+1. **Affected surface**: `file_search` (RP MCP) or Grep/Glob (fallback) for all files related to the request. List them.
 2. **Current patterns**: How does the codebase currently handle similar functionality? Read 3-5 key files.
 3. **Dependencies**: What modules/packages/APIs are involved? Check imports, configs.
 4. **Test coverage**: Do tests exist for the affected area? What kind?

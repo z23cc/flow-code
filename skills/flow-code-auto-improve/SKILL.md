@@ -106,35 +106,18 @@ if [[ -x "$FLOWCTL" ]]; then
 fi
 ```
 
-#### Step 1a-rp: RP Refactor Analysis (optional, three-tier fallback)
+#### Step 1a-rp: RP Refactor Analysis (optional)
 
-After collecting statistical signals, attempt RP-powered refactor analysis for deeper insight into code quality issues (redundancies, complexity hotspots, dead code). This complements the statistical signals above with AI-driven structural analysis.
-
-**Tier 1 (MCP) -- context_builder available:**
-
-If the `mcp__RepoPrompt__context_builder` tool is available in the current session, invoke it directly:
-
-```
-mcp__RepoPrompt__context_builder(
-  instructions: "Analyze the codebase under ${SCOPE} for improvement opportunities aligned with the goal: ${GOAL}. Focus on: (1) redundant or duplicated logic that could be consolidated, (2) overly complex functions/modules that need simplification, (3) dead code or unused exports, (4) missing error handling patterns, (5) performance anti-patterns. Return a ranked list of specific, actionable findings with file paths and line references.",
-  response_type: "review"
-)
-```
-
-Store the result as `RP_REFACTOR_FINDINGS`. Proceed to Step 1b.
-
-**Tier 2 (CLI) -- rp-cli available, MCP not:**
+After collecting statistical signals, attempt RP-powered refactor analysis for deeper insight into code quality issues.
 
 ```bash
-RP_REFACTOR_FINDINGS=""
-if command -v rp-cli >/dev/null 2>&1; then
-  RP_REFACTOR_FINDINGS=$(timeout 120 rp-cli -e 'builder "Analyze the codebase under '"${SCOPE}"' for improvement opportunities aligned with the goal: '"${GOAL}"'. Focus on: (1) redundant or duplicated logic, (2) overly complex functions/modules, (3) dead code or unused exports, (4) missing error handling, (5) performance anti-patterns. Return a ranked list of specific findings with file paths." --response-type review' 2>/dev/null || echo "")
-fi
+# Detect RP tier (pass --mcp-hint if mcp__RepoPrompt__context_builder is in your tool list)
+RP_TIER=$($FLOWCTL rp tier)  # or: $FLOWCTL rp tier --mcp-hint
 ```
 
-**Tier 3 (none) -- neither available:**
-
-Skip RP analysis entirely. `RP_REFACTOR_FINDINGS` remains empty. Step 1b uses only the statistical signals collected above (hotspots, lint, coverage, memory). Zero regression from current behavior.
+- **If RP_TIER is `mcp`**: Call `context_builder(instructions: "Analyze codebase under ${SCOPE} for improvements aligned with ${GOAL}. Focus on: redundant logic, complex functions, dead code, missing error handling, performance anti-patterns. Return ranked findings with file paths.", response_type: "review")`. Store result as `RP_REFACTOR_FINDINGS`.
+- **If RP_TIER is `cli`**: Run `timeout 120 rp-cli -e 'builder "..." --response-type review'`. Store result as `RP_REFACTOR_FINDINGS`.
+- **If RP_TIER is `none`**: Skip RP analysis. `RP_REFACTOR_FINDINGS` remains empty. Step 1b uses only statistical signals.
 
 #### Step 1b: Generate Action Catalog
 

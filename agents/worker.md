@@ -311,34 +311,15 @@ Save `GIT_BASELINE_REV` — you'll use it in Phase 10 to generate workspace chan
 <!-- section:core -->
 ## Phase 3: Pre-implementation Investigation
 
-**Always execute this phase** — even S/M tasks need context before coding. If the task spec contains `## Investigation targets`, follow them. If not, do a lightweight scan: read the files listed in `**Files:**` and check for 2-3 related patterns via Grep. Skip only if the task is a trivial one-line config change with no dependencies.
+**Always execute this phase** — even S/M tasks need context before coding. If the task spec contains `## Investigation targets`, follow them. If not, do a lightweight scan: read the files listed in `**Files:**` and check for 2-3 related patterns via `file_search` (RP MCP) or Grep (fallback). Skip only if the task is a trivial one-line config change with no dependencies.
 
 ### Step 0: RP-powered deep context (if RP_CONTEXT != none)
 
 When `RP_CONTEXT` is set to `mcp` or `cli`, gather deep implementation context before manual investigation. This complements (does NOT replace) the investigation targets in Steps 1-3 below.
 
-```
-IF RP_CONTEXT == "mcp":
-  Call context_builder with:
-    instructions: "<task title>: <task description + acceptance criteria from spec>"
-    response_type: "plan"
-  Timeout: 120 seconds. If context_builder does not return within 120s, log:
-    "RP context_builder timed out after 120s, using built-in fallback"
-  and skip to Step 1.
-  Use the returned plan to guide Phase 5 implementation.
-
-ELIF RP_CONTEXT == "cli":
-  Run with 120s timeout:
-    timeout 120 rp-cli -e 'builder "<task title>: <description + acceptance criteria>" --response-type plan'
-  If timeout or failure, log:
-    "rp-cli builder timed out or failed, using built-in fallback"
-  and skip to Step 1.
-  Use the returned plan to guide Phase 5 implementation.
-
-ELSE (RP_CONTEXT == "none"):
-  Skip to Step 1 (existing behavior, unchanged).
-END
-```
+- **If RP_CONTEXT is `mcp`**: Call `context_builder(instructions: "<task title>: <description + acceptance criteria>", response_type: "plan")`. Timeout 120s. Use returned plan to guide Phase 5.
+- **If RP_CONTEXT is `cli`**: Run `timeout 120 rp-cli -e 'builder "<task title>: <description + criteria>" --response-type plan'`. Use returned plan to guide Phase 5.
+- **If RP_CONTEXT is `none`**: Skip to Step 1.
 
 **Important**: Even when RP provides context, ALWAYS continue to Steps 1-3 below. RP provides architectural insight; investigation targets provide specific file patterns and constraints that RP may miss.
 
@@ -352,10 +333,13 @@ END
 ### Step 2: Similar functionality search
 
 2. **Similar functionality search** — before writing new code:
-   ```bash
-   # Search for functions/modules that do similar things
-   # Use terms from the task description + acceptance criteria
-   grep -r "<key domain term>" --include="*.rs" --include="*.ts" --include="*.py" -l src/
+   Use `file_search` (RP MCP) or Grep (fallback) to find functions/modules that do similar things:
+   ```
+   # RP MCP (preferred — combines content + path search, ~80% fewer tokens):
+   file_search(pattern: "<key domain term>", filter: {extensions: [".rs", ".ts", ".py"]})
+   
+   # Fallback (native Grep):
+   Grep(pattern: "<key domain term>", type: "rs")
    ```
    If similar functionality exists, pick one:
    - **Reuse**: Use the existing code directly
@@ -405,7 +389,7 @@ The key constraint: **no implementation code before a failing test exists**. Thi
 
 Follow the `flow-code-incremental` skill: build in vertical slices (Implement→Test→Verify→Commit per slice). Each slice leaves the system working. Scope discipline: only touch what the task spec requires.
 
-For code edits, **use Edit (native tool) by default** — it shows diffs to users and handles most cases. If Edit fails due to text drift, fall back to `flowctl edit --file <path> --old "text" --new "text"` which tries exact then fuzzy matching.
+For code edits, **use `apply_edits` (RP MCP) by default** — it supports multi-edit transactions and auto-repairs whitespace. If RP is unavailable, fall back to Edit (native tool). If Edit fails due to text drift, fall back to `flowctl edit --file <path> --old "text" --new "text"` which tries exact then fuzzy matching.
 
 **First, capture base commit for scoped review:**
 ```bash

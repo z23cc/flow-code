@@ -235,7 +235,7 @@ When performing impl_review or epic-level code review, spawn 3 independent revie
 - **Prompt**: See `prompts/blind-hunter.md`
 
 ### Layer 2: Edge Case Hunter
-- **Input**: Git diff + read-only project access (Grep/Glob/Read)
+- **Input**: Git diff + read-only project access (`file_search`/`read_file` via RP MCP, or Grep/Glob/Read as fallback)
 - **Context**: Can explore project structure, dependencies, related code
 - **Purpose**: Boundary conditions, error propagation, hidden assumptions, race conditions
 - **Prompt**: See `prompts/edge-case-hunter.md`

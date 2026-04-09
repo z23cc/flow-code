@@ -83,20 +83,14 @@ REVIEW_BACKEND=$($FLOWCTL review-backend)
 ```
 
 Based on the request text, decide:
-- **Research**: always `repo-scout`. For deep context, detect RP availability:
-  - MCP tools available (context_builder in tool list) → `rp(mcp)`
-  - `which rp-cli` succeeds → `rp(cli)`
-  - Neither → `rp(scout-fallback)` (uses context-scout subagent)
+- **Research**: always `repo-scout`. For deep context: `RP_TIER=$($FLOWCTL rp tier)` (pass `--mcp-hint` if MCP available)
+  - `mcp` → `rp(mcp)`, `cli` → `rp(cli)`, `none` → `rp(scout-fallback)` (context-scout subagent)
 - **Depth**: clear and scoped request → `short`. needs design decisions → `standard`. architecture change → `deep`.
 - **Review** (auto, layer-aware):
   - Check `$REVIEW_BACKEND`:
-    - Returns `rp` → verify `which rp-cli` succeeds. If available → use RP. If NOT available → **degrade to codex** (RP is macOS-only). If codex also unavailable → skip.
+    - Returns `rp` → use RP (flowctl already verified rp-cli is available)
     - Returns `codex` → use Codex for plan review
     - Returns `none` → skip plan review
-    - Returns `ASK` → auto-detect available tools:
-      - `which rp-cli` succeeds → use RP
-      - else `which codex` succeeds → use Codex
-      - else → skip review
 
 Output one line:
 ```

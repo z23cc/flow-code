@@ -694,6 +694,19 @@ flowctl rp chat-send --window "$W" --tab "$T" --message-file /tmp/review-prompt.
 flowctl rp prompt-export --window "$W" --tab "$T" --out /tmp/export.md
 ```
 
+**Tier detection** (unified RP availability check):
+
+```bash
+# Returns: mcp, cli, or none
+flowctl rp tier [--json]
+
+# Pass --mcp-hint when MCP transport is available in current session
+flowctl rp tier --mcp-hint [--json]
+# → {"tier":"mcp","source":"mcp-hint"}
+
+# Precedence: --mcp-hint > FLOW_RP_TIER env > config rp_context.tier > which rp-cli probe
+```
+
 **Low-level commands** (prefer setup-review instead):
 
 ```bash

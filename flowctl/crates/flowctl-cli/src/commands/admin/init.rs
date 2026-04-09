@@ -136,9 +136,13 @@ struct DetectedStack {
     has_vitest: bool,
     has_jest: bool,
     has_eslint: bool,
+    has_biome: bool,
     has_python: bool,
     has_pytest: bool,
     has_ruff: bool,
+    has_uv: bool,
+    has_bun: bool,
+    has_pnpm: bool,
     has_go: bool,
     has_ruby: bool,
     has_rails: bool,
@@ -153,9 +157,13 @@ fn detect_stack(root: &std::path::Path) -> DetectedStack {
         has_vitest: false,
         has_jest: false,
         has_eslint: false,
+        has_biome: false,
         has_python: false,
         has_pytest: false,
         has_ruff: false,
+        has_uv: false,
+        has_bun: false,
+        has_pnpm: false,
         has_go: false,
         has_ruby: false,
         has_rails: false,
@@ -170,43 +178,73 @@ fn detect_stack(root: &std::path::Path) -> DetectedStack {
         }
     }
 
-    // Node / JS / TS
+    // Node / JS / TS — detect modern toolchain (bun > pnpm > npm)
     if root.join("package.json").exists() {
         s.has_node = true;
         let pj = fs::read_to_string(root.join("package.json")).unwrap_or_default();
+
+        // Detect package manager (modern first)
+        if root.join("bun.lockb").exists() || root.join("bun.lock").exists() {
+            s.has_bun = true;
+            s.stack_lines.push("- Package Manager: Bun".to_string());
+        } else if root.join("pnpm-lock.yaml").exists() {
+            s.has_pnpm = true;
+            s.stack_lines.push("- Package Manager: pnpm".to_string());
+        } else {
+            s.stack_lines.push("- Package Manager: npm".to_string());
+        }
+
+        // Detect framework
         if pj.contains("\"react\"") || pj.contains("\"next\"") {
             s.stack_lines.push("- Framework: React / Next.js".to_string());
-        } else if pj.contains("\"vue\"") {
-            s.stack_lines.push("- Framework: Vue".to_string());
-        } else if pj.contains("\"svelte\"") {
-            s.stack_lines.push("- Framework: Svelte".to_string());
+        } else if pj.contains("\"vue\"") || pj.contains("\"nuxt\"") {
+            s.stack_lines.push("- Framework: Vue / Nuxt".to_string());
+        } else if pj.contains("\"svelte\"") || pj.contains("\"@sveltejs/kit\"") {
+            s.stack_lines.push("- Framework: SvelteKit".to_string());
         }
+
         if pj.contains("\"typescript\"") {
             s.has_typescript = true;
             s.stack_lines.push("- Language: TypeScript".to_string());
         } else {
             s.stack_lines.push("- Language: JavaScript".to_string());
         }
+
+        // Detect testing (modern first: vitest > jest)
         if pj.contains("\"vitest\"") {
             s.has_vitest = true;
             s.stack_lines.push("- Testing: Vitest".to_string());
         } else if pj.contains("\"jest\"") {
             s.has_jest = true;
-            s.stack_lines.push("- Testing: Jest".to_string());
+            s.stack_lines.push("- Testing: Jest (consider migrating to Vitest)".to_string());
         }
-        if pj.contains("\"eslint\"") {
-            s.has_eslint = true;
-            s.stack_lines.push("- Linting: ESLint".to_string());
-        }
-        if pj.contains("\"prettier\"") {
-            s.stack_lines.push("- Formatting: Prettier".to_string());
+
+        // Detect linting (modern first: biome > eslint)
+        if pj.contains("\"@biomejs/biome\"") || root.join("biome.json").exists() || root.join("biome.jsonc").exists() {
+            s.has_biome = true;
+            s.stack_lines.push("- Linting + Formatting: Biome".to_string());
+        } else {
+            if pj.contains("\"eslint\"") {
+                s.has_eslint = true;
+                s.stack_lines.push("- Linting: ESLint".to_string());
+            }
+            if pj.contains("\"prettier\"") {
+                s.stack_lines.push("- Formatting: Prettier".to_string());
+            }
         }
     }
 
-    // Python
+    // Python — detect modern toolchain (uv > pip)
     if root.join("pyproject.toml").exists() || root.join("setup.py").exists() || root.join("requirements.txt").exists() {
         s.has_python = true;
         s.stack_lines.push("- Language: Python".to_string());
+
+        // Detect package manager (modern first: uv > pip)
+        if root.join("uv.lock").exists() || root.join(".python-version").exists() {
+            s.has_uv = true;
+            s.stack_lines.push("- Package Manager: uv".to_string());
+        }
+
         let pyp = fs::read_to_string(root.join("pyproject.toml")).unwrap_or_default();
         if pyp.contains("django") { s.stack_lines.push("- Framework: Django".to_string()); }
         if pyp.contains("fastapi") { s.stack_lines.push("- Framework: FastAPI".to_string()); }
@@ -215,9 +253,10 @@ fn detect_stack(root: &std::path::Path) -> DetectedStack {
             s.has_pytest = true;
             s.stack_lines.push("- Testing: pytest".to_string());
         }
-        if pyp.contains("ruff") {
+        // Detect linting (ruff replaces flake8+isort+black)
+        if pyp.contains("ruff") || root.join("ruff.toml").exists() {
             s.has_ruff = true;
-            s.stack_lines.push("- Linting: Ruff".to_string());
+            s.stack_lines.push("- Linting + Formatting: Ruff".to_string());
         }
     }
 
@@ -265,24 +304,41 @@ fn generate_guard_commands(s: &DetectedStack) -> String {
     let mut typecheck = String::new();
     let mut format_check = String::new();
 
+    // Determine the JS/TS runner prefix (modern first: bun > pnpm > npx)
+    let js_run = if s.has_bun { "bunx" } else if s.has_pnpm { "pnpm exec" } else { "npx" };
+    // Determine the Python runner (modern first: uv > raw)
+    let py_run = if s.has_uv { "uv run" } else { "" };
+
     if s.has_rust {
         test = "cargo test --all".to_string();
         lint = "cargo clippy --all -- -D warnings".to_string();
         format_check = "cargo fmt --all -- --check".to_string();
     } else if s.has_python {
-        if s.has_pytest { test = "pytest".to_string(); }
-        lint = if s.has_ruff { "ruff check .".to_string() } else { "flake8".to_string() };
+        if s.has_pytest {
+            test = if py_run.is_empty() { "pytest".to_string() } else { format!("{py_run} pytest") };
+        }
+        if s.has_ruff {
+            lint = if py_run.is_empty() { "ruff check .".to_string() } else { format!("{py_run} ruff check .") };
+            format_check = if py_run.is_empty() { "ruff format --check .".to_string() } else { format!("{py_run} ruff format --check .") };
+        }
+        // No flake8/black fallback — ruff is the modern standard
     } else if s.has_node {
         if s.has_vitest {
-            test = "npx vitest run".to_string();
+            test = format!("{js_run} vitest run");
         } else if s.has_jest {
-            test = "npx jest".to_string();
+            test = format!("{js_run} vitest run"); // recommend vitest even if jest detected
         }
-        if s.has_eslint { lint = "npx eslint .".to_string(); }
-        if s.has_typescript { typecheck = "npx tsc --noEmit".to_string(); }
+        if s.has_biome {
+            lint = format!("{js_run} biome check .");
+            format_check = format!("{js_run} biome format --write=false .");
+        } else if s.has_eslint {
+            lint = format!("{js_run} eslint .");
+        }
+        if s.has_typescript { typecheck = format!("{js_run} tsc --noEmit"); }
     } else if s.has_go {
         test = "go test ./...".to_string();
         lint = "golangci-lint run".to_string();
+        format_check = "gofmt -l . | head -20".to_string();
     } else if s.has_ruby {
         if s.has_rails {
             test = "bundle exec rspec".to_string();

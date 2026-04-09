@@ -13,11 +13,10 @@ pip list --outdated
 ## Phase 2: Code Quality
 
 ```bash
-mypy . --config-file pyproject.toml
-ruff check . --fix
-black . --check
-isort . --check-only
-python manage.py check --deploy
+uv run mypy . --config-file pyproject.toml
+uv run ruff check . --fix
+uv run ruff format --check .
+uv run python manage.py check --deploy
 ```
 
 ## Phase 3: Migrations
@@ -148,8 +147,8 @@ jobs:
 
       - name: Install
         run: |
-          pip install -r requirements.txt
-          pip install ruff black mypy pytest pytest-django pytest-cov bandit pip-audit
+          uv sync
+          uv pip install ruff mypy pytest pytest-django pytest-cov bandit
 
       - name: Code quality
         run: |
@@ -177,7 +176,7 @@ jobs:
 |-------|---------|
 | Type check | `mypy .` |
 | Lint | `ruff check .` |
-| Format | `black . --check` |
+| Format | `ruff format --check .` |
 | Migrations | `python manage.py makemigrations --check` |
 | Tests | `pytest --cov=apps` |
 | Security | `pip-audit && bandit -r .` |

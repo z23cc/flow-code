@@ -89,9 +89,85 @@ pub fn cmd_init(json: bool) {
         eprintln!("warning: failed to ensure store dirs: {e}");
     }
 
+    // ── Layer 2: .flow-config/ (team config, git-tracked) ──────────────
+    let config_dir = cwd.join(".flow-config");
+    if !config_dir.exists() {
+        if let Err(e) = fs::create_dir_all(&config_dir) {
+            eprintln!("warning: failed to create .flow-config/: {e}");
+        } else {
+            actions.push("created .flow-config/".to_string());
+        }
+    }
+
+    // ── Layer 3: global project directory ──────────────────────────────
+    if let Some(paths) = flowctl_core::paths::FlowPaths::resolve() {
+        let global_dir = &paths.global_project_dir;
+        if !global_dir.exists() {
+            if let Err(e) = fs::create_dir_all(global_dir.join("memory")) {
+                eprintln!("warning: failed to create global project dir: {e}");
+            } else {
+                actions.push(format!("created {}", global_dir.display()));
+            }
+        }
+    }
+
+    // ── Migrate existing files to new locations (copy, not move) ───────
+
+    // config.json → .flow-config/config.json
+    let old_config = flow_dir.join("config.json");
+    let new_config = config_dir.join("config.json");
+    if old_config.exists() && !new_config.exists() {
+        if fs::copy(&old_config, &new_config).is_ok() {
+            actions.push("migrated config.json → .flow-config/".to_string());
+        }
+    }
+
+    // project-context.md → .flow-config/project-context.md
+    let old_pc = flow_dir.join("project-context.md");
+    let new_pc = config_dir.join("project-context.md");
+    if old_pc.exists() && !new_pc.exists() {
+        if fs::copy(&old_pc, &new_pc).is_ok() {
+            actions.push("migrated project-context.md → .flow-config/".to_string());
+        }
+    }
+
+    // invariants.md → .flow-config/invariants.md
+    let old_inv = flow_dir.join("invariants.md");
+    let new_inv = config_dir.join("invariants.md");
+    if old_inv.exists() && !new_inv.exists() {
+        if fs::copy(&old_inv, &new_inv).is_ok() {
+            actions.push("migrated invariants.md → .flow-config/".to_string());
+        }
+    }
+
+    // frecency.json + memory/ → global project dir
+    if let Some(paths) = flowctl_core::paths::FlowPaths::resolve() {
+        let old_frec = flow_dir.join("frecency.json");
+        let new_frec = paths.global_project_dir.join("frecency.json");
+        if old_frec.exists() && !new_frec.exists() {
+            if fs::copy(&old_frec, &new_frec).is_ok() {
+                actions.push("migrated frecency.json → global".to_string());
+            }
+        }
+
+        let old_mem = flow_dir.join("memory");
+        let new_mem = paths.global_project_dir.join("memory");
+        if old_mem.is_dir() && !new_mem.exists() {
+            if fs::create_dir_all(&new_mem).is_ok() {
+                for entry in fs::read_dir(&old_mem).into_iter().flatten().flatten() {
+                    let dest = new_mem.join(entry.file_name());
+                    fs::copy(entry.path(), &dest).ok();
+                }
+                actions.push("migrated memory/ → global".to_string());
+            }
+        }
+    }
+
     // Create project-context.md with auto-detected stack info if missing
-    let project_context_path = flow_dir.join("project-context.md");
-    if !project_context_path.exists() {
+    // Write to .flow-config/ (primary location) instead of .flow/
+    let project_context_path = config_dir.join("project-context.md");
+    let fallback_context_path = flow_dir.join("project-context.md");
+    if !project_context_path.exists() && !fallback_context_path.exists() {
         let content = generate_project_context(&cwd);
         if let Err(e) = fs::write(&project_context_path, content) {
             eprintln!("warning: failed to create project-context.md: {e}");
@@ -99,7 +175,7 @@ pub fn cmd_init(json: bool) {
             actions.push("created project-context.md (auto-detected stack)".to_string());
         }
     }
-    let has_project_context = project_context_path.exists();
+    let has_project_context = project_context_path.exists() || fallback_context_path.exists();
 
     // Build output
     let message = if actions.is_empty() {
@@ -114,13 +190,13 @@ pub fn cmd_init(json: bool) {
             "path": flow_dir.to_string_lossy(),
             "actions": actions,
             "hint": if has_project_context { serde_json::Value::Null } else {
-                serde_json::Value::String("Tip: copy templates/project-context.md to .flow/project-context.md to share technical standards with all worker agents".to_string())
+                serde_json::Value::String("Tip: copy templates/project-context.md to .flow-config/project-context.md to share technical standards with all worker agents".to_string())
             },
         }));
     } else {
         println!("{}", message);
         if !has_project_context {
-            println!("Tip: copy templates/project-context.md to .flow/project-context.md to share technical standards with all worker agents");
+            println!("Tip: copy templates/project-context.md to .flow-config/project-context.md to share technical standards with all worker agents");
         }
     }
 }

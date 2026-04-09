@@ -98,6 +98,8 @@ enum Commands {
         #[arg(long)]
         all: bool,
     },
+    /// Show all resolved state directory paths (three-layer resolution).
+    Paths,
     /// Show resolved state directory path.
     StatePath {
         /// Task ID to show state file path for.
@@ -645,6 +647,7 @@ fn main() {
     match cli.command {
         // Admin / top-level
         Commands::Init => admin::cmd_init(json),
+        Commands::Paths => commands::paths::cmd_paths(json),
         Commands::Detect => admin::cmd_detect(json),
         Commands::Status { interrupted, dag, epic, progress } => {
             if dag {

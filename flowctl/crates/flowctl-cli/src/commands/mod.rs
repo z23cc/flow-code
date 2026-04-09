@@ -19,6 +19,7 @@ pub mod log;
 pub mod memory;
 pub mod outputs;
 pub mod patch;
+pub mod paths;
 pub mod project_context;
 pub mod query;
 pub mod ralph;

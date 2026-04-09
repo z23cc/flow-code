@@ -48,6 +48,34 @@ impl FrecencyStore {
         }
     }
 
+    /// Load from three-layer resolution (tries ~/.flow/projects/{slug}/ first, then .flow/).
+    pub fn load_resolved() -> Self {
+        if let Some(paths) = crate::paths::FlowPaths::resolve() {
+            let path = paths.frecency();
+            if path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(entries) = serde_json::from_str(&content) {
+                        return Self { entries };
+                    }
+                }
+            }
+        }
+        Self::default()
+    }
+
+    /// Persist to global project dir via three-layer resolution.
+    pub fn save_resolved(&self) {
+        if let Some(paths) = crate::paths::FlowPaths::resolve() {
+            let path = paths.global_project_dir.join("frecency.json");
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            if let Ok(content) = serde_json::to_string_pretty(&self.entries) {
+                std::fs::write(&path, content).ok();
+            }
+        }
+    }
+
     /// Record an access with the given weight. Applies decay before adding.
     pub fn record_access(&mut self, path: &str, weight: f64) {
         let now = Utc::now();

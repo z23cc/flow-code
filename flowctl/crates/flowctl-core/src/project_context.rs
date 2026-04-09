@@ -40,6 +40,14 @@ impl ProjectContext {
         Some(Self::parse(&raw))
     }
 
+    /// Load from three-layer resolution (tries .flow-config/ first, then .flow/).
+    pub fn load_resolved() -> Option<Self> {
+        let paths = crate::paths::FlowPaths::resolve()?;
+        let path = paths.project_context();
+        let raw = std::fs::read_to_string(&path).ok()?;
+        Some(Self::parse(&raw))
+    }
+
     /// Parse a markdown string into a `ProjectContext`.
     pub fn parse(raw: &str) -> Self {
         let sections = split_sections(raw);

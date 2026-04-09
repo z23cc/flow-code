@@ -352,8 +352,9 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
     };
 
     // ── Priority chain: project-context → stack config → auto-detection ──
-    // Try project-context.md first (highest priority).
-    let pc = ProjectContext::load(&flow_dir);
+    // Try three-layer resolution first (.flow-config/ then .flow/), fall back to direct load.
+    let pc = ProjectContext::load_resolved()
+        .or_else(|| ProjectContext::load(&flow_dir));
     let pc_commands = pc.as_ref().map(|ctx| {
         let gc = &ctx.guard_commands;
         let mut cmds: Vec<(String, String, String)> = Vec::new();

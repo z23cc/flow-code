@@ -216,7 +216,7 @@ REVIEW_BACKEND=$($FLOWCTL review-backend)
 ```
 
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --score TOTAL_SCORE --json
+$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --score TOTAL_SCORE --evidence "Q1:N Q2:N Q3:N Q4:N Q5:N Q6:N Q7:N Q8:N Q9:N Q10:N" --json
 ```
 
 ---
@@ -315,7 +315,7 @@ $FLOWCTL memory add --type pitfall --epic $EPIC_ID "Review: finding summary"
 ```
 
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase impl_review --score TOTAL_SCORE --json
+$FLOWCTL phase done --epic $EPIC_ID --phase impl_review --score TOTAL_SCORE --evidence "Q1:N Q2:N Q3:N Q4:N Q5:N Q6:N Q7:N Q8:N Q9:N Q10:N" --json
 ```
 
 ---

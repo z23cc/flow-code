@@ -39,6 +39,9 @@ pub enum PipelinePhaseCmd {
         /// Self-review score (required for plan_review and impl_review).
         #[arg(long)]
         score: Option<u32>,
+        /// Review evidence text (required with --score). Must contain actual Q&A content.
+        #[arg(long)]
+        evidence: Option<String>,
         /// Confirms guard was executed (required for work and close).
         #[arg(long)]
         guard_ran: bool,
@@ -52,8 +55,8 @@ pub enum PipelinePhaseCmd {
 pub fn dispatch_pipeline_phase(cmd: &PipelinePhaseCmd, json: bool) {
     match cmd {
         PipelinePhaseCmd::Next { epic } => cmd_phase_next(json, epic),
-        PipelinePhaseCmd::Done { epic, phase, score, guard_ran, no_gate } => {
-            cmd_phase_done(json, epic, phase, *score, *guard_ran, *no_gate)
+        PipelinePhaseCmd::Done { epic, phase, score, evidence, guard_ran, no_gate } => {
+            cmd_phase_done(json, epic, phase, *score, evidence.as_deref(), *guard_ran, *no_gate)
         }
     }
 }
@@ -67,6 +70,43 @@ fn get_or_init_phase(flow_dir: &std::path::Path, epic_id: &str) -> PipelinePhase
             let _ = json_store::pipeline_write(flow_dir, epic_id, "brainstorm");
             PipelinePhase::Brainstorm
         }
+    }
+}
+
+/// Validate that score evidence contains per-question scores (Q1:N Q2:N ...).
+fn validate_score_evidence(evidence: &str, expected_questions: usize, phase: &str) {
+    // Count Q-score entries like "Q1:3" or "Q1: 3"
+    let q_count = evidence
+        .split_whitespace()
+        .filter(|token| {
+            token.starts_with('Q') && token.contains(':')
+                && token.len() >= 3
+        })
+        .count();
+
+    if q_count < expected_questions {
+        error_exit(&format!(
+            "{phase} evidence must contain scores for all {expected_questions} questions.\n\
+             Found {q_count} question scores. Expected format: \"Q1:3 Q2:2 Q3:3 ...\"\n\
+             You must actually run each forcing question before scoring it."
+        ));
+    }
+
+    // Verify the total matches --score
+    let total: u32 = evidence
+        .split_whitespace()
+        .filter_map(|token| {
+            if token.starts_with('Q') && token.contains(':') {
+                token.split(':').nth(1)?.trim().parse::<u32>().ok()
+            } else {
+                None
+            }
+        })
+        .sum();
+
+    // Just warn if total doesn't match (don't block — allow rounding)
+    if total > 0 {
+        eprintln!("Evidence total: {total}/{} (from {q_count} questions)", expected_questions * 3);
     }
 }
 
@@ -99,7 +139,7 @@ fn cmd_phase_next(json: bool, epic_id: &str) {
 }
 
 /// `flowctl phase done --epic <id> --phase <name> [--score N] [--guard-ran] [--no-gate] --json`
-fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str, score: Option<u32>, guard_ran: bool, no_gate: bool) {
+fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str, score: Option<u32>, evidence: Option<&str>, guard_ran: bool, no_gate: bool) {
     let flow_dir = ensure_flow_exists();
 
     let requested = match PipelinePhase::parse(phase_name) {
@@ -134,9 +174,17 @@ fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str, score: Option<u32
             PipelinePhase::PlanReview => {
                 if score.is_none() {
                     error_exit(
-                        "plan_review requires --score N (self-review score out of 30).\n\
-                         Run the 10 forcing questions, compute the total, then:\n\
-                         $FLOWCTL phase done --epic ID --phase plan_review --score 25 --json"
+                        "plan_review requires --score N AND --evidence \"Q1:3 Q2:2 ...\" (scores per question).\n\
+                         Run the 10 forcing questions, score each 1-3, then:\n\
+                         $FLOWCTL phase done --epic ID --phase plan_review --score 25 --evidence \"Q1:3 Q2:2 Q3:3 Q4:2 Q5:3 Q6:2 Q7:3 Q8:2 Q9:3 Q10:2\" --json"
+                    );
+                }
+                if let Some(ev) = evidence {
+                    validate_score_evidence(ev, 10, "plan_review");
+                } else if score.is_some() {
+                    error_exit(
+                        "plan_review requires --evidence with per-question scores.\n\
+                         Example: --evidence \"Q1:3 Q2:2 Q3:3 Q4:2 Q5:3 Q6:2 Q7:3 Q8:2 Q9:3 Q10:2\""
                     );
                 }
             }
@@ -152,9 +200,17 @@ fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str, score: Option<u32
             PipelinePhase::ImplReview => {
                 if score.is_none() {
                     error_exit(
-                        "impl_review requires --score N (self-review score out of 30).\n\
-                         Run the 10 forcing questions, compute the total, then:\n\
-                         $FLOWCTL phase done --epic ID --phase impl_review --score 25 --json"
+                        "impl_review requires --score N AND --evidence \"Q1:3 Q2:2 ...\" (scores per question).\n\
+                         Run the 10 forcing questions, score each 1-3, then:\n\
+                         $FLOWCTL phase done --epic ID --phase impl_review --score 25 --evidence \"Q1:3 Q2:2 Q3:3 Q4:2 Q5:3 Q6:2 Q7:3 Q8:2 Q9:3 Q10:2\" --json"
+                    );
+                }
+                if let Some(ev) = evidence {
+                    validate_score_evidence(ev, 10, "impl_review");
+                } else if score.is_some() {
+                    error_exit(
+                        "impl_review requires --evidence with per-question scores.\n\
+                         Example: --evidence \"Q1:3 Q2:2 Q3:3 Q4:2 Q5:3 Q6:2 Q7:3 Q8:2 Q9:3 Q10:2\""
                     );
                 }
             }

@@ -17,7 +17,7 @@ Match tool to need — flowctl for structure overview, native tools for precise 
 
 | Need | Tool | Why |
 |------|------|-----|
-| **Project structure overview** | `flowctl repo-map --budget 1024` | Unique — PageRank-ranked symbols, ~1K tokens for entire project |
+| **Project structure overview** | `flowctl repo-map` | Unique — PageRank-ranked symbols grouped by file (default: all symbols) |
 | **Directory symbol scan** | `flowctl code-structure extract --path <dir>` | Unique — function/type signatures without reading full files |
 | **Deep cross-file analysis** | RP context_builder | Best for "how does X work across files" questions |
 | **Read specific code** | `Read` (native) | Best for precise reads with line ranges — supports offset/limit |

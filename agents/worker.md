@@ -207,7 +207,7 @@ git log -5 --oneline
 
 # 3. Quick context (optional — skip for trivial tasks)
 # Only run these if the task touches unfamiliar code:
-# $FLOWCTL repo-map --budget 512 --json    ← project overview (large projects only)
+# $FLOWCTL repo-map --json    ← full project symbol overview (skip for trivial tasks)
 # $FLOWCTL search "<terms>" --git modified  ← find recently changed related files
 
 # 4. Check memory system

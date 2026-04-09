@@ -51,7 +51,7 @@ Before spawning scouts, gather initial context. Use the right tool for each need
 ```bash
 # 1. Project structure overview (flowctl — unique, no native equivalent)
 #    Skip for trivial/single-file tasks
-$FLOWCTL repo-map --budget 512 --json
+$FLOWCTL repo-map --json
 
 # 2. Find related files — use Grep (native) for known patterns
 #    Use flowctl search only if file names are fuzzy/uncertain

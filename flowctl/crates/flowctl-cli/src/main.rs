@@ -537,8 +537,8 @@ enum Commands {
     },
     /// Generate a ranked repo map (top symbols by importance).
     RepoMap {
-        /// Token budget for the output (default: 1024).
-        #[arg(long, default_value = "1024")]
+        /// Token budget for the output (default: unlimited). Use --budget to limit.
+        #[arg(long, default_value = "0")]
         budget: usize,
         /// Root directory to scan (default: current directory).
         #[arg(long, default_value = ".")]

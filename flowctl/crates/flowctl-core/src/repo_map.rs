@@ -206,7 +206,7 @@ pub fn generate_repo_map(root: &Path, token_budget: usize) -> Result<String, Str
         };
         let sig_cost = estimate_tokens(&format!("  {}\n", rs.symbol.signature));
 
-        if tokens_used + file_header_cost + sig_cost > token_budget {
+        if token_budget > 0 && tokens_used + file_header_cost + sig_cost > token_budget {
             break;
         }
 

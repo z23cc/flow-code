@@ -28,7 +28,7 @@ One command goes from idea to draft PR — planning, parallel implementation, th
   → Auto push + draft PR
 ```
 
-Everything lives in `.flow/` state. No external services. Single Rust binary (`flowctl`, 39 commands). Uninstall: delete `.flow/`.
+Everything lives in `.flow/` state. No external services. Single Rust binary (`flowctl`, 71 commands). Uninstall: delete `.flow/`.
 
 ## Quick Start
 
@@ -92,12 +92,16 @@ Zero-findings rule: reviewers must find issues. Zero findings → halt and re-an
 | `/flow-code:map` | Generate architecture documentation |
 | `/flow-code:auto-improve "goal"` | Autonomous code optimization loops |
 | `/flow-code:ralph-init` | Scaffold autonomous unattended harness |
+| `flowctl find "<query>"` | Smart search: auto-routes regex/symbol/literal/fuzzy |
+| `flowctl graph refs <symbol>` | Who references this symbol? |
+| `flowctl graph impact <path>` | What files break if I change this? |
+| `flowctl edit --file <f> --old --new` | Smart edit: exact match + fuzzy fallback |
 
 Full command reference: [docs/commands.md](docs/commands.md) | All flags: [CLAUDE.md](CLAUDE.md)
 
 ## flowctl CLI
 
-Single Rust binary, 39 top-level commands. All output `--json` for machine consumption.
+Single Rust binary, 71 top-level commands. All output `--json` for machine consumption.
 
 ```bash
 flowctl init                          # Initialize .flow/
@@ -123,7 +127,7 @@ skills/*/SKILL.md          → 54 skills (workflow + domain)
   └─ steps/*.md            → Step-file architecture (JIT loading)
 agents/*.md                → 24 subagents (scouts, workers, reviewers)
 flowctl/                   → Rust Cargo workspace (core + cli)
-  └─ bin/flowctl           → Single binary, 39 commands
+  └─ bin/flowctl           → Single binary, 71 commands
 prompts/                   → Review templates (blind-hunter, edge-case, acceptance-auditor)
 templates/                 → project-context.md template
 .flow/                     → Runtime state (JSON/JSONL, per-project)
@@ -152,7 +156,7 @@ templates/                 → project-context.md template
 | Document | Contents |
 |----------|----------|
 | [CLAUDE.md](CLAUDE.md) | Architecture, design decisions, command flags, testing |
-| [docs/flowctl.md](docs/flowctl.md) | Full CLI reference (39 commands) |
+| [docs/flowctl.md](docs/flowctl.md) | Full CLI reference (71 commands) |
 | [docs/skills.md](docs/skills.md) | Skill inventory (54 skills, tier classification) |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md) | Auto-generated architecture map |

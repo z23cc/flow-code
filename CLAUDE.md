@@ -151,6 +151,10 @@ Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills an
 - **Stale lock recovery**: Runs at wave start AND on worker completion — detects locks held by done/failed/blocked tasks and releases them to prevent deadlocks
 - **Worker phase mapping**: Workers execute 12 internal phases (via `flowctl worker-phase next/done`) within the epic "Work" phase. Epic phases and worker phases are independent systems operating at different levels
 - **Project context**: Optional `.flow/project-context.md` (template in `templates/project-context.md`) provides shared technical standards (stack, rules, architecture decisions, non-goals) that all worker agents read during Phase 2 re-anchoring. Keeps agents aligned on conventions code alone can't convey
+- **Code graph persistent index**: `flowctl graph build` constructs symbol-level + file-level reference graph with forward/reverse edges, persisted to `.flow/graph.bin` via bincode. `graph refs` finds all references (<16ms), `graph impact` traces transitive dependents (BFS depth 3). Incremental update via `git diff --name-only`
+- **Intent-level API**: `flowctl find` auto-routes queries (regex→index regex, symbol→graph refs, literal→trigram, fallback→fuzzy). `flowctl edit` tries exact str::replacen then fuzzy fudiff fallback. Reduces 7 raw tools to 4 intent commands for agent clarity
+- **N-gram bincode optimization**: Index serialized as bincode (6.2MB→502KB, 12x smaller). Candidate verification via memchr::memmem (2-5x faster). Regex→trigram extraction via regex-syntax for indexed regex search
+- **ADR enforcement**: 10 ADRs in docs/decisions/ with YAML frontmatter (verify + scope). 5 verify commands registered as .flow/invariants.md, checked by `flowctl invariants check` and `flowctl guard`
 
 ## Files to Never Commit
 

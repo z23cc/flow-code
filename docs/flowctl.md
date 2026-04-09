@@ -13,7 +13,8 @@ config, epic, task, dep, approval, gap, log, memory, outputs, checkpoint,
 stack, invariants, ralph, scout-cache, skill, rp, codex, hook, stats, worker-phase,
 show, epics, tasks, list, cat, files, lock, unlock, heartbeat, lock-check,
 ready, next, queue, start, done, restart, block, fail,
-export, import, completions
+export, import, completions,
+graph, find, edit, index
 ```
 
 ## Multi-User Safety
@@ -1352,6 +1353,59 @@ Subcommands:
 - `checklist show --task <id>` — Display current checklist state
 
 Storage: `.flow/checklists/<task-id>.json`
+
+### graph
+
+Persistent code graph with symbol references and impact analysis. Stored at `.flow/graph.bin`.
+
+Subcommands:
+- `graph build [--json]` — Build graph from scratch (extract symbols, build edges, compute PageRank)
+- `graph update [--json]` — Incremental update (re-index files changed since last commit)
+- `graph status [--json]` — Show graph statistics (symbol count, edge count, file count)
+- `graph refs <symbol> [--json]` — Find all references to a symbol (reverse edge lookup, <16ms)
+- `graph impact <path> [--json]` — Transitive impact analysis: what files depend on this file (BFS depth 3)
+- `graph map [--budget N] [--json]` — Output cached repo map (instant, no rebuild)
+
+Storage: `.flow/graph.bin` (bincode binary format)
+
+### find
+
+Smart code search that auto-routes to the best backend.
+
+```bash
+flowctl find "<query>" [--limit N] [--json]
+```
+
+Routing logic:
+- Regex pattern (contains `\s`, `.*`, `[^`, etc.) → trigram index regex search
+- Known symbol name (in graph) → graph refs
+- Literal string (≥3 chars) → trigram index search
+- Fallback → nucleo fuzzy search with frecency
+
+### edit
+
+Smart code edit with exact match + fuzzy fallback.
+
+```bash
+flowctl edit --file <path> --old "<text>" --new "<text>" [--json]
+```
+
+Strategy:
+1. Exact `str::replacen` (first occurrence)
+2. Fuzzy fallback via `fudiff` (whitespace-normalized + context matching)
+
+Output: `{"file": "...", "method": "exact|fuzzy", "bytes_written": N}`
+
+### index
+
+Trigram index for fast code search. Stored at `.flow/index.bin`.
+
+Subcommands:
+- `index build [--json]` — Build trigram index from scratch
+- `index update [--json]` — Incremental update (re-index changed files)
+- `index search <query> [--limit N] [--json]` — Trigram-accelerated literal search
+- `index regex <pattern> [--limit N] [--json]` — Regex search with trigram pre-filtering. Extracts required trigrams from regex via `regex-syntax`, filters candidates, then runs full regex on matches only.
+- `index status [--json]` — Show index statistics
 
 ### completions
 

@@ -28,7 +28,7 @@
   → 自动推送 + 草稿 PR
 ```
 
-所有状态存在 `.flow/` 目录。无外部服务。单个 Rust 二进制（`flowctl`，39 个命令）。卸载：删除 `.flow/`。
+所有状态存在 `.flow/` 目录。无外部服务。单个 Rust 二进制（`flowctl`，71 个命令）。卸载：删除 `.flow/`。
 
 ## 快速开始
 
@@ -92,12 +92,16 @@ brainstorm → plan → plan_review → work → impl_review → close
 | `/flow-code:map` | 生成架构文档 |
 | `/flow-code:auto-improve "目标"` | 自主代码优化循环 |
 | `/flow-code:ralph-init` | 搭建自主运行框架 |
+| `flowctl find "<查询>"` | 智能搜索：自动路由 regex/符号/精确/模糊 |
+| `flowctl graph refs <符号>` | 谁引用了这个符号？ |
+| `flowctl graph impact <路径>` | 改这个文件会影响什么？ |
+| `flowctl edit --file <f> --old --new` | 智能编辑：精确匹配 + 模糊回退 |
 
 完整命令参考：[docs/commands.md](docs/commands.md) | 所有标志：[CLAUDE.md](CLAUDE.md)
 
 ## flowctl CLI
 
-单个 Rust 二进制，39 个顶层命令。所有命令支持 `--json` 机器可读输出。
+单个 Rust 二进制，71 个顶层命令。所有命令支持 `--json` 机器可读输出。
 
 ```bash
 flowctl init                          # 初始化 .flow/
@@ -123,7 +127,7 @@ skills/*/SKILL.md          → 54 个技能（工作流 + 领域）
   └─ steps/*.md            → 步骤文件架构（JIT 加载）
 agents/*.md                → 24 个子 Agent（侦察兵、Worker、审查器）
 flowctl/                   → Rust Cargo 工作区（core + cli）
-  └─ bin/flowctl           → 单二进制，39 个命令
+  └─ bin/flowctl           → 单二进制，71 个命令
 prompts/                   → 审查模板（blind-hunter, edge-case, acceptance-auditor）
 templates/                 → project-context.md 模板
 .flow/                     → 运行时状态（JSON/JSONL，按项目）
@@ -152,7 +156,7 @@ templates/                 → project-context.md 模板
 | 文档 | 内容 |
 |------|------|
 | [CLAUDE.md](CLAUDE.md) | 架构、设计决策、命令标志、测试 |
-| [docs/flowctl.md](docs/flowctl.md) | 完整 CLI 参考（39 个命令） |
+| [docs/flowctl.md](docs/flowctl.md) | 完整 CLI 参考（71 个命令） |
 | [docs/skills.md](docs/skills.md) | 技能清单（54 个技能，分层分类） |
 | [CHANGELOG.md](CHANGELOG.md) | 版本历史 |
 | [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md) | 自动生成的架构地图 |

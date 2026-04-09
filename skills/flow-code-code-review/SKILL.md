@@ -297,3 +297,10 @@ After completing a review:
 - [ ] Change size noted if >500 lines
 - [ ] Tests reviewed before implementation
 - [ ] No rubber-stamping — every approval reflects genuine review
+
+## Auto-Capture Pitfalls
+When verdict is NEEDS_WORK, the orchestrator should capture each Critical/Important finding as a pitfall:
+```bash
+$FLOWCTL memory add pitfall "Review: <finding summary>"
+```
+This builds project memory from review failures, preventing the same mistakes in future tasks.

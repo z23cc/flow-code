@@ -17,7 +17,7 @@ use super::helpers::get_flow_dir;
 
 // ── Constants ──────────────────────────────────────────────────────
 
-const MEMORY_VALID_TYPES: &[&str] = &["pitfall", "convention", "decision"];
+const MEMORY_VALID_TYPES: &[&str] = &["pitfall", "convention", "decision", "general"];
 
 const VALID_SEVERITIES: &[&str] = &["critical", "high", "medium", "low"];
 
@@ -77,11 +77,11 @@ pub enum MemoryCmd {
     Init,
     /// Add atomic memory entry.
     Add {
-        /// Type: pitfall, convention, or decision.
-        #[arg(name = "type")]
-        entry_type: String,
         /// Entry content.
         content: String,
+        /// Type: pitfall, convention, decision, or general.
+        #[arg(long = "type", default_value = "general", value_parser = ["pitfall", "convention", "decision", "general"])]
+        entry_type: String,
         /// Module scope (e.g. "flowctl-core", "scheduler", "auth").
         #[arg(long)]
         module: Option<String>,
@@ -509,11 +509,11 @@ fn cmd_memory_add(
         None => {
             if json {
                 json_output(json!({
-                    "error": format!("Invalid type '{}'. Use: pitfall, convention, or decision", entry_type)
+                    "error": format!("Invalid type '{}'. Use: pitfall, convention, decision, or general", entry_type)
                 }));
             } else {
                 eprintln!(
-                    "Error: Invalid type '{}'. Use: pitfall, convention, or decision",
+                    "Error: Invalid type '{}'. Use: pitfall, convention, decision, or general",
                     entry_type
                 );
             }
@@ -684,11 +684,11 @@ fn cmd_memory_read(json: bool, entry_type: Option<&str>) {
     if entry_type.is_some() && type_filter.is_none() {
         if json {
             json_output(json!({
-                "error": format!("Invalid type '{}'. Use: pitfall, convention, or decision", entry_type.unwrap())
+                "error": format!("Invalid type '{}'. Use: pitfall, convention, decision, or general", entry_type.unwrap())
             }));
         } else {
             eprintln!(
-                "Error: Invalid type '{}'. Use: pitfall, convention, or decision",
+                "Error: Invalid type '{}'. Use: pitfall, convention, decision, or general",
                 entry_type.unwrap()
             );
         }

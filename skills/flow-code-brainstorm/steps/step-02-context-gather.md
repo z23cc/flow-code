@@ -17,6 +17,10 @@ FLOWCTL="$HOME/.flow/bin/flowctl"
 4. Read key config files, README, CLAUDE.md for project constraints
 5. Identify affected modules, dependencies, and integration points
 6. Read `.flow/project-context.md` Non-Goals and Architecture Decisions. Do NOT propose approaches that conflict with Non-Goals. Reference Architecture Decisions to avoid re-debating settled choices.
+7. Read pitfalls specifically to avoid known failure patterns:
+   ```bash
+   $FLOWCTL memory list --type pitfall --json
+   ```
 
 ## Classify Complexity
 

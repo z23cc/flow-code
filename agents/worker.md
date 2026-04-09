@@ -574,6 +574,11 @@ Also check:
 
 If you find issues, fix them and re-run `<FLOWCTL> guard` to verify.
 
+If self-review finds issues that required fixes, record as pitfall:
+```bash
+<FLOWCTL> memory add pitfall "Self-review: <what was wrong>"
+```
+
 **Rules:**
 - Only fix issues in YOUR changes — don't refactor unrelated code
 - If unsure whether something is an issue, leave it for Phase 8 (external review)
@@ -781,6 +786,13 @@ If enabled, reflect on what you discovered during implementation and save **only
   ```bash
   <FLOWCTL> memory add decision "What was decided and why"
   ```
+
+- **General**: Observations that don't fit the above categories
+  ```bash
+  <FLOWCTL> memory add general "Observation description"
+  ```
+
+Use the most specific type: failure patterns → `pitfall`, project conventions → `convention`, architecture choices → `decision`, everything else → `general`.
 
 **Rules:**
 - Only save if you genuinely discovered something non-obvious

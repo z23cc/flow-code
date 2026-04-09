@@ -146,6 +146,10 @@ Detect input type to decide whether to execute or skip:
    - Acceptance Auditor (diff + spec + project-context.md)
 5. Merge findings, apply zero-findings rule
 6. Fix Critical/Important issues until SHIP (max 2 iterations)
+   When a review returns NEEDS_WORK, auto-capture the key findings as memory pitfalls:
+   ```bash
+   $FLOWCTL memory add pitfall "Review finding: <summary of what was wrong and how it was fixed>"
+   ```
 
 ### Close (close)
 1. Validate: $FLOWCTL validate --epic $EPIC_ID --json

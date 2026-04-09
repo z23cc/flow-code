@@ -181,21 +181,35 @@ $FLOWCTL phase done --epic $EPIC_ID --phase plan --json
 
 ### Plan Review (plan_review)
 
-**MANDATORY: Self-review ALWAYS runs (even if review backend is "none").**
+**⚠️ AUDIT FAILURE: This phase was skipped in BOTH fn-5 and fn-6 despite RP backend being available. The self-review questions below are the PRIMARY quality gate — you MUST answer every one.**
 
-Execute ALL 10 forcing questions from the Premise Challenge + Architecture Interrogation. Score /30.
+**PR1: Execute self-review (10 forcing questions)**
 
+Print each question and your answer. Score 1-3 per question.
+
+Premise Challenge:
+1. **Right problem?** Could different framing yield simpler solution? Score: ?/3
+2. **Do-nothing test** What SPECIFICALLY breaks in 30 days? Score: ?/3
+3. **Existing code** Does plan reuse existing code? Cite files. Score: ?/3
+4. **Non-Goals** Read project-context.md Non-Goals + ADRs. Violations? Score: ?/3
+
+Architecture:
+5. **Data flow** Happy/nil/empty/error for each path? Score: ?/3
+6. **Coupling** What becomes coupled? Score: ?/3
+7. **Scaling** What breaks at 10x? Score: ?/3
+8. **Rollback** How to undo? Score: ?/3
+9. **Security** New auth/API surfaces? Score: ?/3
+10. **Task sizing** All tasks M-sized? Score: ?/3
+
+**Total: ?/30** (SHIP ≥25, fix ≥18, RETHINK <18)
+
+**PR2: Check external review**
 ```bash
-# MANDATORY: Check review backend
 REVIEW_BACKEND=$($FLOWCTL review-backend)
+# If returns "none": self-review is sufficient, proceed
+# If returns "rp" or "codex": log that external review is available
+#   Run it if possible, but self-review score is the binding gate
 ```
-
-If backend is "rp" or "codex" AND the tool is available (verified by review-backend):
-- Run external review via RP context_builder or Codex
-- Fix issues until SHIP (max 3 iterations)
-- **DO NOT SKIP external review if backend is configured and available**
-
-If backend is "none": self-review score is the only gate.
 
 ```bash
 $FLOWCTL phase done --epic $EPIC_ID --phase plan_review --json
@@ -205,46 +219,53 @@ $FLOWCTL phase done --epic $EPIC_ID --phase plan_review --json
 
 ### Work (work)
 
+**⚠️ AUDIT FAILURE HISTORY: This phase failed compliance audit TWICE (fn-5 and fn-6) on the SAME 3 issues. If you skip these again, you are knowingly producing unsafe output.**
+
+**Failure 1 (CRITICAL): Workers ran without worktree isolation — 6 parallel agents wrote to same directory, risking file corruption.**
+**Failure 2 (HIGH): No file locking — concurrent edits to settings.py and requirements.txt.**
+**Failure 3 (HIGH): No wave checkpoint guard — broken code passed silently.**
+
+---
+
+**W1: Find + start + lock ready tasks**
 ```bash
-# MANDATORY Step 1: Find ready tasks
-$FLOWCTL ready $EPIC_ID --json
+READY_JSON=$($FLOWCTL ready $EPIC_ID --json)
+# For EACH task in ready list:
+$FLOWCTL start TASK_ID --json
+$FLOWCTL lock --task TASK_ID --files "file1,file2" --json
 ```
 
-**MANDATORY Step 2: For EACH ready task, execute ALL of:**
+**W2: Spawn workers — WORKTREE ISOLATION IS NON-NEGOTIABLE**
+
+When calling the Agent tool for each worker, you MUST include these parameters:
+- `isolation` parameter set to `"worktree"` — creates a separate git worktree copy
+- `mode` parameter set to `"auto"`
+- `run_in_background` parameter set to `true`
+
+The worker prompt MUST include:
+1. Task spec (from `$FLOWCTL cat TASK_ID`)
+2. Epic spec summary
+3. Content of `.flow/project-context.md`
+4. The task's `domain` field value
+5. FLOWCTL path: `FLOWCTL="$HOME/.flow/bin/flowctl"`
+
+If you spawn workers WITHOUT the `isolation: "worktree"` parameter, you are creating race conditions where two workers edit the same file simultaneously. This has caused real bugs in previous runs.
+
+**W3: After ALL workers in this wave complete**
 ```bash
-# Start the task
-$FLOWCTL start <task-id> --json
+# Mark each task done
+$FLOWCTL done TASK_ID --summary "what was done" --json
 
-# Lock files (get file list from task spec)
-$FLOWCTL lock --task <task-id> --files "<file1>,<file2>" --json
-```
-
-**MANDATORY Step 3: Spawn workers with isolation**
-
-Spawn ALL ready workers in ONE parallel Agent call:
-```
-Agent(
-    prompt="<worker prompt with task spec, domain, project-context>",
-    mode="auto",
-    isolation="worktree",   # MANDATORY — prevents race conditions
-    team_name="epic-workers",
-    run_in_background=true
-)
-```
-
-**CRITICAL**: Workers MUST use `isolation: "worktree"`. Without worktree isolation, parallel workers writing to the same directory have race conditions. This was the #1 Critical finding in the execution audit.
-
-**MANDATORY Step 4: After workers complete**
-```bash
-# For each completed task:
-$FLOWCTL done <task-id> --summary "<what was done>" --json
-
-# MANDATORY: Wave checkpoint — run guard between waves
+# MANDATORY: Run guard BETWEEN waves (not just at close)
 $FLOWCTL guard
+
+# Check for newly unblocked tasks
+$FLOWCTL ready $EPIC_ID --json
+# If more ready tasks: go back to W1
+# If no more: proceed to phase done
 ```
 
-**MANDATORY Step 5: Repeat** — Check `$FLOWCTL ready $EPIC_ID --json` for newly unblocked tasks. Loop until no ready tasks remain.
-
+**W4: Complete work phase**
 ```bash
 $FLOWCTL phase done --epic $EPIC_ID --phase work --json
 ```
@@ -253,31 +274,40 @@ $FLOWCTL phase done --epic $EPIC_ID --phase work --json
 
 ### Impl Review (impl_review)
 
-**MANDATORY: Self-review ALWAYS runs.**
+**⚠️ AUDIT FAILURE: This phase was incomplete in BOTH fn-5 and fn-6. Guard was never run. Self-review questions were never answered. Fix this NOW.**
 
-Execute ALL 10 forcing questions (Correctness 5Q + Quality 5Q). Score /30.
-
-**MANDATORY: Run these commands (not just describe them):**
+**IR1: Run guard FIRST**
 ```bash
-# MANDATORY: Run guard
 $FLOWCTL guard
+```
+If guard fails: fix the issues before proceeding. Do NOT skip guard.
 
-# MANDATORY: Check review backend
-REVIEW_BACKEND=$($FLOWCTL review-backend)
-
-# MANDATORY: Generate diff for review
+**IR2: Generate diff**
+```bash
 git diff main...HEAD --stat 2>/dev/null || git diff HEAD~5...HEAD --stat
 ```
 
-If backend is "rp" or "codex" AND available:
-- Run 3-layer parallel review (Blind Hunter + Edge Case Hunter + Acceptance Auditor)
-- Apply zero-findings rule
-- Fix Critical/Important issues (max 2 iterations)
-- **DO NOT SKIP if backend is configured**
+**IR3: Execute self-review (10 forcing questions)**
+
+Correctness:
+1. **Spec fidelity** Re-read each AC. MET/PARTIAL/NOT_MET with file:line proof. Score: ?/3
+2. **Error paths** For each new function: nil/empty/malformed/unauthorized handling? Score: ?/3
+3. **Edge cases** 3 specific inputs that could break THIS code? Score: ?/3
+4. **Regression** Any existing test broke? New paths without tests? Score: ?/3
+5. **Impact** `$FLOWCTL graph impact CHANGED_FILE --json` — all dependents OK? Score: ?/3
+
+Quality:
+6. **Dead code** Commented-out code? Unused imports? Score: ?/3
+7. **Naming** New developer would understand without PR context? Score: ?/3
+8. **Performance** N+1? Unbounded loops? Missing pagination? Score: ?/3
+9. **Security** Input validated? No secrets? SQL parameterized? Score: ?/3
+10. **Consistency** Follows project-context.md Critical Rules? Score: ?/3
+
+**Total: ?/30** (SHIP ≥25, NEEDS_WORK ≥18, RETHINK <18)
 
 When NEEDS_WORK:
 ```bash
-$FLOWCTL memory add --type pitfall --epic $EPIC_ID "Review: <finding summary>"
+$FLOWCTL memory add --type pitfall --epic $EPIC_ID "Review: finding summary"
 ```
 
 ```bash
@@ -364,3 +394,20 @@ FLOWEOF
 - **NEVER skip worktree isolation** — workers MUST use `isolation: "worktree"`
 - **NEVER skip guard** — run `$FLOWCTL guard` at work wave checkpoints AND close
 - **NEVER fake command output** — actually run the command and use its real output
+
+## Post-Run Compliance Verification
+
+Before declaring the epic complete, verify EACH item. Output this table with actual Y/N values:
+
+```
+COMPLIANCE CHECK (must be ALL Y before shipping):
+[ ] Startup: detect + status --interrupted + memory inject + review-backend + git branch
+[ ] Brainstorm: complexity classified + all tier questions answered + 3 approaches scored + requirements.md written
+[ ] Plan: research tools used (graph map/find) + scouts spawned + spec written + tasks created + validated
+[ ] Plan Review: all 10 self-review questions answered with scores + total /30 computed
+[ ] Work: tasks started + files locked + workers used isolation:"worktree" + guard run between waves
+[ ] Impl Review: guard run + diff generated + all 10 questions answered with scores + total /30 computed
+[ ] Close: validate + guard + quick commands + checklists + 7 ship questions scored + push + PR
+```
+
+If any item is N: go back and execute it before shipping.

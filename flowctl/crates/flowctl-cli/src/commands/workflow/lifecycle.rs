@@ -30,14 +30,14 @@ pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>
                 .map(|t| t.id.clone())
                 .collect();
             if !in_progress.is_empty() && !force {
-                eprintln!(
-                    "⚠️  PARALLEL EXECUTION WARNING: {} other task(s) already in_progress: {}\n\
-                     Workers MUST use isolation: \"worktree\" to prevent race conditions.\n\
-                     If workers share the same directory, file edits will conflict.\n\
-                     Use --force to suppress this warning.",
+                error_exit(&format!(
+                    "Cannot start {} while {} other task(s) are in_progress: {}. \
+                     Workers MUST use worktree isolation for parallel execution. \
+                     Pass --force to override.",
+                    id,
                     in_progress.len(),
                     in_progress.join(", ")
-                );
+                ));
             }
         }
     }

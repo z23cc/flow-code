@@ -136,6 +136,8 @@ enum Commands {
         #[arg(long, default_value = "all")]
         layer: String,
     },
+    /// Run pre-launch checks (6 dimensions: quality, security, performance, a11y, infra, docs).
+    PreLaunch,
     /// Output trimmed worker prompt based on mode flags.
     WorkerPrompt {
         /// Task ID.
@@ -411,7 +413,7 @@ enum Commands {
     },
     /// Show multi-epic queue status.
     Queue,
-    /// Start task.
+    /// Start task. Rejects parallel start unless --force (confirms worktree isolation).
     Start {
         /// Task ID.
         id: String,
@@ -669,6 +671,7 @@ fn main() {
             source,
         } => admin::cmd_parse_findings(json, file, epic, register, source),
         Commands::Guard { layer } => admin::cmd_guard(json, layer),
+        Commands::PreLaunch => commands::pre_launch::cmd_pre_launch(json),
         Commands::WorkerPrompt { task, tdd, review, bootstrap: _ } => {
             admin::cmd_worker_prompt(json, task, tdd, review)
         }

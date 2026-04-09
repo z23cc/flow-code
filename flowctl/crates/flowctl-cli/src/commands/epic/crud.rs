@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 use chrono::Utc;
 use serde_json::json;
@@ -203,16 +204,82 @@ pub fn cmd_set_completion_review_status(id: &str, status: &str, json_mode: bool)
     doc.frontmatter.updated_at = Utc::now();
     save_epic(&doc);
 
+    // Auto-create draft PR when shipping
+    let mut pr_url: Option<String> = None;
+    if status == "ship" {
+        pr_url = auto_create_draft_pr(id, &doc.frontmatter.title);
+    }
+
     if json_mode {
-        json_output(json!({
+        let mut out = json!({
             "id": id,
             "completion_review_status": status,
             "completion_reviewed_at": Utc::now().to_rfc3339(),
             "message": format!("Epic {id} completion review status set to {status}"),
-        }));
+        });
+        if let Some(url) = &pr_url {
+            out["pr_url"] = json!(url);
+        }
+        json_output(out);
     } else {
         println!("Epic {id} completion review status set to {status}");
+        if let Some(url) = &pr_url {
+            println!("Draft PR created: {url}");
+        }
     }
+}
+
+/// Attempt to create a draft PR via `gh`. Returns the PR URL on success.
+/// Silently returns `None` if gh is missing, branch is main/master, or PR already exists.
+fn auto_create_draft_pr(epic_id: &str, epic_title: &str) -> Option<String> {
+    // 1. Check if gh CLI is available
+    if Command::new("gh").arg("--version").output().is_err() {
+        eprintln!("note: gh CLI not found, skipping draft PR creation");
+        return None;
+    }
+
+    // 2. Get current branch
+    let branch = Command::new("git")
+        .args(["branch", "--show-current"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    if branch.is_empty() || branch == "main" || branch == "master" {
+        return None;
+    }
+
+    // 3. Push branch to remote
+    let _ = Command::new("git")
+        .args(["push", "-u", "origin", "HEAD"])
+        .status();
+
+    // 4. Create draft PR
+    let title = format!("feat: {}", epic_title);
+    let body = format!(
+        "## Epic: {}\n\nAuto-created by flowctl on completion ship.",
+        epic_id
+    );
+    let output = Command::new("gh")
+        .args([
+            "pr", "create", "--title", &title, "--body", &body, "--draft",
+        ])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !url.is_empty() {
+            return Some(url);
+        }
+    }
+
+    // PR may already exist — not an error
+    eprintln!("note: draft PR creation skipped (may already exist)");
+    None
 }
 
 pub fn cmd_set_branch(id: &str, branch: &str, json_mode: bool) {

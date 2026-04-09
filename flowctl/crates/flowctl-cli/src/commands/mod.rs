@@ -33,5 +33,6 @@ pub mod file;
 pub mod plan_depth;
 pub mod search;
 pub mod skill;
+pub mod pre_launch;
 pub mod recover;
 pub mod workflow;

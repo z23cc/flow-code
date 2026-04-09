@@ -27,6 +27,7 @@ Accepts:
 - Feature description: "Add OAuth login"
 - Flow epic ID: fn-1-add-oauth (resume existing epic)
 - --plan-only flag to stop after planning
+- --interactive flag to pause at key decision points (brainstorm result, plan review, impl review)
 
 ## Quick Dev Path
 
@@ -93,6 +94,14 @@ Detect input type to decide whether to execute or skip:
 **Skip brainstorm** (input is a Flow ID like `fn-N-*`, a spec file path, or `--plan-only` flag):
 1. Run: `$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --json`
 2. Proceed to Plan phase
+
+**Auto-skip brainstorm** (detected as trivial — any ONE signal triggers skip):
+- Input is 10 words or fewer
+- Input contains: "fix", "typo", "config", "update", "bump", "rename", "simple", "trivial", "small", "minor"
+- Input references a specific file path
+- `--quick` flag is present
+
+When auto-skipped: create epic + single task directly, skip to plan phase.
 
 **Execute brainstorm** (input is natural language — a new idea).
 **This is always AUTO mode — AI self-interview, no AskUserQuestion, no human input.**

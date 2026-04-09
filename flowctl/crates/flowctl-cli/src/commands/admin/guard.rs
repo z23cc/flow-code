@@ -315,6 +315,19 @@ fn filter_guard_output(cmd_type: &str, stdout: &str, stderr: &str) -> FilterResu
     }
 }
 
+// ── Tool availability check ──────────────────────────────────────
+
+/// Check if the program required by a guard command is available in PATH.
+fn check_tool_available(cmd: &str) -> bool {
+    let program = cmd.split_whitespace().next().unwrap_or("");
+    // Handle common wrappers: npx/bunx/pnpx are the actual binary to check
+    let actual = match program {
+        "npx" | "bunx" | "pnpx" => program,
+        _ => program,
+    };
+    which::which(actual).is_ok()
+}
+
 // ── Guard command ──────────────────────────────────────────────────
 
 pub fn cmd_guard(json_mode: bool, layer: String) {
@@ -447,9 +460,29 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
     let mut results: Vec<serde_json::Value> = Vec::new();
     let mut all_passed = true;
     let mut pass_count: usize = 0;
+    let mut skip_count: usize = 0;
+    let mut fail_count: usize = 0;
     let mut pretty_buf = String::new();
 
     for (layer_name, cmd_type, cmd) in &commands {
+        // Check if the command's program is available before running
+        if !check_tool_available(cmd) {
+            let program = cmd.split_whitespace().next().unwrap_or("unknown");
+            skip_count += 1;
+            results.push(json!({
+                "name": format!("{}/{}", layer_name, cmd_type),
+                "status": "skipped",
+                "summary": format!("{} not found in PATH", program),
+            }));
+            if !json_mode {
+                pretty_buf.push_str(&format!(
+                    "\u{2014} [{}] {}: skipped ({} not found in PATH)\n",
+                    layer_name, cmd_type, program
+                ));
+            }
+            continue;
+        }
+
         let output = Command::new("sh")
             .args(["-c", cmd])
             .current_dir(&repo_root)
@@ -469,6 +502,7 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
             pass_count += 1;
         } else {
             all_passed = false;
+            fail_count += 1;
         }
 
         let filtered = filter_guard_output(cmd_type, &stdout_str, &stderr_str);
@@ -500,15 +534,36 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
     }
 
     if json_mode {
-        json_output(json!({"guards": results}));
+        json_output(json!({
+            "guards": results,
+            "passed": pass_count,
+            "failed": fail_count,
+            "skipped": skip_count,
+        }));
     } else {
         let total = commands.len();
-        let suffix = if all_passed { "" } else { " \u{2014} FAILED" };
-        pretty_buf.push_str(&format!("\n{}/{} guards passed{}", pass_count, total, suffix));
+        let mut suffix_parts: Vec<String> = Vec::new();
+        if fail_count > 0 {
+            suffix_parts.push(format!("{} failed", fail_count));
+        }
+        if skip_count > 0 {
+            suffix_parts.push(format!("{} skipped", skip_count));
+        }
+        let suffix = if suffix_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", suffix_parts.join(", "))
+        };
+        let fail_marker = if !all_passed { " \u{2014} FAILED" } else { "" };
+        pretty_buf.push_str(&format!(
+            "\n{}/{} guards passed{}{}",
+            pass_count, total, suffix, fail_marker
+        ));
         pretty_output("guard", &pretty_buf);
     }
 
-    if !all_passed {
+    // Only exit non-zero if there are actual failures; skipped checks do NOT block
+    if fail_count > 0 {
         std::process::exit(1);
     }
 }

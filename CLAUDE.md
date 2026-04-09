@@ -61,6 +61,7 @@ All three must pass (or be skipped via `flowctl config set review.backend none`)
 | `--depth=short\|standard\|deep` | plan | Override plan depth |
 | `--review=rp\|codex\|none` | plan, run | Override review backend |
 | `--quick` | go, run | Fast path for trivial changes (skip brainstorm, plan review, impl review) |
+| `--interactive` | go, run | Pause at key decisions for user confirmation |
 
 ## Worker Protocol (Teams Mode)
 

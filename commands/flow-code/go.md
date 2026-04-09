@@ -16,3 +16,4 @@ Pass the user request to the skill. The skill auto-detects mode from input type:
 - Spec file path → plan from spec (skip brainstorm)
 - `--plan-only` → stop after planning
 - `--quick` → fast path for trivial changes (skip brainstorm, plan review, impl review)
+- `--interactive` → pause at key decisions for user confirmation

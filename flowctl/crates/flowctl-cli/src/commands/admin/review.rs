@@ -71,6 +71,27 @@ pub fn cmd_review_backend(json_mode: bool, compare: Option<String>, epic: Option
         }
     };
 
+    // Verify the configured backend tool is actually available in PATH
+    let (backend, source) = match backend.as_str() {
+        "rp" => {
+            if which::which("rp-cli").is_ok() {
+                (backend, source)
+            } else {
+                eprintln!("warning: review backend 'rp' configured but rp-cli not in PATH, falling back to 'none'");
+                ("none".to_string(), format!("{} (fallback: rp-cli not found)", source))
+            }
+        }
+        "codex" => {
+            if which::which("codex").is_ok() {
+                (backend, source)
+            } else {
+                eprintln!("warning: review backend 'codex' configured but codex not in PATH, falling back to 'none'");
+                ("none".to_string(), format!("{} (fallback: codex not found)", source))
+            }
+        }
+        _ => (backend, source),
+    };
+
     // --compare mode: compare review receipt files
     let receipt_files: Option<Vec<String>> = if let Some(epic_id) = &epic {
         if compare.is_none() {

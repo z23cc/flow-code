@@ -573,6 +573,17 @@ enum Commands {
         new: String,
     },
 
+    // ── Recovery ──────────────────────────────────────────────────────
+    /// Recover task completion status from git history.
+    Recover {
+        /// Epic ID to recover tasks for.
+        #[arg(long)]
+        epic: String,
+        /// Preview without making changes.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     // ── Shell completions ────────────────────────────────────────────
     /// Generate shell completions.
     Completions {
@@ -783,6 +794,11 @@ fn main() {
         }
         Commands::Edit { file, old, new } => {
             commands::edit::cmd_edit(json, &file, &old, &new);
+        }
+
+        // Recovery
+        Commands::Recover { epic, dry_run } => {
+            commands::recover::cmd_recover(json, &epic, dry_run);
         }
 
         // Shell completions

@@ -8,13 +8,53 @@ use flowctl_core::types::FLOW_DIR;
 
 /// Get the .flow/ directory path.
 ///
-/// Returns `$CWD/.flow/` which is expected to be a symlink to the shared
-/// state dir (`.git/flow-state/flow/`) in git repos. The symlink is created
-/// by `flowctl init` and by the worktree kit on worktree creation.
+/// Resolution order:
+/// 1. `FLOW_STATE_DIR` environment variable (explicit override)
+/// 2. Walk up the directory tree looking for `.flow/` (like git finds `.git/`)
+/// 3. Fallback to `$CWD/.flow/` (for `flowctl init` before `.flow/` exists)
 pub fn get_flow_dir() -> PathBuf {
+    // 1. Environment variable override (explicit)
+    if let Ok(dir) = env::var("FLOW_STATE_DIR") {
+        return PathBuf::from(dir);
+    }
+
+    // 2. Walk up directory tree looking for .flow (like git finds .git)
+    if let Ok(mut current) = env::current_dir() {
+        loop {
+            let candidate = current.join(FLOW_DIR);
+            if candidate.exists() {
+                return candidate;
+            }
+            if !current.pop() {
+                break;
+            }
+        }
+    }
+
+    // 3. Fallback to CWD/.flow (for init)
     env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(FLOW_DIR)
+}
+
+/// Get the project root directory (parent of .flow/).
+/// Returns None if .flow/ is not found in any parent directory.
+pub fn get_project_root() -> Option<PathBuf> {
+    if let Ok(dir) = env::var("FLOW_STATE_DIR") {
+        return PathBuf::from(dir).parent().map(|p| p.to_path_buf());
+    }
+    if let Ok(mut current) = env::current_dir() {
+        loop {
+            let candidate = current.join(FLOW_DIR);
+            if candidate.exists() {
+                return Some(current);
+            }
+            if !current.pop() {
+                break;
+            }
+        }
+    }
+    None
 }
 
 /// Resolve the shared flow state directory (real path, not symlink).

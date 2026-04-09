@@ -28,7 +28,7 @@ fn compute_epic_create(
 ) -> (String, String, Changes) {
     let max_epic = find_max_epic_number();
     let epic_num = max_epic + 1;
-    let slug = slugify(title, 40);
+    let slug = slugify(title, 20);
     let suffix = slug.unwrap_or_else(|| generate_epic_suffix(3));
     let epic_id = format!("fn-{epic_num}-{suffix}");
 
@@ -249,7 +249,7 @@ pub fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
     let epic_num = parsed.epic;
 
     // Generate new ID
-    let new_slug = slugify(new_title, 40);
+    let new_slug = slugify(new_title, 20);
     let new_suffix = new_slug.unwrap_or_else(|| generate_epic_suffix(3));
     let new_id = format!("fn-{epic_num}-{new_suffix}");
 

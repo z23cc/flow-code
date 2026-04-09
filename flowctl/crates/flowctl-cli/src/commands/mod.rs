@@ -32,4 +32,5 @@ pub mod file;
 pub mod plan_depth;
 pub mod search;
 pub mod skill;
+pub mod recover;
 pub mod workflow;

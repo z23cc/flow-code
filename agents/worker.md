@@ -579,6 +579,14 @@ If self-review finds issues that required fixes, record as pitfall:
 <FLOWCTL> memory add pitfall "Self-review: <what was wrong>"
 ```
 
+**Run Quick Commands** from epic spec (if present):
+```bash
+# Read ## Quick commands section from epic spec and execute each command
+<FLOWCTL> cat <EPIC_ID> | grep -A20 "## Quick commands"
+# Run each command listed — these are smoke tests that verify the epic still works
+# If any fails, fix before proceeding to commit
+```
+
 **Rules:**
 - Only fix issues in YOUR changes — don't refactor unrelated code
 - If unsure whether something is an issue, leave it for Phase 8 (external review)

@@ -52,6 +52,11 @@ struct Cli {
     #[arg(long, global = true)]
     dry_run: bool,
 
+    /// Project root directory (overrides CWD for .flow/ resolution).
+    /// Use this when running flowctl from a subdirectory.
+    #[arg(long = "project-dir", short = 'C', global = true)]
+    project_dir: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -621,6 +626,14 @@ fn main() {
     output::init_compact(cli.output.compact);
     let json = cli.output.json;
     let dry_run = cli.dry_run;
+
+    // Apply --project-dir: change CWD before any command runs.
+    // This fixes the #1 recurring audit failure: CWD drift after cd to subdirectories.
+    if let Some(ref dir) = cli.project_dir {
+        if let Err(e) = std::env::set_current_dir(dir) {
+            output::error_exit(&format!("Cannot cd to project dir '{}': {}", dir, e));
+        }
+    }
 
     /// Resolve dual-mode argument: positional `id` takes precedence over `--epic` flag.
     fn resolve_epic(id: Option<String>, epic_flag: Option<String>, cmd_name: &str) -> String {

@@ -73,41 +73,37 @@ fn get_or_init_phase(flow_dir: &std::path::Path, epic_id: &str) -> PipelinePhase
     }
 }
 
-/// Validate that score evidence contains per-question scores (Q1:N Q2:N ...).
+/// Validate review evidence. Requires minimum content length to prevent
+/// score fabrication (audit finding: AI fills "Q1:3 Q2:2..." without
+/// actually running forcing questions).
 fn validate_score_evidence(evidence: &str, expected_questions: usize, phase: &str) {
-    // Count Q-score entries like "Q1:3" or "Q1: 3"
-    let q_count = evidence
-        .split_whitespace()
-        .filter(|token| {
-            token.starts_with('Q') && token.contains(':')
-                && token.len() >= 3
-        })
-        .count();
-
-    if q_count < expected_questions {
+    // Minimum 200 chars — short scores like "Q1:3 Q2:2..." are ~40 chars.
+    // Actual review content with reasoning is 500+ chars.
+    let min_chars = 200;
+    if evidence.len() < min_chars {
         error_exit(&format!(
-            "{phase} evidence must contain scores for all {expected_questions} questions.\n\
-             Found {q_count} question scores. Expected format: \"Q1:3 Q2:2 Q3:3 ...\"\n\
-             You must actually run each forcing question before scoring it."
+            "{phase} evidence is too short ({} chars, minimum {min_chars}).\n\
+             Evidence must contain actual review findings, not just scores.\n\
+             Example: --evidence \"Q1(Right problem):3 evidence-backed, Q2(Do-nothing):2 risk of X, ...\"\n\
+             Run the actual forcing questions and include your reasoning.",
+            evidence.len()
         ));
     }
 
-    // Verify the total matches --score
-    let total: u32 = evidence
-        .split_whitespace()
-        .filter_map(|token| {
-            if token.starts_with('Q') && token.contains(':') {
-                token.split(':').nth(1)?.trim().parse::<u32>().ok()
-            } else {
-                None
-            }
-        })
-        .sum();
+    // Count Q-entries to verify coverage
+    let q_count = evidence
+        .split("Q")
+        .filter(|s| !s.is_empty() && s.chars().next().map_or(false, |c| c.is_ascii_digit()))
+        .count();
 
-    // Just warn if total doesn't match (don't block — allow rounding)
-    if total > 0 {
-        eprintln!("Evidence total: {total}/{} (from {q_count} questions)", expected_questions * 3);
+    if q_count < expected_questions / 2 {
+        error_exit(&format!(
+            "{phase} evidence references only {q_count} questions (expected ~{expected_questions}).\n\
+             Include findings for each question: Q1(...):score reason, Q2(...):score reason, ..."
+        ));
     }
+
+    eprintln!("Evidence: {q_count} questions referenced, {} chars", evidence.len());
 }
 
 /// Update pipeline phase in file store.

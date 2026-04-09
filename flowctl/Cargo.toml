@@ -48,6 +48,15 @@ ignore = "0.4"
 # Fuzzy diff/patch
 fudiff = "0.2"
 
+# Binary serialization (N-gram index)
+bincode = { version = "2", features = ["serde"] }
+
+# Fast byte search
+memchr = "2"
+
+# Regex AST (trigram extraction from regex patterns)
+regex-syntax = "0.8"
+
 # CLI (cli crate)
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"

@@ -17,6 +17,31 @@ pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>
     let flow_dir = ensure_flow_exists();
     let actor = resolve_actor();
 
+    // ── Parallel execution safety check ────────────────────────
+    // If other tasks in the same epic are already in_progress, warn about
+    // worktree isolation requirement. This catches the #1 audit failure:
+    // workers running in the same directory without isolation.
+    let epic_id = flowctl_core::id::epic_id_from_task(&id).unwrap_or_default();
+    if !epic_id.is_empty() {
+        if let Ok(tasks) = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id) {
+            let in_progress: Vec<String> = tasks
+                .iter()
+                .filter(|t| t.status == flowctl_core::state_machine::Status::InProgress && t.id != id)
+                .map(|t| t.id.clone())
+                .collect();
+            if !in_progress.is_empty() && !force {
+                eprintln!(
+                    "⚠️  PARALLEL EXECUTION WARNING: {} other task(s) already in_progress: {}\n\
+                     Workers MUST use isolation: \"worktree\" to prevent race conditions.\n\
+                     If workers share the same directory, file edits will conflict.\n\
+                     Use --force to suppress this warning.",
+                    in_progress.len(),
+                    in_progress.join(", ")
+                );
+            }
+        }
+    }
+
     let req = StartTaskRequest {
         task_id: id.clone(),
         force,
@@ -26,11 +51,27 @@ pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>
     match flowctl_core::lifecycle::start_task(&flow_dir, req) {
         Ok(resp) => {
             if json_mode {
-                json_output(json!({
+                let mut out = json!({
                     "id": resp.task_id,
                     "status": "in_progress",
-                    "message": format!("Task {} started", resp.task_id),
-                }));
+                });
+                // Include parallel warning in JSON so agent sees it
+                let epic_id = flowctl_core::id::epic_id_from_task(&resp.task_id).unwrap_or_default();
+                if !epic_id.is_empty() {
+                    if let Ok(tasks) = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id) {
+                        let in_progress_count = tasks
+                            .iter()
+                            .filter(|t| t.status == flowctl_core::state_machine::Status::InProgress)
+                            .count();
+                        if in_progress_count > 1 {
+                            out["parallel_warning"] = json!(format!(
+                                "{} tasks now in_progress — use isolation:worktree for each worker",
+                                in_progress_count
+                            ));
+                        }
+                    }
+                }
+                json_output(out);
             } else {
                 println!("Task {} started", resp.task_id);
             }

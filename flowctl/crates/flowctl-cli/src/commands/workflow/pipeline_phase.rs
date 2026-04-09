@@ -23,6 +23,12 @@ pub enum PipelinePhaseCmd {
         epic: String,
     },
     /// Mark current phase as done and advance to next.
+    ///
+    /// Some phases require evidence to advance:
+    /// - plan_review: --score N (self-review score out of 30)
+    /// - work: --guard-ran (confirms guard was executed between waves)
+    /// - impl_review: --score N (self-review score out of 30)
+    /// - close: --guard-ran (confirms final guard was executed)
     Done {
         /// Epic ID.
         #[arg(long)]
@@ -30,6 +36,15 @@ pub enum PipelinePhaseCmd {
         /// Phase name to mark done (must match current phase).
         #[arg(long)]
         phase: String,
+        /// Self-review score (required for plan_review and impl_review).
+        #[arg(long)]
+        score: Option<u32>,
+        /// Confirms guard was executed (required for work and close).
+        #[arg(long)]
+        guard_ran: bool,
+        /// Skip evidence requirements (escape hatch for --quick path).
+        #[arg(long)]
+        no_gate: bool,
     },
 }
 
@@ -37,7 +52,9 @@ pub enum PipelinePhaseCmd {
 pub fn dispatch_pipeline_phase(cmd: &PipelinePhaseCmd, json: bool) {
     match cmd {
         PipelinePhaseCmd::Next { epic } => cmd_phase_next(json, epic),
-        PipelinePhaseCmd::Done { epic, phase } => cmd_phase_done(json, epic, phase),
+        PipelinePhaseCmd::Done { epic, phase, score, guard_ran, no_gate } => {
+            cmd_phase_done(json, epic, phase, *score, *guard_ran, *no_gate)
+        }
     }
 }
 
@@ -81,8 +98,8 @@ fn cmd_phase_next(json: bool, epic_id: &str) {
     }
 }
 
-/// `flowctl phase done --epic <id> --phase <name> --json`
-fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str) {
+/// `flowctl phase done --epic <id> --phase <name> [--score N] [--guard-ran] [--no-gate] --json`
+fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str, score: Option<u32>, guard_ran: bool, no_gate: bool) {
     let flow_dir = ensure_flow_exists();
 
     let requested = match PipelinePhase::parse(phase_name) {
@@ -111,18 +128,74 @@ fn cmd_phase_done(json: bool, epic_id: &str, phase_name: &str) {
         error_exit("Pipeline is already at the terminal phase (close). No further advancement.");
     }
 
+    // ── Evidence gates (skip with --no-gate for quick path) ────────
+    if !no_gate {
+        match current {
+            PipelinePhase::PlanReview => {
+                if score.is_none() {
+                    error_exit(
+                        "plan_review requires --score N (self-review score out of 30).\n\
+                         Run the 10 forcing questions, compute the total, then:\n\
+                         $FLOWCTL phase done --epic ID --phase plan_review --score 25 --json"
+                    );
+                }
+            }
+            PipelinePhase::Work => {
+                if !guard_ran {
+                    error_exit(
+                        "work phase requires --guard-ran (confirms guard was executed between waves).\n\
+                         Run $FLOWCTL guard first, then:\n\
+                         $FLOWCTL phase done --epic ID --phase work --guard-ran --json"
+                    );
+                }
+            }
+            PipelinePhase::ImplReview => {
+                if score.is_none() {
+                    error_exit(
+                        "impl_review requires --score N (self-review score out of 30).\n\
+                         Run the 10 forcing questions, compute the total, then:\n\
+                         $FLOWCTL phase done --epic ID --phase impl_review --score 25 --json"
+                    );
+                }
+            }
+            PipelinePhase::Close => {
+                if !guard_ran {
+                    error_exit(
+                        "close phase requires --guard-ran (confirms final guard was executed).\n\
+                         Run $FLOWCTL guard first, then:\n\
+                         $FLOWCTL phase done --epic ID --phase close --guard-ran --json"
+                    );
+                }
+            }
+            _ => {} // brainstorm and plan have no evidence gates
+        }
+    }
+
     let next_phase = current.next().expect("non-terminal phase has a next");
     update_phase(&flow_dir, epic_id, &next_phase);
 
     if json {
-        json_output(json!({
+        let mut out = json!({
             "previous_phase": current.as_str(),
             "phase": next_phase.as_str(),
             "prompt": next_phase.prompt_template(),
             "all_done": next_phase.is_terminal(),
-        }));
+        });
+        if let Some(s) = score {
+            out["evidence_score"] = json!(s);
+        }
+        if guard_ran {
+            out["guard_ran"] = json!(true);
+        }
+        json_output(out);
     } else {
         println!("Advanced: {} → {}", current, next_phase);
+        if let Some(s) = score {
+            println!("Evidence: self-review score {}/30", s);
+        }
+        if guard_ran {
+            println!("Evidence: guard executed");
+        }
         println!("Prompt: {}", next_phase.prompt_template());
         if next_phase.is_terminal() {
             println!("Status: all phases complete");

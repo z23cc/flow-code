@@ -38,13 +38,17 @@ Accepts:
 When `--quick` flag is present OR auto-detected as trivial (input ≤10 words, contains "fix"/"typo"/"config"/"bump"/"rename"/"simple"/"trivial"):
 
 ```bash
-# Quick path — skip brainstorm/plan_review/impl_review
+# Quick path — use --no-gate to skip evidence requirements
 $FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --json
 $FLOWCTL epic plan $EPIC_ID --spec "Quick fix: <description>" --json
 $FLOWCTL task create --epic $EPIC_ID --title "<description>" --json
 $FLOWCTL phase done --epic $EPIC_ID --phase plan --json
-$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --json
-# Work: single worker, then guard-only impl_review, then close
+$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --no-gate --json
+# Work: single worker, then:
+$FLOWCTL guard
+$FLOWCTL phase done --epic $EPIC_ID --phase work --guard-ran --json
+$FLOWCTL phase done --epic $EPIC_ID --phase impl_review --no-gate --json
+$FLOWCTL phase done --epic $EPIC_ID --phase close --guard-ran --json
 ```
 
 ---
@@ -212,7 +216,7 @@ REVIEW_BACKEND=$($FLOWCTL review-backend)
 ```
 
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --json
+$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --score TOTAL_SCORE --json
 ```
 
 ---
@@ -267,7 +271,7 @@ $FLOWCTL ready $EPIC_ID --json
 
 **W4: Complete work phase**
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase work --json
+$FLOWCTL phase done --epic $EPIC_ID --phase work --guard-ran --json
 ```
 
 ---
@@ -311,7 +315,7 @@ $FLOWCTL memory add --type pitfall --epic $EPIC_ID "Review: finding summary"
 ```
 
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase impl_review --json
+$FLOWCTL phase done --epic $EPIC_ID --phase impl_review --score TOTAL_SCORE --json
 ```
 
 ---
@@ -362,7 +366,7 @@ git push origin HEAD 2>/dev/null || true
 ```
 
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase close --json
+$FLOWCTL phase done --epic $EPIC_ID --phase close --guard-ran --json
 ```
 
 ---

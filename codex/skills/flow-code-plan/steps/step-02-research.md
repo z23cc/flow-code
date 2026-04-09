@@ -14,6 +14,10 @@ $FLOWCTL config get scouts.github --json
 $FLOWCTL stack show --json
 ```
 
+## Read Project Context
+
+Read `.flow/project-context.md` if it exists. Use Non-Goals to scope out excluded approaches. Use File Conventions to auto-assign task domains. Use Architecture Decisions to avoid proposing alternatives to settled choices.
+
 ## Check Architecture Invariants
 
 ```bash

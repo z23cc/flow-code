@@ -4,23 +4,31 @@
 > Focus on what's **unobvious** — things agents can't infer from code alone.
 
 ## Technology Stack
-<!-- Fill in your project's stack -->
-- Framework: 
-- Language: 
-- Database: 
-- Testing: 
-- Linting: 
+<!-- Auto-detected by flowctl init. Edit as needed. -->
+
+## Guard Commands
+<!-- Commands that flowctl guard will execute. Leave empty to skip a check. -->
+```yaml
+test: ""
+lint: ""
+typecheck: ""
+format_check: ""
+```
 
 ## Critical Implementation Rules
 <!-- Rules that agents must follow — patterns, conventions, constraints -->
-<!-- Example: "All API routes must validate input with zod" -->
-<!-- Example: "Error handling uses Result pattern, not try-catch" -->
-<!-- Example: "Components go in src/components/, utils in src/lib/" -->
+
+## File Conventions
+<!-- Maps domains to file patterns for auto domain assignment -->
+```yaml
+frontend: []
+backend: []
+testing: []
+docs: []
+```
 
 ## Architecture Decisions
 <!-- Key decisions and their rationale -->
-<!-- Example: "Chose SQLite over PostgreSQL because single-user desktop app" -->
 
 ## Non-Goals
 <!-- Things agents should NOT do -->
-<!-- Example: "Do not add TypeScript strict mode — legacy codebase" -->

@@ -97,6 +97,7 @@ Detect input type to decide whether to execute or skip:
 **Execute brainstorm** (input is natural language — a new idea).
 **This is always AUTO mode — AI self-interview, no AskUserQuestion, no human input.**
 1. **Codebase context**: Search for files related to the request (Grep/Glob for key terms), read git log for recent changes, check existing `.flow/` specs for related work
+   - Read `.flow/project-context.md` Non-Goals to filter out excluded approaches.
 2. **Classify complexity**: Trivial (1-2 files) / Medium (clear feature) / Large (cross-cutting)
 3. **Self-interview**: Ask and answer 6-10 Q&A pairs grounded in code evidence. Core questions:
    - Who uses this and what pain point does it solve?
@@ -121,6 +122,7 @@ Detect input type to decide whether to execute or skip:
 2. If backend is "none" or "ASK", skip review and advance with `$FLOWCTL phase done`
 3. Otherwise run review via RP context_builder or Codex
 4. Fix issues until SHIP verdict (max 3 iterations)
+5. Verify plan does not propose anything listed in Non-Goals or contradict Architecture Decisions from `.flow/project-context.md`.
 
 ### Work (work)
 1. Find ready tasks: `$FLOWCTL ready $EPIC_ID --json`
@@ -155,6 +157,7 @@ Detect input type to decide whether to execute or skip:
    - **Accessibility**: keyboard navigable, screen reader compatible, contrast ratios met (frontend changes only)
    - **Infrastructure**: environment variables documented, migrations reversible, feature flags configured
    - **Documentation**: README/CHANGELOG updated if user-facing, API docs match implementation
+   - **Non-Goals compliance**: verify changes don't introduce anything listed in `.flow/project-context.md` Non-Goals
    Any failing dimension: fix before proceeding. Skip dimensions not applicable to the change (e.g., skip accessibility for backend-only epics).
 4. Mark complete: $FLOWCTL epic completion $EPIC_ID ship --json
 5. Push branch and create draft PR (unless --no-pr)

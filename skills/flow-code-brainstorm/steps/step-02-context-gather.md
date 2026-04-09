@@ -16,6 +16,7 @@ FLOWCTL="$HOME/.flow/bin/flowctl"
 3. Check existing `.flow/` specs/epics for related work
 4. Read key config files, README, CLAUDE.md for project constraints
 5. Identify affected modules, dependencies, and integration points
+6. Read `.flow/project-context.md` Non-Goals and Architecture Decisions. Do NOT propose approaches that conflict with Non-Goals. Reference Architecture Decisions to avoid re-debating settled choices.
 
 ## Classify Complexity
 

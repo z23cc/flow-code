@@ -27,6 +27,7 @@ use commands::{
     memory::MemoryCmd,
     outputs::OutputsCmd,
     patch::PatchCmd,
+    project_context::ProjectContextCmd,
     query,
     ralph::RalphCmd,
     rp::RpCmd,
@@ -495,6 +496,13 @@ enum Commands {
         cmd: PatchCmd,
     },
 
+    // ── Project context ──────────────────────────────────────────────
+    /// Project context commands (parse .flow/project-context.md).
+    ProjectContext {
+        #[command(subcommand)]
+        cmd: ProjectContextCmd,
+    },
+
     // ── Data exchange ────────────────────────────────────────────────
     /// Export epics/tasks from DB to Markdown files.
     Export {
@@ -723,6 +731,9 @@ fn main() {
 
         // Patch
         Commands::Patch { cmd } => commands::patch::dispatch(&cmd, json),
+
+        // Project context
+        Commands::ProjectContext { cmd } => commands::project_context::dispatch(&cmd, json),
 
         // Search
         Commands::Search { query, git, limit } => {

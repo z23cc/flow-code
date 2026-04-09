@@ -25,6 +25,7 @@ pub mod ngram_index;
 pub mod outputs;
 pub mod patch;
 pub mod pipeline;
+pub mod project_context;
 pub mod repo_map;
 pub mod review_protocol;
 pub mod state_machine;

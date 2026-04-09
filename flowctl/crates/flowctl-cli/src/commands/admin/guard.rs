@@ -13,6 +13,7 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output, pretty_output};
 
+use flowctl_core::project_context::ProjectContext;
 use flowctl_core::types::CONFIG_FILE;
 
 use super::{deep_merge, get_default_config, get_flow_dir};
@@ -337,10 +338,43 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
         get_default_config()
     };
 
+    // ── Priority chain: project-context → stack config → auto-detection ──
+    // Try project-context.md first (highest priority).
+    let pc = ProjectContext::load(&flow_dir);
+    let pc_commands = pc.as_ref().map(|ctx| {
+        let gc = &ctx.guard_commands;
+        let mut cmds: Vec<(String, String, String)> = Vec::new();
+        let layer_name = "project".to_string();
+        if let Some(ref cmd) = gc.test {
+            if !cmd.is_empty() && (layer == "all" || layer == "project") {
+                cmds.push((layer_name.clone(), "test".to_string(), cmd.clone()));
+            }
+        }
+        if let Some(ref cmd) = gc.lint {
+            if !cmd.is_empty() && (layer == "all" || layer == "project") {
+                cmds.push((layer_name.clone(), "lint".to_string(), cmd.clone()));
+            }
+        }
+        if let Some(ref cmd) = gc.typecheck {
+            if !cmd.is_empty() && (layer == "all" || layer == "project") {
+                cmds.push((layer_name.clone(), "typecheck".to_string(), cmd.clone()));
+            }
+        }
+        if let Some(ref cmd) = gc.format_check {
+            if !cmd.is_empty() && (layer == "all" || layer == "project") {
+                cmds.push((layer_name.clone(), "format_check".to_string(), cmd.clone()));
+            }
+        }
+        cmds
+    });
+
+    // Use project-context commands if any are defined; otherwise fall back to stack config.
+    let use_project_context = pc_commands.as_ref().is_some_and(|c| !c.is_empty());
+
     let stack = config.get("stack").cloned().unwrap_or(json!({}));
     let stack_obj = stack.as_object();
 
-    if stack_obj.is_none() || stack_obj.unwrap().is_empty() {
+    if !use_project_context && (stack_obj.is_none() || stack_obj.unwrap().is_empty()) {
         if json_mode {
             json_output(json!({
                 "results": [],
@@ -355,20 +389,24 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
     let cmd_types = ["test", "lint", "typecheck"];
     let mut commands: Vec<(String, String, String)> = Vec::new(); // (layer_name, type, cmd)
 
-    for (layer_name, layer_conf) in stack_obj.unwrap() {
-        if layer != "all" && layer_name != &layer {
-            continue;
-        }
-        if let Some(layer_obj) = layer_conf.as_object() {
-            for ct in &cmd_types {
-                if let Some(cmd_val) = layer_obj.get(*ct) {
-                    if let Some(cmd_str) = cmd_val.as_str() {
-                        if !cmd_str.is_empty() {
-                            commands.push((
-                                layer_name.clone(),
-                                ct.to_string(),
-                                cmd_str.to_string(),
-                            ));
+    if use_project_context {
+        commands = pc_commands.unwrap();
+    } else {
+        for (layer_name, layer_conf) in stack_obj.unwrap() {
+            if layer != "all" && layer_name != &layer {
+                continue;
+            }
+            if let Some(layer_obj) = layer_conf.as_object() {
+                for ct in &cmd_types {
+                    if let Some(cmd_val) = layer_obj.get(*ct) {
+                        if let Some(cmd_str) = cmd_val.as_str() {
+                            if !cmd_str.is_empty() {
+                                commands.push((
+                                    layer_name.clone(),
+                                    ct.to_string(),
+                                    cmd_str.to_string(),
+                                ));
+                            }
                         }
                     }
                 }

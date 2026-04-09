@@ -242,7 +242,7 @@ When performing impl_review or epic-level code review, spawn 3 independent revie
 ### Layer 3: Acceptance Auditor
 - **Input**: Git diff + task spec + project-context.md (if exists)
 - **Context**: Full spec and project standards
-- **Purpose**: Verify every acceptance criterion is met, no spec drift
+- **Purpose**: Verify every acceptance criterion is met, no spec drift. Check Non-Goals and Critical Implementation Rules from project-context.md for violations.
 - **Prompt**: See `prompts/acceptance-auditor.md`
 
 ### Orchestration

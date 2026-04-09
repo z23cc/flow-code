@@ -77,6 +77,10 @@ Determine the RP_CONTEXT tier (check in order, first match wins):
    - **Tier 2 (CLI)**: `which rp-cli >/dev/null 2>&1` succeeds -> `RP_CONTEXT=cli`
    - **Tier 3 (fallback)**: Neither available -> `RP_CONTEXT=none`
 
+## Read Project Context for Workers
+
+If `.flow/project-context.md` exists, read the Non-Goals and Critical Implementation Rules sections. Include these in the worker prompt so workers don't violate constraints.
+
 ## Worker Prompt Generation
 
 Use `flowctl worker-prompt --bootstrap` to generate a minimal bootstrap prompt for each worker. This outputs a ~200 token prompt that instructs the worker to call `worker-phase next` in a loop, fetching full phase instructions on demand.
@@ -110,6 +114,8 @@ Agent({
     RP_CONTEXT: $RP_CONTEXT
     TEAM_MODE: true
     OWNED_FILES: <comma-separated file list from Step 6>
+    PROJECT_CONTEXT_NON_GOALS: <Non-Goals from .flow/project-context.md if exists>
+    PROJECT_CONTEXT_CRITICAL_RULES: <Critical Implementation Rules from .flow/project-context.md if exists>
   "
 })
 ```

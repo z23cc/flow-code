@@ -14,8 +14,9 @@ Find at least 3 issues. Investigate:
 ## How to investigate
 
 1. Read the diff to identify changed functions/modules.
-2. Use Grep/Glob/Read to find callers, related tests, type definitions, and configuration that interact with the changed code.
-3. For each finding, explain the trigger condition and consequence.
+2. If `.flow/project-context.md` exists, read the Critical Implementation Rules section. Check the diff for violations of these rules (e.g., using unsafe when forbidden, violating naming conventions, breaking architectural patterns).
+3. Use Grep/Glob/Read to find callers, related tests, type definitions, and configuration that interact with the changed code.
+4. For each finding, explain the trigger condition and consequence.
 
 ## Rules
 - Ground every finding in evidence from the diff or project files.

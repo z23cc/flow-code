@@ -1,3 +1,11 @@
+---
+id: ADR-001
+status: accepted
+date: 2026-04-07
+tags: [core, storage]
+verify: "! grep -rn 'libsql\\|rusqlite\\|diesel\\|sqlx' flowctl/crates/ --include='*.rs' --include='*.toml'"
+scope: "flowctl/crates/"
+---
 # ADR-001: Pure File-Based State (No Database)
 
 ## Status

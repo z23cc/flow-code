@@ -1,3 +1,11 @@
+---
+id: ADR-003
+status: accepted
+date: 2026-04-07
+tags: [core, architecture]
+verify: "test -f bin/flowctl && file bin/flowctl | grep -q 'Mach-O\\|ELF'"
+scope: "flowctl/"
+---
 # ADR-003: Rust Single Binary for flowctl
 
 ## Status

@@ -18,6 +18,18 @@ $FLOWCTL stack show --json
 
 Read `.flow/project-context.md` if it exists. Use Non-Goals to scope out excluded approaches. Use File Conventions to auto-assign task domains. Use Architecture Decisions to avoid proposing alternatives to settled choices.
 
+## Read Architecture Decision Records
+
+```bash
+ls docs/decisions/ADR-*.md 2>/dev/null
+```
+
+If ADRs exist, scan their YAML frontmatter and Decision sections. Key constraints:
+- **Rejected Alternatives**: Do NOT propose these approaches again
+- **Constraints** (in Consequences): Rules all tasks must follow
+- **Scope**: Which files are governed by which ADR
+- If a new task would conflict with an accepted ADR, either respect the ADR or propose superseding it with a new ADR
+
 ## Check Architecture Invariants
 
 ```bash

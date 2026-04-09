@@ -1,3 +1,11 @@
+---
+id: ADR-002
+status: accepted
+date: 2026-04-08
+tags: [quality, review]
+verify: "grep -q 'guard' flowctl/crates/flowctl-cli/src/commands/admin/guard.rs && grep -q 'adversarial' flowctl/crates/flowctl-cli/src/commands/codex/mod.rs"
+scope: "flowctl/crates/flowctl-cli/src/commands/admin/guard.rs"
+---
 # ADR-002: Three-Layer Quality Gate System
 
 ## Status

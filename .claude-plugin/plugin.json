@@ -1,6 +1,6 @@
 {
   "name": "flow-code",
-  "version": "0.1.45",
+  "version": "0.1.46",
   "description": "Zero-dependency planning + execution with .flow/ task tracking and Ralph autonomous mode (multi-model review gates). Worker subagent per task with git worktree isolation for parallel execution. Three-layer quality system (guard + RP plan-review + Codex adversarial). Full-auto by default — AI decides from context, zero questions. Teams-default with file locking, DAG mutation, Codex-driven conflict resolution, auto draft-PR. Auto-detected stack profiles with one-command guard (test/lint/typecheck). Enhanced agent definitions with permissionMode/maxTurns/effort. Lifecycle hooks with state preservation (PreCompact injects .flow state into compaction, TaskCompleted auto-unlocks files, SubagentStart context injection). Memory v2 with atomic entries, dedup, and progressive disclosure. TDD enforcement mode. Multi-epic queue with dependency visualization. Includes 24 subagents, 22 commands, 74 skills.",
   "author": {
     "name": "z23cc",

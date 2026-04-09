@@ -4,6 +4,27 @@ All notable changes to Flow-Code are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Semantic Versioning](https://semver.org/).
 
+## [0.1.46] - 2026-04-09
+
+### Added
+- **47 forcing questions** across entire pipeline (brainstorm 20Q + plan_review 10Q + impl_review 10Q + close 7Q)
+- Every question has reject/accept criteria + mandatory pushback
+- Quantitative scoring gates: brainstorm /25, plan_review /30, impl_review /30, close /21
+- Brainstorm 5 dimensions: Problem Reality, Solution Space, Risk & Failure, Implementation, Long-term
+- Plan review: Premise Challenge (4Q) + Architecture Interrogation (6Q)
+- Impl review: Correctness (5Q) + Quality (5Q) + 3-layer parallel review
+- Close: Ship-readiness interrogation with security grep, impact analysis, rollback plan
+- Adaptive tier sizing: Trivial 6Q, Medium 17Q, Large 20Q (brainstorm)
+
+### Fixed
+- **P0: State directory resolution** — `get_flow_dir()` now walks up directory tree (fixes state loss in subdirectories)
+- **P0: State recovery** — `flowctl recover --epic <id>` rebuilds task status from git history
+- **P1: Guard fallback** — missing tools → "skipped" not "failed" (doesn't block pipeline)
+- **P1: Review-backend verify** — rp-cli/codex not in PATH → auto-fallback to "none"
+- **P2: Slug length** — max 40 → 20 characters (shorter task IDs)
+- **P2: Brainstorm auto-skip** — trivial tasks (≤10 words, "fix"/"typo") skip brainstorm
+- **P2: --interactive flag** — pause at key decisions for user confirmation
+
 ## [0.1.45] - 2026-04-09
 
 ### Added

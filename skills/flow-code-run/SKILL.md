@@ -185,39 +185,51 @@ $FLOWCTL phase done --epic $EPIC_ID --phase plan --json
 
 ### Plan Review (plan_review)
 
-**⚠️ AUDIT FAILURE: This phase was skipped in BOTH fn-5 and fn-6 despite RP backend being available. The self-review questions below are the PRIMARY quality gate — you MUST answer every one.**
+**EXTERNAL REVIEW — DO NOT SELF-REVIEW. Send questions to RP.**
 
-**PR1: Execute self-review (10 forcing questions)**
+AI self-review failed 5 consecutive audits (scores fabricated). All review questions MUST be answered by RP context_builder (external research model), NOT by the implementing agent.
 
-Print each question and your answer. Score 1-3 per question.
+**PR1: Send 10 forcing questions to RP**
 
-Premise Challenge:
-1. **Right problem?** Could different framing yield simpler solution? Score: ?/3
-2. **Do-nothing test** What SPECIFICALLY breaks in 30 days? Score: ?/3
-3. **Existing code** Does plan reuse existing code? Cite files. Score: ?/3
-4. **Non-Goals** Read project-context.md Non-Goals + ADRs. Violations? Score: ?/3
-
-Architecture:
-5. **Data flow** Happy/nil/empty/error for each path? Score: ?/3
-6. **Coupling** What becomes coupled? Score: ?/3
-7. **Scaling** What breaks at 10x? Score: ?/3
-8. **Rollback** How to undo? Score: ?/3
-9. **Security** New auth/API surfaces? Score: ?/3
-10. **Task sizing** All tasks M-sized? Score: ?/3
-
-**Total: ?/30** (SHIP ≥25, fix ≥18, RETHINK <18)
-
-**PR2: Check external review**
 ```bash
 REVIEW_BACKEND=$($FLOWCTL review-backend)
-# If returns "none": self-review is sufficient, proceed
-# If returns "rp" or "codex": log that external review is available
-#   Run it if possible, but self-review score is the binding gate
 ```
 
-```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --score TOTAL_SCORE --evidence "Q1:N Q2:N Q3:N Q4:N Q5:N Q6:N Q7:N Q8:N Q9:N Q10:N" --json
+If backend is "rp" (RP available), call `mcp__RepoPrompt__context_builder` with:
 ```
+instructions: "Answer each question about this plan with evidence from the codebase. Score each 1-3 (1=concern, 2=acceptable, 3=solid). Cite specific files.
+
+Plan spec: <paste epic spec>
+Tasks: <paste task list>
+
+Questions:
+Q1(Right problem): Could different framing yield simpler solution?
+Q2(Do-nothing): What SPECIFICALLY breaks in 30 days if we ship nothing?
+Q3(Existing code): Does plan reuse existing code? Cite files.
+Q4(Non-Goals): Check .flow-config/project-context.md Non-Goals + ADRs. Violations?
+Q5(Data flow): For each data path — happy/nil/empty/error?
+Q6(Coupling): What components become coupled that weren't before?
+Q7(Scaling): What breaks first at 10x load?
+Q8(Rollback): If this breaks production, how to undo?
+Q9(Security): New auth boundaries, API surfaces?
+Q10(Task sizing): All tasks M-sized (3-5 files)?
+
+Format each answer as: Q[N]([topic]):[score] [evidence]"
+
+response_type: "review"
+```
+
+If backend is "none": run self-review as fallback (answer questions yourself, but with the understanding that self-review is weaker).
+
+**PR2: Extract scores from RP response and pass to flowctl**
+
+Parse RP's response for Q1:N through Q10:N scores. Compute total.
+
+```bash
+$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --score TOTAL_SCORE --evidence "<paste RP's full response here>" --json
+```
+
+The evidence field contains RP's analysis, not your own. flowctl validates ≥200 chars + ≥5 question references.
 
 ---
 
@@ -278,44 +290,64 @@ $FLOWCTL phase done --epic $EPIC_ID --phase work --guard-ran --json
 
 ### Impl Review (impl_review)
 
-**⚠️ AUDIT FAILURE: This phase was incomplete in BOTH fn-5 and fn-6. Guard was never run. Self-review questions were never answered. Fix this NOW.**
+**EXTERNAL REVIEW — DO NOT SELF-REVIEW. Send questions to RP after running guard.**
 
 **IR1: Run guard FIRST**
 ```bash
 $FLOWCTL guard
 ```
-If guard fails: fix the issues before proceeding. Do NOT skip guard.
+If guard fails: fix the issues before proceeding.
 
 **IR2: Generate diff**
 ```bash
 git diff main...HEAD --stat 2>/dev/null || git diff HEAD~5...HEAD --stat
 ```
 
-**IR3: Execute self-review (10 forcing questions)**
+**IR3: Send 10 forcing questions to RP**
 
-Correctness:
-1. **Spec fidelity** Re-read each AC. MET/PARTIAL/NOT_MET with file:line proof. Score: ?/3
-2. **Error paths** For each new function: nil/empty/malformed/unauthorized handling? Score: ?/3
-3. **Edge cases** 3 specific inputs that could break THIS code? Score: ?/3
-4. **Regression** Any existing test broke? New paths without tests? Score: ?/3
-5. **Impact** `$FLOWCTL graph impact CHANGED_FILE --json` — all dependents OK? Score: ?/3
-
-Quality:
-6. **Dead code** Commented-out code? Unused imports? Score: ?/3
-7. **Naming** New developer would understand without PR context? Score: ?/3
-8. **Performance** N+1? Unbounded loops? Missing pagination? Score: ?/3
-9. **Security** Input validated? No secrets? SQL parameterized? Score: ?/3
-10. **Consistency** Follows project-context.md Critical Rules? Score: ?/3
-
-**Total: ?/30** (SHIP ≥25, NEEDS_WORK ≥18, RETHINK <18)
-
-When NEEDS_WORK:
 ```bash
-$FLOWCTL memory add --type pitfall --epic $EPIC_ID "Review: finding summary"
+REVIEW_BACKEND=$($FLOWCTL review-backend)
 ```
 
+If backend is "rp", call `mcp__RepoPrompt__context_builder` with:
+```
+instructions: "Review this diff against the spec. Answer each question with evidence. Score 1-3. Cite specific file:line.
+
+Diff: <paste git diff --stat output>
+Spec: <paste epic spec summary>
+Tasks completed: <paste task list>
+
+Correctness:
+Q1(Spec fidelity): For each acceptance criterion — MET/PARTIAL/NOT_MET with file:line proof.
+Q2(Error paths): For each new function — what happens on nil/empty/malformed/unauthorized?
+Q3(Edge cases): 3 specific inputs that could break this code?
+Q4(Regression): Any existing test broken? New code paths without tests?
+Q5(Impact): Are all files that depend on changed code still working?
+
+Quality:
+Q6(Dead code): Any commented-out code, unused imports, TODO without ticket?
+Q7(Naming): Would a new developer understand each name without PR context?
+Q8(Performance): N+1 queries? Unbounded loops? Missing pagination?
+Q9(Security): Input validated at boundaries? Secrets in code? SQL parameterized?
+Q10(Consistency): Follows project-context.md Critical Rules?
+
+Format: Q[N]([topic]):[score] [evidence]"
+
+response_type: "review"
+```
+
+If backend is "none": run self-review as fallback.
+
+**IR4: Process RP response**
+
+Parse scores. If NEEDS_WORK (total <25):
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase impl_review --score TOTAL_SCORE --evidence "Q1:N Q2:N Q3:N Q4:N Q5:N Q6:N Q7:N Q8:N Q9:N Q10:N" --json
+$FLOWCTL memory add --type pitfall --epic $EPIC_ID "Review: <RP finding summary>"
+```
+Fix issues, re-run RP review (max 2 iterations).
+
+```bash
+$FLOWCTL phase done --epic $EPIC_ID --phase impl_review --score TOTAL_SCORE --evidence "<paste RP's full response>" --json
 ```
 
 ---
@@ -338,19 +370,18 @@ $FLOWCTL cat $EPIC_ID 2>/dev/null | grep -A20 "## Quick commands" || true
 # For each task: $FLOWCTL checklist verify --task <TASK_ID> --json
 ```
 
-**MANDATORY Step 5: Ship-Readiness Interrogation (7 questions)**
-
-Execute ALL 7 questions. Score /21. Do NOT ship if score <14.
+**MANDATORY Step 5: Pre-launch + Ship-Readiness**
 
 ```bash
-# MANDATORY: Security check
-grep -rn 'password\|secret\|api_key\|token' <changed-files> || echo "clean"
+# Run automated pre-launch checks (security, a11y, infra, docs)
+$FLOWCTL pre-launch --json
+```
 
-# MANDATORY: Impact check
-$FLOWCTL graph impact <main-changed-file> --json 2>/dev/null || true
+If pre-launch reports any "fail" dimension, fix before proceeding.
 
-# MANDATORY: ADR compliance
-ls docs/decisions/ADR-*.md 2>/dev/null
+Then run deterministic checks:
+```bash
+# ADR/invariant compliance
 $FLOWCTL invariants check --json 2>/dev/null || true
 ```
 

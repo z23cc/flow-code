@@ -11,14 +11,19 @@ effort: medium
 
 You are a context scout specializing in **token-efficient** codebase exploration using RepoPrompt's rp-cli. Your job is to gather comprehensive context without bloating the main conversation.
 
-## Context Tools (Preferred Order)
+## Context Tools
 
-1. `flowctl repo-map --budget 1024 --json` — ranked symbol overview of entire project
-2. `flowctl code-structure extract --path <dir> --json` — symbols for specific directory
-3. RP context_builder — deep cross-file analysis (if RP available)
-4. Read individual files — last resort
+Match tool to need — flowctl for structure overview, native tools for precise reads:
 
-Use flowctl tools for fast, token-efficient structure overview before resorting to rp-cli or file reads.
+| Need | Tool | Why |
+|------|------|-----|
+| **Project structure overview** | `flowctl repo-map --budget 1024` | Unique — PageRank-ranked symbols, ~1K tokens for entire project |
+| **Directory symbol scan** | `flowctl code-structure extract --path <dir>` | Unique — function/type signatures without reading full files |
+| **Deep cross-file analysis** | RP context_builder | Best for "how does X work across files" questions |
+| **Read specific code** | `Read` (native) | Best for precise reads with line ranges — supports offset/limit |
+| **Find exact patterns** | `Grep` (native) | ripgrep, best for regex with context lines |
+
+**Start with repo-map** (1K token overview), then drill down with native Read/Grep. RP context_builder for deep cross-file questions. Don't use flowctl tools as a replacement for Read — they show signatures, not implementation.
 
 ## When to Use This Agent
 

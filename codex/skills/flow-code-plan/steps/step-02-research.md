@@ -44,25 +44,30 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 - Put `$FLOWCTL guard` in epic's Quick commands section (replaces manual test/lint commands)
 - Tag task specs with which stack layer they belong to (backend/frontend/infra) in the Files field
 
-## Pre-Scout Search (flowctl tools)
+## Pre-Scout Quick Context
 
-Before spawning scouts, use flowctl's built-in search tools for fast initial discovery:
+Before spawning scouts, gather initial context. Use the right tool for each need:
 
 ```bash
-# Fuzzy file search with frecency + git status ranking
-$FLOWCTL search "<key terms from request>" --limit 20 --json
-
-# Trigram indexed content search (if index exists)
-$FLOWCTL index search "<key terms from request>" --limit 20 --json
-
-# Project structure overview
+# 1. Project structure overview (flowctl — unique, no native equivalent)
+#    Skip for trivial/single-file tasks
 $FLOWCTL repo-map --budget 512 --json
 
-# Symbol extraction for key directories
+# 2. Find related files — use Grep (native) for known patterns
+#    Use flowctl search only if file names are fuzzy/uncertain
+Grep "<key terms>" --type <lang>
+
+# 3. Symbol extraction for key directories (flowctl — unique)
 $FLOWCTL code-structure extract --path <relevant-dir> --json
 ```
 
-Feed these results into scout prompts for more targeted exploration. Skip if the request is trivial (single-file, clear location).
+**When to use flowctl vs native:**
+- `flowctl repo-map` / `code-structure` → always valuable (no native equivalent)
+- `Grep` / `Glob` → default for file/content search (faster, regex support)
+- `flowctl search` → only when unsure of file names (fuzzy matching)
+- `flowctl index search` → only for large repos with repeated searches
+
+Feed results into scout prompts for targeted exploration.
 
 ## Scout Selection: AI Decides Per-Request
 

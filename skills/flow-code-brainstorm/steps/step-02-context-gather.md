@@ -8,10 +8,10 @@ FLOWCTL="$HOME/.flow/bin/flowctl"
 
 **In auto mode, gather deep context:**
 1. Search for files related to the request:
-   - `$FLOWCTL search "<key terms>" --limit 20 --json` — fuzzy file search with frecency ranking
-   - `$FLOWCTL index search "<key terms>" --limit 20 --json` — trigram content search (if index exists)
-   - `$FLOWCTL code-structure extract --path <relevant-dir> --json` — extract symbols for key directories
-   - Grep/Glob for exact regex patterns (fallback)
+   - `Grep "<key terms>"` — native ripgrep for exact pattern matching (default)
+   - `Glob "**/*keyword*"` — native file pattern search
+   - `$FLOWCTL code-structure extract --path <relevant-dir> --json` — symbols without reading full files (unique, no native equivalent)
+   - `$FLOWCTL search "<terms>"` — only if file names uncertain (fuzzy + frecency)
 2. Read git log for recent changes in relevant areas
 3. Check existing `.flow/` specs/epics for related work
 4. Read key config files, README, CLAUDE.md for project constraints

@@ -13,6 +13,7 @@ pub mod codex_sync;
 pub mod events;
 pub mod frecency;
 pub mod fuzzy;
+pub mod graph_store;
 pub mod compress;
 pub mod config;
 pub mod dag;

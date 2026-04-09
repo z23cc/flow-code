@@ -21,6 +21,7 @@ use commands::{
     dep::DepCmd,
     epic::EpicCmd,
     gap::GapCmd,
+    graph::GraphCmd,
     hook::HookCmd,
     index::IndexCmd,
     log::LogCmd,
@@ -280,6 +281,11 @@ enum Commands {
     Index {
         #[command(subcommand)]
         cmd: IndexCmd,
+    },
+    /// Code graph commands (build, refs, impact, map).
+    Graph {
+        #[command(subcommand)]
+        cmd: GraphCmd,
     },
     /// Stats dashboard: summary, trends, tokens, DORA metrics.
     Stats {
@@ -545,6 +551,28 @@ enum Commands {
         path: String,
     },
 
+    // ── Intent-level commands ────────────────────────────────────────
+    /// Smart code search (auto-routes to best backend).
+    Find {
+        /// Search query.
+        query: String,
+        /// Maximum number of results.
+        #[arg(long, default_value = "20")]
+        limit: usize,
+    },
+    /// Smart code edit (exact match with fuzzy fallback).
+    Edit {
+        /// File to edit.
+        #[arg(long)]
+        file: String,
+        /// Text to find and replace.
+        #[arg(long)]
+        old: String,
+        /// Replacement text.
+        #[arg(long)]
+        new: String,
+    },
+
     // ── Shell completions ────────────────────────────────────────────
     /// Generate shell completions.
     Completions {
@@ -648,6 +676,7 @@ fn main() {
         Commands::Codex { cmd } => commands::codex::dispatch(&cmd, json),
         Commands::Hook { cmd } => commands::hook::dispatch(&cmd),
         Commands::Index { cmd } => commands::index::dispatch(&cmd, json),
+        Commands::Graph { cmd } => commands::graph::dispatch(&cmd, json),
         Commands::Stats { cmd } => commands::stats::dispatch(&cmd, json),
         Commands::WorkerPhase { cmd } => workflow::dispatch_worker_phase(&cmd, json),
         Commands::Phase { cmd } => workflow::dispatch_pipeline_phase(&cmd, json),
@@ -747,6 +776,14 @@ fn main() {
         // Code structure & repo map
         Commands::CodeStructure { cmd } => commands::code_structure::dispatch(&cmd, json),
         Commands::RepoMap { budget, path } => commands::repo_map::cmd_repo_map(json, budget, &path),
+
+        // Intent-level commands
+        Commands::Find { query, limit } => {
+            commands::find::cmd_find(json, &query, limit);
+        }
+        Commands::Edit { file, old, new } => {
+            commands::edit::cmd_edit(json, &file, &old, &new);
+        }
 
         // Shell completions
         Commands::Completions { shell } => {

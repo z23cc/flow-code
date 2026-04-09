@@ -207,8 +207,10 @@ git log -5 --oneline
 
 # 3. Quick context (optional — skip for trivial tasks)
 # Only run these if the task touches unfamiliar code:
-# $FLOWCTL repo-map --json    ← full project symbol overview (skip for trivial tasks)
-# $FLOWCTL search "<terms>" --git modified  ← find recently changed related files
+# Understand project structure (instant from cached graph)
+# $FLOWCTL graph map --json
+# Find related files for this task
+# $FLOWCTL find "<task-relevant-terms>" --json
 
 # 4. Check memory system
 <FLOWCTL> config get memory.enabled --json
@@ -403,7 +405,7 @@ The key constraint: **no implementation code before a failing test exists**. Thi
 
 Follow the `flow-code-incremental` skill: build in vertical slices (Implement→Test→Verify→Commit per slice). Each slice leaves the system working. Scope discipline: only touch what the task spec requires.
 
-For code edits, **use Edit (native tool) by default** — it shows diffs to users and handles most cases. Only fall back to `flowctl patch replace` if Edit fails due to text drift (e.g., another Worker modified the file in Teams mode, or context compaction lost the exact text).
+For code edits, **use Edit (native tool) by default** — it shows diffs to users and handles most cases. If Edit fails due to text drift, fall back to `flowctl edit --file <path> --old "text" --new "text"` which tries exact then fuzzy matching.
 
 **First, capture base commit for scoped review:**
 ```bash

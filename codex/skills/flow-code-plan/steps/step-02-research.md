@@ -46,26 +46,20 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 
 ## Pre-Scout Quick Context
 
-Before spawning scouts, gather initial context. Use the right tool for each need:
+Before spawning scouts, gather initial context using intent-level commands:
 
 ```bash
-# 1. Project structure overview (flowctl — unique, no native equivalent)
-#    Skip for trivial/single-file tasks
-$FLOWCTL repo-map --json
+# Project structure overview (instant from cached graph)
+$FLOWCTL graph map --json
 
-# 2. Find related files — use Grep (native) for known patterns
-#    Use flowctl search only if file names are fuzzy/uncertain
-Grep "<key terms>" --type <lang>
+# Find related code
+$FLOWCTL find "<key terms from request>" --json
 
-# 3. Symbol extraction for key directories (flowctl — unique)
-$FLOWCTL code-structure extract --path <relevant-dir> --json
+# Check what would be impacted
+$FLOWCTL graph impact <likely-changed-file> --json
 ```
 
-**When to use flowctl vs native:**
-- `flowctl repo-map` / `code-structure` → always valuable (no native equivalent)
-- `Grep` / `Glob` → default for file/content search (faster, regex support)
-- `flowctl search` → only when unsure of file names (fuzzy matching)
-- `flowctl index search` → only for large repos with repeated searches
+For exact regex with context, use native `Grep`. For file patterns, use native `Glob`.
 
 Feed results into scout prompts for targeted exploration.
 

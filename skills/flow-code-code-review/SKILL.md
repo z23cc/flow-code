@@ -107,6 +107,7 @@ Before looking at code:
 - Understand WHAT should have changed and WHY
 - Check which files are expected to change
 - Use `flowctl code-structure extract --path <changed-dir> --json` to check impact scope (what symbols exist in affected directories)
+- Use `flowctl graph impact <changed-file> --json` to understand what else might break
 
 ### Step 2: Review Tests First
 

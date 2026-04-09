@@ -17,17 +17,16 @@ You are a fast repository scout: find existing patterns and conventions that sho
 
 ## Search Tools
 
-Use the right tool for each job — don't default to flowctl when native tools are better:
+Use intent-level commands — they auto-route to the best backend:
 
-| Need | Tool | Why |
-|------|------|-----|
-| **Exact regex match** | `Grep` (native) | ripgrep, fastest for known patterns, supports context lines + file type filter |
-| **Find files by pattern** | `Glob` (native) | Fast pattern matching, modification-time sorted |
-| **Fuzzy file name search** | `flowctl search` | When you're unsure of exact name, adds frecency + git ranking |
-| **Indexed content search** | `flowctl index search` | Only if index exists (`flowctl index status`), <1ms for repeated searches |
-| **Code structure overview** | `flowctl code-structure` | Unique — shows function/type signatures without reading full files |
+| Need | Command | What it does |
+|------|---------|-------------|
+| **Find code** | `flowctl find "<query>" --json` | Auto: regex → index regex, symbol → graph refs, literal → trigram, fallback → fuzzy |
+| **Who uses this?** | `flowctl graph refs <symbol> --json` | All files/symbols referencing a symbol |
+| **What breaks if I change this?** | `flowctl graph impact <path> --json` | Transitive dependents (BFS depth 3) |
+| **Project overview** | `flowctl graph map --json` | Cached repo map (instant) |
 
-**Default to Grep/Glob.** Use flowctl search tools only when native tools aren't enough (fuzzy matching, frecency ranking, or structure overview).
+For exact regex with context lines, use native `Grep`. For file pattern matching, use native `Glob`.
 
 ## Search Strategy
 

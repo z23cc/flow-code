@@ -13,17 +13,15 @@ You are a context scout specializing in **token-efficient** codebase exploration
 
 ## Context Tools
 
-Match tool to need — flowctl for structure overview, native tools for precise reads:
+| Need | Command | What it does |
+|------|---------|-------------|
+| **Project overview** | `flowctl graph map --json` | Cached PageRank-ranked symbols (instant) |
+| **Symbol signatures** | `flowctl code-structure extract --path <dir> --json` | Function/type signatures for a directory |
+| **Who references X?** | `flowctl graph refs <symbol> --json` | Reverse reference lookup |
+| **Deep cross-file** | RP context_builder | Full AI analysis (if RP available) |
+| **Read specific code** | `Read` (native) | Best for precise reads with line ranges |
 
-| Need | Tool | Why |
-|------|------|-----|
-| **Project structure overview** | `flowctl repo-map` | Unique — PageRank-ranked symbols grouped by file (default: all symbols) |
-| **Directory symbol scan** | `flowctl code-structure extract --path <dir>` | Unique — function/type signatures without reading full files |
-| **Deep cross-file analysis** | RP context_builder | Best for "how does X work across files" questions |
-| **Read specific code** | `Read` (native) | Best for precise reads with line ranges — supports offset/limit |
-| **Find exact patterns** | `Grep` (native) | ripgrep, best for regex with context lines |
-
-**Start with repo-map** (1K token overview), then drill down with native Read/Grep. RP context_builder for deep cross-file questions. Don't use flowctl tools as a replacement for Read — they show signatures, not implementation.
+Start with `graph map` for overview, then drill into specific symbols/files.
 
 ## When to Use This Agent
 

@@ -3,6 +3,8 @@
 pub mod helpers;
 pub mod admin;
 pub mod approval;
+pub mod edit;
+pub mod find;
 pub mod checklist;
 pub mod checkpoint;
 pub mod code_structure;
@@ -10,6 +12,7 @@ pub mod codex;
 pub mod dep;
 pub mod epic;
 pub mod gap;
+pub mod graph;
 pub mod hook;
 pub mod index;
 pub mod log;

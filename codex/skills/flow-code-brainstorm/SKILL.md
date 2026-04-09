@@ -75,24 +75,36 @@ Classify into one of three tiers:
 
 Tell the user which tier you picked and why (one sentence).
 
-## Phase 1: Pressure Test
+## Phase 1: Forcing Questions (with Pushback)
 
-Ask exactly 3 questions, **one at a time**, using `AskUserQuestion` for each.
+Ask questions **one at a time** via `AskUserQuestion`. After each answer, apply pushback — challenge vague/hypothetical responses.
 
-**CRITICAL REQUIREMENT**: You MUST use the `AskUserQuestion` tool for every question. Do NOT output questions as plain text — they will be ignored.
+### Q1: Demand Reality
+> What's the strongest evidence this change is actually needed?
+- **Reject**: "It would be nice" / "best practice says" / "users might want"
+- **Accept**: Specific failure, measured waste, blocked workflow, production incident
+- If answer is vague, reframe: "Let me restate what I think the core need is: [restate]. Is that right?"
 
-Wait for each answer before asking the next question.
+### Q2: Status Quo
+> How is this being handled RIGHT NOW without this change?
+- **Reject**: "Nothing handles this" (if nobody works around it, pain isn't real)
+- **Accept**: Specific workaround, manual steps, duct-tape solution
+- If no workaround: "Who is suffering and how? If nobody, should we build this?"
 
-### Question 1: Who and why?
-> Who uses this? What's the specific pain point or motivation?
+### Q3: Narrowest Wedge
+> What's the smallest version that delivers 80% of the value?
+- **Reject**: "We need the full implementation"
+- **Accept**: One function/file/config change that unblocks the core use case
+- Push: "Can this ship in < 1 day? If not, can we cut more?"
 
-### Question 2: Cost of inaction?
-> What happens if we do nothing? What's the actual cost or risk?
+### Q4: Failure Pre-mortem
+> If this shipped and FAILED, what are the top 3 causes?
+- **Reject**: Vague categories ("security issues", "performance")
+- **Accept**: Specific scenarios ("token not refreshed after 1hr", "N+1 on list page")
 
-### Question 3: Simpler framing?
-> Is there a simpler version that delivers 80% of the value? What's the minimum viable version?
-
-After all 3 answers, summarize the key insights in 2-3 bullets before proceeding.
+After all 4 answers, summarize key insights in 2-3 bullets. Rate quality:
+- All answers specific + evidence-backed → proceed
+- Any answer still vague → flag as risk in requirements
 
 ## Structured Deepening
 

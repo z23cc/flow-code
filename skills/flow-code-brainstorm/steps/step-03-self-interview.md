@@ -1,104 +1,151 @@
-# Step 3: Interview (Interactive or Self-Interview)
+# Step 3: Deep Exploration (Interview or Self-Interview)
 
 ## Interactive Mode (AUTO_MODE=false)
 
-Original behavior — ask user questions via `AskUserQuestion`.
-
-### Phase 1: Pressure Test
-
-Ask exactly 3 questions, **one at a time**, using `AskUserQuestion` for each.
-
-**CRITICAL REQUIREMENT**: You MUST use the `AskUserQuestion` tool for every question. Do NOT output questions as plain text — they will be ignored.
-
-Wait for each answer before asking the next question.
-
-#### Question 1: Who and why?
-> Who uses this? What's the specific pain point or motivation?
-
-#### Question 2: Cost of inaction?
-> What happens if we do nothing? What's the actual cost or risk?
-
-#### Question 3: Simpler framing?
-> Is there a simpler version that delivers 80% of the value? What's the minimum viable version?
-
-After all 3 answers, summarize the key insights in 2-3 bullets before proceeding.
-
----
+Ask questions **one at a time** via `AskUserQuestion`. Wait for each answer. Apply pushback rules below.
 
 ## Auto Mode (AUTO_MODE=true)
 
-AI self-interview — no `AskUserQuestion` calls. All answers derived from codebase analysis, best practices, and reasoning.
+AI self-interview — no `AskUserQuestion`. All answers from codebase analysis + reasoning.
 
 **Output contract (auto mode):**
-1. Print Q&A pairs to **stdout** so the user sees the reasoning in conversation
-2. Embed Q&A pairs in the requirements doc under a `## Self-Interview Trace` section
-3. Requirements doc written to `.flow/specs/${SLUG}-requirements.md` (same as interactive)
+1. Print each Q&A pair to stdout (user sees the reasoning)
+2. Embed full trace in requirements doc under `## Self-Interview Trace`
 
-### Phase A1: Deep Code Analysis
+---
 
-Before self-interview, gather evidence:
+## Phase A1: Evidence Gathering
 
-1. **Affected surface**: Grep/Glob for all files related to the request. List them.
-2. **Current patterns**: How does the codebase currently handle similar functionality? Read 3-5 key files.
-3. **Dependencies**: What modules/packages/APIs are involved? Check imports, configs.
-4. **Test coverage**: Do tests exist for the affected area? What kind?
-5. **Recent history**: `git log --oneline -20` on affected files — who changed what, why?
-6. **Existing specs**: Check `.flow/specs/` and `.flow/epics/` for related prior work.
+Before questioning, gather hard evidence:
 
-### Phase A2: Self-Interview
+1. **Affected surface**: `flowctl find "<key terms>" --json` → list all related files
+2. **Current patterns**: Read 3-5 key files. How does the codebase handle similar things?
+3. **Dependencies**: Check imports, configs, shared types
+4. **Test coverage**: Do tests exist? What kind? What's missing?
+5. **Recent history**: `git log --oneline -20` on affected files
+6. **Existing specs**: Check `.flow/specs/` and `.flow/epics/` for related work
+7. **Impact graph**: `flowctl graph impact <main-file> --json` → what would break?
 
-Ask and answer questions in structured Q&A format. Output each as a visible block:
+---
+
+## Phase A2: Forcing Questions (Sequential, with Pushback)
+
+Each question has **rejection criteria** — answers that are too vague MUST be re-examined. In auto mode, if the first answer falls into a rejection category, the AI must challenge itself and provide a more specific answer.
+
+Format each as:
 
 ```
-### Q: <question>
-**A:** <answer with code evidence>
+### Q1: [Question]
+**First answer:** [initial response]
+**Pushback:** [challenge the answer using rejection criteria]
+**Refined answer:** [specific, evidence-grounded response]
 ```
 
-**Core questions (always ask all):**
+### Q1: Demand Reality
+> What's the strongest evidence this change is actually needed?
 
-#### 1. Problem & Users
-> Q: Who uses this and what specific pain point does it solve?
-> A: Derive from codebase context — who calls the affected code, what user-facing behavior it impacts.
+- **Reject**: "It would be nice" / "best practice says" / "users might want" / "it's cleaner"
+- **Accept**: Specific failure observed, measured time waste, blocked workflow, real user complaint, production incident
+- **Pushback test**: Does the answer cite a SPECIFIC event/metric, or is it hypothetical?
 
-#### 2. Cost of Inaction
-> Q: What happens if we do nothing? What breaks or degrades?
-> A: Check for open issues, error patterns, performance trends, tech debt signals in the code.
+### Q2: Status Quo
+> How is this being handled RIGHT NOW without this change?
 
-#### 3. Simpler Framing
-> Q: Is there a simpler version that delivers 80% of the value?
-> A: Analyze the request — what's the minimum change that solves the core problem? What can be deferred?
+- **Reject**: "Nothing handles this" (if nothing does, pain isn't real enough)
+- **Accept**: Specific workaround described, manual steps counted, duct-tape solution identified
+- **Pushback test**: If no workaround exists, WHO is suffering and HOW? If nobody, why build it?
 
-#### 4. Existing Patterns
-> Q: How does the codebase currently handle similar problems?
-> A: Cite specific files, functions, patterns found in Phase A1. Quote code if relevant.
+### Q3: Narrowest Wedge
+> What's the smallest version that delivers 80% of the value?
 
-#### 5. Integration Points
-> Q: What other systems/modules will this touch? What contracts must be preserved?
-> A: List APIs, shared types, database schemas, config files that are affected.
+- **Reject**: "We need the full implementation" / "It won't work if incomplete"
+- **Accept**: One function, one file, one config change that unblocks the core use case
+- **Pushback test**: Can you ship this in < 1 day? If not, scope is too big.
 
-#### 6. Edge Cases & Failure Modes
-> Q: What can go wrong? What are the boundary conditions?
-> A: Analyze error handling in current code, identify missing cases, concurrency risks.
+### Q4: Existing Code Audit
+> What already exists in the codebase that solves part of this?
 
-**Extended questions (Large tier only):**
+- **Reject**: "Nothing relevant" (search harder — `flowctl find`, `graph refs`)
+- **Accept**: Specific functions, patterns, utilities that can be reused or extended
+- **Pushback test**: If >50% already exists, is this a refactor/extension rather than a new feature?
 
-#### 7. Performance Impact
-> Q: Will this change affect latency, memory, or throughput?
-> A: Analyze hot paths, data volume, caching layers in affected code.
+### Q5: Integration & Contracts
+> What systems/modules will this touch? What contracts must be preserved?
 
-#### 8. Security Surface
-> Q: Does this introduce or modify authentication, authorization, or data handling?
-> A: Check for auth middleware, input validation, sensitive data flows.
+- **Reject**: "It's self-contained" (almost nothing is — check imports, callers, config)
+- **Accept**: Listed APIs, shared types, database schemas, config files affected
+- **Pushback test**: Run `flowctl graph impact <file>` — is the impact bigger than expected?
 
-#### 9. Migration & Compatibility
-> Q: Are there breaking changes? Do we need data migration or feature flags?
-> A: Check API contracts, database schemas, config formats for backwards compatibility.
+### Q6: Failure Pre-mortem
+> Assume this shipped and FAILED in production. Top 3 most likely causes?
 
-#### 10. Testing Strategy
-> Q: What test types are needed and what's the current coverage gap?
-> A: Analyze existing test files for the affected area, identify missing test categories.
+- **Reject**: Vague categories ("security issues", "performance problems")
+- **Accept**: Specific scenarios ("auth token not refreshed after 1hr", "N+1 query on user list page")
+- **Pushback test**: For each cause, is prevention cost < fix-later cost? If not, accept the risk explicitly.
 
-**Adaptive follow-ups**: If any answer reveals unexpected complexity (e.g., a shared module with 10+ consumers, no test coverage, concurrency issues), add 1-2 follow-up Q&A pairs to drill into that specific area. Cap at 15 total Q&A pairs.
+### Q7: Temporal Walk-Through
+> Walk through implementation step by step:
+
+```
+Hour 1 (foundations):  What does the implementer need to know FIRST?
+Hour 2-3 (core):      What ambiguities will they HIT?
+Hour 4-5 (integration): What will SURPRISE them?
+Hour 6+ (polish):     What will they WISH they'd planned for?
+```
+
+Surface decisions that should be resolved NOW, not during implementation.
+
+---
+
+## Extended Questions (Large tier only — skip for Trivial/Medium)
+
+### Q8: Performance Impact
+> Will this change affect latency, memory, or throughput?
+- Check hot paths, data volume, caching layers in affected code.
+
+### Q9: Security Surface
+> Does this introduce or modify auth, data handling, or external access?
+- Check auth middleware, input validation, sensitive data flows.
+
+### Q10: Migration & Compatibility
+> Are there breaking changes? Data migration needed? Feature flags?
+- Check API contracts, database schemas, config formats.
+
+---
+
+## Phase A3: Structured Deepening
+
+After all questions, apply ONE named reasoning method (auto-selected based on task type):
+
+| Task type | Method | Prompt |
+|-----------|--------|--------|
+| New feature / spec | **Pre-mortem** | "Assume this failed 6 months later. What are the 3 most likely causes?" |
+| Architecture / refactor | **First Principles** | "Strip all assumptions. What's the simplest solution from ground truth?" |
+| Bug fix / reliability | **Inversion** | "How would you guarantee this fails? Now avoid those things." |
+| Security / API | **Red Team** | "You're an attacker. How do you break this?" |
+| Scope decision | **Constraint Removal** | "Remove all constraints (time, tech, team). What changes? What stays?" |
+
+Append deepening insights to the self-interview trace.
+
+---
+
+## Pushback Scoring
+
+After all Q&A, rate the exploration quality:
+
+| Dimension | Score (1-5) | Criteria |
+|-----------|-------------|----------|
+| **Specificity** | ? | Are answers citing specific files, lines, metrics? |
+| **Evidence** | ? | Are claims backed by code/git/data, not assumption? |
+| **Challenge depth** | ? | Did pushback reveal anything the first answer missed? |
+| **Completeness** | ? | Are all major risk areas covered? |
+| **Actionability** | ? | Can a developer start implementing from these answers? |
+
+**Total: ?/25**
+
+- **20-25**: Excellent — proceed to approaches
+- **15-19**: Good — proceed but flag weak areas for plan phase
+- **<15**: Insufficient — add 2-3 follow-up Q&A pairs on the weakest dimensions
 
 ## Next Step
 

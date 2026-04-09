@@ -144,7 +144,7 @@ Scan the L1 index for entries relevant to this plan's domain. If relevant entrie
 $FLOWCTL memory search "<keyword matching this plan's domain>"
 ```
 
-> **Deduplication note:** Memory is injected here at plan time for research context. Workers also inject memory in Phase 2, but scoped to their specific task domain via `--tags`. Plan-phase injection is broad (full domain scan); worker injection is narrow (task-specific tags). This is intentional — plan needs wide context, workers need focused context. No deduplication is needed because the scopes differ.
+> **Deduplication note:** Memory is injected here at plan time for full research context. Workers also inject memory in Phase 2 via `flowctl memory inject --json`. Both use the same full memory store — the difference is that plan uses memory for broad research, while workers focus on their specific task. No deduplication needed because the usage context differs.
 
 **Apply lessons to plan design:**
 - **Pitfalls** -> add as explicit warnings in task specs or acceptance criteria ("Verify X does not regress Y")

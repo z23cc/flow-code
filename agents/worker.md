@@ -663,6 +663,21 @@ Go through each `- [ ]` acceptance criterion in the spec:
 3. If a criterion says "return proper error" — did you handle all error cases, not just 400?
 4. If any criterion is NOT met — fix it now, before completing
 
+**Definition of Done checklist** — verify structured completion criteria:
+```bash
+<FLOWCTL> checklist init --task <TASK_ID> --json  # create if not exists
+<FLOWCTL> checklist check --task <TASK_ID> --item spec_read --json
+<FLOWCTL> checklist check --task <TASK_ID> --item architecture_compliant --json
+<FLOWCTL> checklist check --task <TASK_ID> --item all_ac_satisfied --json
+<FLOWCTL> checklist check --task <TASK_ID> --item edge_cases_handled --json
+<FLOWCTL> checklist check --task <TASK_ID> --item unit_tests_added --json
+<FLOWCTL> checklist check --task <TASK_ID> --item existing_tests_pass --json
+<FLOWCTL> checklist check --task <TASK_ID> --item lint_pass --json
+<FLOWCTL> checklist check --task <TASK_ID> --item files_listed --json
+<FLOWCTL> checklist verify --task <TASK_ID> --json
+```
+If verify fails, fix the unchecked items before proceeding.
+
 **Rules:**
 - This is a 1-minute sanity check, not a full re-review
 - Only check acceptance criteria, not general quality (Phase 6 already did that)

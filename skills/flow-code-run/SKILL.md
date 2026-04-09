@@ -155,7 +155,8 @@ Detect input type to decide whether to execute or skip:
 1. Validate: $FLOWCTL validate --epic $EPIC_ID --json
 2. Run final guard: `$FLOWCTL guard` (lint + type + test must pass)
 3. **Run Quick Commands** from epic spec: `$FLOWCTL cat $EPIC_ID | grep -A20 "## Quick commands"` — execute each listed smoke test. If any fails, fix before shipping.
-4. **Pre-launch checklist** — verify all six dimensions before shipping:
+4. **Verify all task checklists**: For each task in the epic, run `$FLOWCTL checklist verify --task <TASK_ID> --json`. All items must be checked.
+5. **Pre-launch checklist** — verify all six dimensions before shipping:
    - **Code quality**: guard passes, no Critical/Important review findings open
    - **Security**: no secrets in code (`grep -rn password\|secret\|api_key`), input validated at boundaries
    - **Performance**: no N+1 queries, list endpoints paginated, images optimized
@@ -164,8 +165,8 @@ Detect input type to decide whether to execute or skip:
    - **Documentation**: README/CHANGELOG updated if user-facing, API docs match implementation
    - **Non-Goals compliance**: verify changes don't introduce anything listed in `.flow/project-context.md` Non-Goals
    Any failing dimension: fix before proceeding. Skip dimensions not applicable to the change (e.g., skip accessibility for backend-only epics).
-5. Mark complete: $FLOWCTL epic completion $EPIC_ID ship --json
-6. Push branch and create draft PR (unless --no-pr)
+6. Mark complete: $FLOWCTL epic completion $EPIC_ID ship --json
+7. Push branch and create draft PR (unless --no-pr)
 
 ## Recovery
 

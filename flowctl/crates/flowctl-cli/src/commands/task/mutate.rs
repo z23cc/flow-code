@@ -11,7 +11,7 @@ use flowctl_core::changes::{Changes, Mutation};
 use flowctl_core::id::{epic_id_from_task, is_task_id};
 use flowctl_core::json_store::TaskState;
 use flowctl_core::state_machine::Status;
-use flowctl_core::types::{Task, FLOW_DIR};
+use flowctl_core::types::{FLOW_DIR, Task};
 
 use super::{
     clear_evidence_in_body, create_task_spec, ensure_flow_exists, find_dependents, load_epic_md,
@@ -302,7 +302,13 @@ fn compute_task_split(
     (created, changes)
 }
 
-pub(super) fn cmd_task_split(json_mode: bool, task_id: &str, titles: &str, chain: bool, dry_run: bool) {
+pub(super) fn cmd_task_split(
+    json_mode: bool,
+    task_id: &str,
+    titles: &str,
+    chain: bool,
+    dry_run: bool,
+) {
     let flow_dir = ensure_flow_exists();
 
     if !is_task_id(task_id) {

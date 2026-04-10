@@ -132,7 +132,10 @@ fn cmd_index_status(json: bool) {
                 "hint": "Run `flowctl index build` to create the index",
             }));
         } else {
-            pretty_output("index", "No index found. Run `flowctl index build` to create one.");
+            pretty_output(
+                "index",
+                "No index found. Run `flowctl index build` to create one.",
+            );
         }
         return;
     }
@@ -208,11 +211,23 @@ fn cmd_index_search(json: bool, query: &str, limit: usize) {
         }));
     } else {
         if results.is_empty() {
-            pretty_output("index", &format!("No matches for \"{query}\" ({elapsed_ms}ms)"));
+            pretty_output(
+                "index",
+                &format!("No matches for \"{query}\" ({elapsed_ms}ms)"),
+            );
         } else {
-            let mut out = format!("{} matches for \"{}\" ({}ms):\n", results.len(), query, elapsed_ms);
+            let mut out = format!(
+                "{} matches for \"{}\" ({}ms):\n",
+                results.len(),
+                query,
+                elapsed_ms
+            );
             for r in &results {
-                out.push_str(&format!("  {} ({} hits)\n", r.path.display(), r.match_count));
+                out.push_str(&format!(
+                    "  {} ({} hits)\n",
+                    r.path.display(),
+                    r.match_count
+                ));
             }
             pretty_output("index", &out);
         }
@@ -255,11 +270,23 @@ fn cmd_index_regex(json: bool, pattern: &str, limit: usize) {
         }));
     } else {
         if results.is_empty() {
-            pretty_output("index", &format!("No regex matches for /{pattern}/ ({elapsed_ms}ms)"));
+            pretty_output(
+                "index",
+                &format!("No regex matches for /{pattern}/ ({elapsed_ms}ms)"),
+            );
         } else {
-            let mut out = format!("{} regex matches for /{}/ ({}ms):\n", results.len(), pattern, elapsed_ms);
+            let mut out = format!(
+                "{} regex matches for /{}/ ({}ms):\n",
+                results.len(),
+                pattern,
+                elapsed_ms
+            );
             for r in &results {
-                out.push_str(&format!("  {} ({} hits)\n", r.path.display(), r.match_count));
+                out.push_str(&format!(
+                    "  {} ({} hits)\n",
+                    r.path.display(),
+                    r.match_count
+                ));
             }
             pretty_output("index", &out);
         }

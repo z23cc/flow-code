@@ -57,7 +57,10 @@ fn cmd_skill_register(json: bool, dir: Option<&str>) {
 
     let skills_dir = root.join("skills");
     if !skills_dir.is_dir() {
-        error_exit(&format!("Skills directory not found: {}", skills_dir.display()));
+        error_exit(&format!(
+            "Skills directory not found: {}",
+            skills_dir.display()
+        ));
     }
 
     // Walk skills/*/SKILL.md
@@ -81,17 +84,16 @@ fn cmd_skill_register(json: bool, dir: Option<&str>) {
                 continue;
             }
         };
-        let fm: SkillFrontmatter =
-            match flowctl_core::frontmatter::parse_frontmatter(&content) {
-                Ok(f) => f,
-                Err(e) => {
-                    eprintln!(
-                        "warn: cannot parse frontmatter in {}: {e}",
-                        skill_md.display()
-                    );
-                    continue;
-                }
-            };
+        let fm: SkillFrontmatter = match flowctl_core::frontmatter::parse_frontmatter(&content) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!(
+                    "warn: cannot parse frontmatter in {}: {e}",
+                    skill_md.display()
+                );
+                continue;
+            }
+        };
         entries.push((
             fm.name,
             fm.description,
@@ -110,7 +112,10 @@ fn cmd_skill_register(json: bool, dir: Option<&str>) {
             "skills": skills_json,
         }));
     } else {
-        pretty_output("skill_register", &format!("Registered {} skills", entries.len()));
+        pretty_output(
+            "skill_register",
+            &format!("Registered {} skills", entries.len()),
+        );
         for (name, desc, _) in &entries {
             pretty_output("skill_register", &format!("  {} — {}", name, desc));
         }

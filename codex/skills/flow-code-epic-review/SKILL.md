@@ -76,7 +76,10 @@ echo "Review backend: $BACKEND (override: --review=rp|codex|none)"
 ## Input
 
 Arguments: $ARGUMENTS
-Format: `<epic-id> [--review=rp|codex|none]`
+Format: `<epic-id> [--review=rp|codex|none] [--skip-gap-check]`
+
+- `--review` - Optional backend override
+- `--skip-gap-check` - Skip the capability-gap pre-check with a warning
 
 - Epic ID - Required, e.g. `fn-1` or `fn-22-53k`
 - `--review` - Optional backend override

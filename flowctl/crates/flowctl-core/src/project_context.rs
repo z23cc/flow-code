@@ -96,7 +96,21 @@ impl ProjectContext {
                     .split_whitespace()
                     .filter(|w| w.len() >= 4)
                     // Skip common stop words
-                    .filter(|w| !matches!(*w, "does" | "have" | "with" | "from" | "that" | "this" | "when" | "also" | "been" | "into"))
+                    .filter(|w| {
+                        !matches!(
+                            *w,
+                            "does"
+                                | "have"
+                                | "with"
+                                | "from"
+                                | "that"
+                                | "this"
+                                | "when"
+                                | "also"
+                                | "been"
+                                | "into"
+                        )
+                    })
                     .any(|kw| lower.contains(&kw))
             })
             .map(|s| s.as_str())
@@ -183,7 +197,11 @@ fn parse_guard_commands(body: &str) -> GuardCommands {
         if let Some((key, val)) = trimmed.split_once(':') {
             let key = key.trim();
             let val = val.trim().trim_matches('"');
-            let val_opt = if val.is_empty() { None } else { Some(val.to_string()) };
+            let val_opt = if val.is_empty() {
+                None
+            } else {
+                Some(val.to_string())
+            };
             match key {
                 "test" => gc.test = val_opt,
                 "lint" => gc.lint = val_opt,
@@ -376,10 +394,22 @@ docs: ["docs/", "*.md"]
     fn test_infer_domain() {
         let ctx = ProjectContext::parse(FULL_EXAMPLE);
 
-        assert_eq!(ctx.infer_domain("src/components/Button.tsx"), Some("frontend".into()));
-        assert_eq!(ctx.infer_domain("src/api/handler.rs"), Some("backend".into()));
-        assert_eq!(ctx.infer_domain("crates/core/lib.rs"), Some("backend".into()));
-        assert_eq!(ctx.infer_domain("tests/unit_test.rs"), Some("testing".into()));
+        assert_eq!(
+            ctx.infer_domain("src/components/Button.tsx"),
+            Some("frontend".into())
+        );
+        assert_eq!(
+            ctx.infer_domain("src/api/handler.rs"),
+            Some("backend".into())
+        );
+        assert_eq!(
+            ctx.infer_domain("crates/core/lib.rs"),
+            Some("backend".into())
+        );
+        assert_eq!(
+            ctx.infer_domain("tests/unit_test.rs"),
+            Some("testing".into())
+        );
         assert_eq!(ctx.infer_domain("docs/README.md"), Some("docs".into()));
         assert_eq!(ctx.infer_domain("random/file.py"), None);
     }
@@ -400,7 +430,8 @@ docs: ["docs/", "*.md"]
     fn test_conflicts_with_non_goals() {
         let ctx = ProjectContext::parse(FULL_EXAMPLE);
 
-        let conflicts = ctx.conflicts_with_non_goals("Let's add an async runtime for better performance");
+        let conflicts =
+            ctx.conflicts_with_non_goals("Let's add an async runtime for better performance");
         assert!(!conflicts.is_empty());
         assert!(conflicts.iter().any(|c| c.contains("async")));
 
@@ -423,7 +454,10 @@ docs: ["docs/", "*.md"]
     #[test]
     fn test_pattern_matching() {
         // Directory prefix
-        assert!(matches_pattern("src/components/Button.tsx", "src/components/"));
+        assert!(matches_pattern(
+            "src/components/Button.tsx",
+            "src/components/"
+        ));
         // Extension
         assert!(matches_pattern("App.tsx", "*.tsx"));
         assert!(!matches_pattern("App.ts", "*.tsx"));

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use regex::Regex;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::common::{
     find_flowctl_for_guard, get_repo_root, is_memory_enabled, normalize_command, output_block,
@@ -51,10 +51,7 @@ pub fn cmd_ralph_guard() {
         .get("hook_event_name")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let tool_name = data
-        .get("tool_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let tool_name = data.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
 
     append_log(
         &debug_file,
@@ -146,10 +143,16 @@ impl GuardState {
             .get("tab")
             .and_then(|v| v.as_str())
             .map(std::string::ToString::to_string);
-        if let Some(b) = v.get("chat_send_succeeded").and_then(serde_json::Value::as_bool) {
+        if let Some(b) = v
+            .get("chat_send_succeeded")
+            .and_then(serde_json::Value::as_bool)
+        {
             state.chat_send_succeeded = b;
         }
-        if let Some(b) = v.get("codex_review_succeeded").and_then(serde_json::Value::as_bool) {
+        if let Some(b) = v
+            .get("codex_review_succeeded")
+            .and_then(serde_json::Value::as_bool)
+        {
             state.codex_review_succeeded = b;
         }
         if let Some(arr) = v.get("flowctl_done_called").and_then(|v| v.as_array()) {
@@ -259,7 +262,14 @@ fn handle_file_lock_check(data: &Value) {
     let Some(flowctl) = flowctl else { return };
 
     let result = Command::new(&flowctl)
-        .args(["lock", "--task", &my_task_id, "--files", &rel_path, "--json"])
+        .args([
+            "lock",
+            "--task",
+            &my_task_id,
+            "--files",
+            &rel_path,
+            "--json",
+        ])
         .current_dir(&repo_root)
         .output();
 
@@ -274,7 +284,8 @@ fn handle_file_lock_check(data: &Value) {
 
     let error_text = String::from_utf8_lossy(&output.stderr).to_string()
         + &String::from_utf8_lossy(&output.stdout);
-    let owner_re = Regex::new(r#"(?i)locked by ['"]?([^'"\s]+)"#).expect("static regex must compile");
+    let owner_re =
+        Regex::new(r#"(?i)locked by ['"]?([^'"\s]+)"#).expect("static regex must compile");
     let owner = owner_re
         .captures(&error_text)
         .map(|c| c[1].to_string())
@@ -326,7 +337,10 @@ fn handle_pre_tool_use(data: &Value) {
     }
 
     // Block direct codex calls (must use flowctl codex wrappers)
-    if Regex::new(r"\bcodex\b").expect("static regex must compile").is_match(&command) {
+    if Regex::new(r"\bcodex\b")
+        .expect("static regex must compile")
+        .is_match(&command)
+    {
         let is_wrapper = Regex::new(r"flowctl\s+codex|FLOWCTL.*codex")
             .expect("static regex must compile")
             .is_match(&command);
@@ -351,7 +365,10 @@ fn handle_pre_tool_use(data: &Value) {
                 );
             }
         }
-        if Regex::new(r"--last\b").expect("static regex must compile").is_match(&command) {
+        if Regex::new(r"--last\b")
+            .expect("static regex must compile")
+            .is_match(&command)
+        {
             output_block(
                 "BLOCKED: Do not use '--last' with codex. \
                  Session continuity is managed via session_id in receipts.",
@@ -386,7 +403,9 @@ fn handle_pre_tool_use(data: &Value) {
     // Enforce flowctl done requires --evidence-json and --summary-file
     if command.contains(" done ")
         && (command.contains("flowctl") || command.contains("FLOWCTL"))
-        && !Regex::new(r"--help|-h").expect("static regex must compile").is_match(&command)
+        && !Regex::new(r"--help|-h")
+            .expect("static regex must compile")
+            .is_match(&command)
     {
         if !Regex::new(r"--evidence-json|--evidence")
             .expect("static regex must compile")
@@ -418,15 +437,16 @@ fn handle_pre_tool_use(data: &Value) {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         if !receipt_dir.is_empty() {
-            let is_receipt_write = Regex::new(&format!(r#">\s*['"]?{}"#, regex::escape(&receipt_dir)))
-                .map(|re| re.is_match(&command))
-                .unwrap_or(false)
-                || Regex::new(r#">\s*['"]?.*receipts/.*\.json"#)
-                    .expect("static regex must compile")
-                    .is_match(&command)
-                || Regex::new(r"(?i)cat\s*>\s*.*receipt")
-                    .expect("static regex must compile")
-                    .is_match(&command);
+            let is_receipt_write =
+                Regex::new(&format!(r#">\s*['"]?{}"#, regex::escape(&receipt_dir)))
+                    .map(|re| re.is_match(&command))
+                    .unwrap_or(false)
+                    || Regex::new(r#">\s*['"]?.*receipts/.*\.json"#)
+                        .expect("static regex must compile")
+                        .is_match(&command)
+                    || Regex::new(r"(?i)cat\s*>\s*.*receipt")
+                        .expect("static regex must compile")
+                        .is_match(&command);
 
             if is_receipt_write {
                 let state = load_state(session_id);
@@ -458,7 +478,8 @@ fn handle_pre_tool_use(data: &Value) {
                 }
                 // For impl receipts, verify flowctl done was called
                 if command.contains("impl_review") {
-                    let id_re = Regex::new(r#""id"\s*:\s*"([^"]+)""#).expect("static regex must compile");
+                    let id_re =
+                        Regex::new(r#""id"\s*:\s*"([^"]+)""#).expect("static regex must compile");
                     if let Some(caps) = id_re.captures(&command) {
                         let task_id = &caps[1];
                         if !state.flowctl_done_called.contains(task_id) {
@@ -498,7 +519,9 @@ fn handle_post_tool_use(data: &Value) {
             .get("stdout")
             .and_then(|v| v.as_str())
             .map(std::string::ToString::to_string)
-            .unwrap_or_else(|| serde_json::to_string(&Value::Object(map.clone())).unwrap_or_default()),
+            .unwrap_or_else(|| {
+                serde_json::to_string(&Value::Object(map.clone())).unwrap_or_default()
+            }),
         Some(Value::String(s)) => s.clone(),
         Some(other) => serde_json::to_string(other).unwrap_or_default(),
         None => String::new(),
@@ -528,8 +551,8 @@ fn handle_post_tool_use(data: &Value) {
             || command.contains("plan-review")
             || command.contains("completion-review"))
     {
-        let verdict_re =
-            Regex::new(r"<verdict>(SHIP|NEEDS_WORK|MAJOR_RETHINK)</verdict>").expect("static regex must compile");
+        let verdict_re = Regex::new(r"<verdict>(SHIP|NEEDS_WORK|MAJOR_RETHINK)</verdict>")
+            .expect("static regex must compile");
         if let Some(caps) = verdict_re.captures(&response_text) {
             state.codex_review_succeeded = true;
             state.last_verdict = Some(caps[1].to_string());
@@ -538,9 +561,7 @@ fn handle_post_tool_use(data: &Value) {
     }
 
     // Track flowctl done calls
-    if command.contains(" done ")
-        && (command.contains("flowctl") || command.contains("FLOWCTL"))
-    {
+    if command.contains(" done ") && (command.contains("flowctl") || command.contains("FLOWCTL")) {
         append_log(
             &debug_file,
             &format!(
@@ -549,7 +570,8 @@ fn handle_post_tool_use(data: &Value) {
             ),
         );
 
-        let done_re = Regex::new(r"\bdone\s+([a-zA-Z0-9][a-zA-Z0-9._-]*)").expect("static regex must compile");
+        let done_re = Regex::new(r"\bdone\s+([a-zA-Z0-9][a-zA-Z0-9._-]*)")
+            .expect("static regex must compile");
         if let Some(caps) = done_re.captures(&command) {
             let task_id = caps[1].to_string();
             append_log(
@@ -587,18 +609,16 @@ fn handle_post_tool_use(data: &Value) {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         if !receipt_dir.is_empty() {
-            let is_receipt_write = Regex::new(&format!(
-                r#">\s*['"]?{}"#,
-                regex::escape(&receipt_dir)
-            ))
-            .map(|re| re.is_match(&command))
-            .unwrap_or(false)
-                || Regex::new(r#">\s*['"]?.*receipts/.*\.json"#)
-                    .expect("static regex must compile")
-                    .is_match(&command)
-                || Regex::new(r"(?i)cat\s*>\s*.*receipt")
-                    .expect("static regex must compile")
-                    .is_match(&command);
+            let is_receipt_write =
+                Regex::new(&format!(r#">\s*['"]?{}"#, regex::escape(&receipt_dir)))
+                    .map(|re| re.is_match(&command))
+                    .unwrap_or(false)
+                    || Regex::new(r#">\s*['"]?.*receipts/.*\.json"#)
+                        .expect("static regex must compile")
+                        .is_match(&command)
+                    || Regex::new(r"(?i)cat\s*>\s*.*receipt")
+                        .expect("static regex must compile")
+                        .is_match(&command);
 
             if is_receipt_write {
                 state.chat_send_succeeded = false;
@@ -622,8 +642,8 @@ fn handle_post_tool_use(data: &Value) {
     }
 
     // Check for verdict in response
-    let verdict_re =
-        Regex::new(r"<verdict>(SHIP|NEEDS_WORK|MAJOR_RETHINK)</verdict>").expect("static regex must compile");
+    let verdict_re = Regex::new(r"<verdict>(SHIP|NEEDS_WORK|MAJOR_RETHINK)</verdict>")
+        .expect("static regex must compile");
     if let Some(caps) = verdict_re.captures(&response_text) {
         let verdict = caps[1].to_string();
         state.last_verdict = Some(verdict.clone());
@@ -653,9 +673,7 @@ fn handle_post_tool_use(data: &Value) {
                     }
                 }));
             }
-        } else if (verdict == "NEEDS_WORK" || verdict == "MAJOR_RETHINK")
-            && is_memory_enabled()
-        {
+        } else if (verdict == "NEEDS_WORK" || verdict == "MAJOR_RETHINK") && is_memory_enabled() {
             output_json_and_exit(&json!({
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
@@ -670,8 +688,8 @@ fn handle_post_tool_use(data: &Value) {
         }
     } else if command.contains("chat-send") && response_text.contains("Chat Send") {
         // chat-send returned but no verdict tag found
-        let informal_re =
-            Regex::new(r"(?i)\bLGTM\b|\bLooks good\b|\bApproved\b|\bNo issues\b").expect("static regex must compile");
+        let informal_re = Regex::new(r"(?i)\bLGTM\b|\bLooks good\b|\bApproved\b|\bNo issues\b")
+            .expect("static regex must compile");
         if informal_re.is_match(&response_text) {
             output_json_and_exit(&json!({
                 "hookSpecificOutput": {
@@ -758,21 +776,22 @@ fn parse_receipt_path(receipt_path: &str) -> (String, String) {
     let suffix_pattern = r"(?:-[a-z0-9][a-z0-9-]*[a-z0-9]|-[a-z0-9]{1,3})?";
 
     // Try plan pattern: plan-fn-N.json, plan-fn-N-xxx.json, plan-fn-N-slug.json
-    let plan_re = Regex::new(&format!(r"^plan-(fn-\d+{suffix_pattern})\.json$")).expect("static regex must compile");
+    let plan_re = Regex::new(&format!(r"^plan-(fn-\d+{suffix_pattern})\.json$"))
+        .expect("static regex must compile");
     if let Some(caps) = plan_re.captures(&basename) {
         return ("plan_review".into(), caps[1].to_string());
     }
 
     // Try impl pattern: impl-fn-N.M.json, impl-fn-N-xxx.M.json
-    let impl_re =
-        Regex::new(&format!(r"^impl-(fn-\d+{suffix_pattern}\.\d+)\.json$")).expect("static regex must compile");
+    let impl_re = Regex::new(&format!(r"^impl-(fn-\d+{suffix_pattern}\.\d+)\.json$"))
+        .expect("static regex must compile");
     if let Some(caps) = impl_re.captures(&basename) {
         return ("impl_review".into(), caps[1].to_string());
     }
 
     // Try completion pattern
-    let completion_re =
-        Regex::new(&format!(r"^completion-(fn-\d+{suffix_pattern})\.json$")).expect("static regex must compile");
+    let completion_re = Regex::new(&format!(r"^completion-(fn-\d+{suffix_pattern})\.json$"))
+        .expect("static regex must compile");
     if let Some(caps) = completion_re.captures(&basename) {
         return ("completion_review".into(), caps[1].to_string());
     }

@@ -1,6 +1,8 @@
 # rp-cli Command Reference
 
 > Requires RepoPrompt v1.5.62+
+>
+> MCP-first, CLI-fallback: use this reference only when the user explicitly wants `rp-cli` or MCP RepoPrompt tools are unavailable. See `skills/_shared/rp-mcp-orchestration.md`.
 
 ## Basic Usage
 

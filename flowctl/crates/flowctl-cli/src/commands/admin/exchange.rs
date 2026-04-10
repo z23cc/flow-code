@@ -16,7 +16,8 @@ pub fn cmd_export(json: bool, _epic_filter: Option<String>, _format: String) {
     let epics = flowctl_core::json_store::epic_list(&flow_dir).unwrap_or_default();
     let mut tasks_count = 0;
     for epic in &epics {
-        let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
+        let tasks =
+            flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
         tasks_count += tasks.len();
     }
 
@@ -28,7 +29,11 @@ pub fn cmd_export(json: bool, _epic_filter: Option<String>, _format: String) {
             "message": "Data is already in JSON files (file-based storage)",
         }));
     } else {
-        println!("Data is already in JSON files: {} epics, {} tasks in .flow/", epics.len(), tasks_count);
+        println!(
+            "Data is already in JSON files: {} epics, {} tasks in .flow/",
+            epics.len(),
+            tasks_count
+        );
     }
 }
 
@@ -41,7 +46,8 @@ pub fn cmd_import(json: bool) {
     let epics = flowctl_core::json_store::epic_list(&flow_dir).unwrap_or_default();
     let mut tasks_count = 0;
     for epic in &epics {
-        let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
+        let tasks =
+            flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
         tasks_count += tasks.len();
     }
 
@@ -56,7 +62,8 @@ pub fn cmd_import(json: bool) {
     } else {
         println!(
             "Scanned {} epics, {} tasks from .flow/ (file-based storage, no DB to import into)",
-            epics.len(), tasks_count
+            epics.len(),
+            tasks_count
         );
     }
 }

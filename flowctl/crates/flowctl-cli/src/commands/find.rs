@@ -144,7 +144,11 @@ fn output_index_results(
             backend
         );
         for r in results {
-            out.push_str(&format!("  {} ({} hits)\n", r.path.display(), r.match_count));
+            out.push_str(&format!(
+                "  {} ({} hits)\n",
+                r.path.display(),
+                r.match_count
+            ));
         }
         pretty_output("find", &out);
     }

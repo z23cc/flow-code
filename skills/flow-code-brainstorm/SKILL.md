@@ -9,6 +9,10 @@ user-invocable: false
 
 Explore and pressure-test an idea before committing to a plan. Outputs a requirements doc that feeds directly into `/flow-code:plan`.
 
+If you already know you want a durable requirements artifact and do not need the broader pressure-test flow, prefer `/flow-code:spec`.
+
+`/flow-code:brainstorm` intentionally produces a broader requirements doc with extra evidence / self-interview trace, while `/flow-code:spec` is the leaner artifact-first path.
+
 **Two modes:**
 - **Interactive** (default when invoked standalone via `/flow-code:brainstorm`): asks user questions via `AskUserQuestion`
 - **Auto** (`--auto`, or when invoked from `/flow-code:go` pipeline): AI self-interview — analyzes codebase, asks itself questions, answers from code evidence, produces refined spec with zero human input

@@ -1,10 +1,12 @@
 ---
 name: flow-code:update
-description: Update flow-code plugin to latest version
+description: "Update the flow-code plugin to the latest version"
 argument-hint: ""
 ---
 
 # Update flow-code plugin
+
+Choose this front door when you want to update the flow-code plugin itself, not when you are planning or executing repo work. Use `/flow-code:setup` only for optional local setup after install/update.
 
 Tell the user to run these CLI commands in order (they are Claude Code commands, NOT shell — do NOT run them via Bash):
 

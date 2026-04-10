@@ -4,6 +4,21 @@ All notable changes to Flow-Code are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Semantic Versioning](https://semver.org/).
 
+## [0.1.49] - 2026-04-10
+
+### Changed
+- RP agent_run pipeline integration, ADR/spec commands, shared RP orchestration guide, context engineering, skill expansions, and numerous flowctl improvements across core+CLI crates.
+
+## [0.1.48] - 2026-04-10
+
+### Fixed
+- Aligned release/install version metadata across Cargo, Claude plugin manifests, Codex plugin manifest, and `flowctl-version` pin.
+- Corrected stale local marketplace source path to point at this repository root.
+- Updated `flowctl/README.md` repository/install links and architecture description to match the current workspace.
+
+### Changed
+- Added CI/release preflight checks for version parity and install-surface drift (`scripts/check-release-surface.sh`).
+
 ## [0.1.46] - 2026-04-09
 
 ### Added

@@ -8,7 +8,7 @@
       "name": "flow-code",
       "source": {
         "source": "local",
-        "path": "./plugins/flow-code"
+        "path": "../../"
       },
       "policy": {
         "installation": "AVAILABLE",

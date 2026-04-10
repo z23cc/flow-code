@@ -10,12 +10,20 @@ use std::io::Read;
 use std::path::Path;
 
 /// Write content to a file. Creates parent directories if needed.
-pub fn cmd_write_file(json: bool, path: String, content: Option<String>, stdin: bool, append: bool) {
+pub fn cmd_write_file(
+    json: bool,
+    path: String,
+    content: Option<String>,
+    stdin: bool,
+    append: bool,
+) {
     let body = if stdin {
         let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf).unwrap_or_else(|e| {
-            error_exit(&format!("Failed to read stdin: {e}"));
-        });
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .unwrap_or_else(|e| {
+                error_exit(&format!("Failed to read stdin: {e}"));
+            });
         buf
     } else if let Some(c) = content {
         c

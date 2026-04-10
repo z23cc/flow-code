@@ -15,12 +15,23 @@ user-invocable: true
 
 ## Quick Start
 
-**Full autopilot (idea to PR):** `/flow-code:go "your idea"`
+**Full autopilot / resume:** `/flow-code:go "your idea"` or `/flow-code:go fn-1`
 
-**Individual phases:**
-- Brainstorm: `/flow-code:brainstorm "idea"`
-- Plan only: `/flow-code:go "idea" --plan-only`
-- Work on existing epic: `/flow-code:go fn-1-add-oauth`
+**Other common front doors:**
+- Plan only: `/flow-code:plan "idea"`
+- Brainstorm first: `/flow-code:brainstorm "idea"`
+- Spec first: `/flow-code:spec "idea, change, or refactor"`
+- ADR capture: `/flow-code:adr "decision or architectural change"`
+- Replacement/removal guidance: `flow-code-deprecation` (skill, no slash command)
+
+## Front-Door Routing
+
+- `go` = full execution path or resume path.
+- `plan` = planning-only when you do **not** want execution yet.
+- `brainstorm` = open-ended exploration / pressure-testing.
+- `spec` = artifact-first requirements capture.
+- `adr` = durable architecture decision capture.
+- `flow-code-deprecation` = replacement/removal guidance surface (skill, not a slash command).
 
 ## Skill Selection Flowchart
 
@@ -32,13 +43,26 @@ What are you trying to do?
 │     (runs: brainstorm → plan → work → review → close)
 │
 ├─ Plan without implementing?
-│  └─ /flow-code:go "description" --plan-only
+│  └─ /flow-code:plan "description"
+│     (use go --plan-only only if you're already on the go path)
 │
 ├─ Resume existing work?
 │  └─ /flow-code:go fn-N-slug
 │
 ├─ Explore an idea before committing?
 │  └─ /flow-code:brainstorm "idea"
+│
+├─ Write a reusable requirements doc first?
+│  └─ /flow-code:spec "idea / change / refactor"
+│     (writes a planning-ready requirements spec)
+│
+├─ Record an architectural decision?
+│  └─ /flow-code:adr "decision"
+│     (writes or updates an ADR in docs/decisions/)
+│
+├─ Replace or remove an old surface?
+│  └─ flow-code-deprecation
+│     (skill, no slash command; guidance for replacement, deprecation, and clean removal)
 │
 ├─ Build/modify UI components?
 │  └─ /flow-code:frontend-ui "component description"

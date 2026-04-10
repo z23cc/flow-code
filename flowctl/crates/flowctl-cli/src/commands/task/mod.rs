@@ -14,9 +14,7 @@ use regex::Regex;
 use crate::output::error_exit;
 
 use flowctl_core::id::epic_id_from_task;
-use flowctl_core::types::{
-    Document, Domain, Epic, Task,
-};
+use flowctl_core::types::{Document, Domain, Epic, Task};
 
 #[derive(Subcommand, Debug)]
 pub enum TaskCmd {
@@ -186,8 +184,7 @@ fn load_epic_md(flow_dir: &Path, epic_id: &str) -> Option<Epic> {
 fn load_task_doc(flow_dir: &Path, task_id: &str) -> Document<Task> {
     let task = flowctl_core::json_store::task_read(flow_dir, task_id)
         .unwrap_or_else(|_| error_exit(&format!("Task {} not found", task_id)));
-    let body = flowctl_core::json_store::task_spec_read(flow_dir, task_id)
-        .unwrap_or_default();
+    let body = flowctl_core::json_store::task_spec_read(flow_dir, task_id).unwrap_or_default();
     Document {
         frontmatter: task,
         body,
@@ -199,7 +196,9 @@ fn write_task_doc(flow_dir: &Path, _task_id: &str, doc: &Document<Task>) {
     if let Err(e) = flowctl_core::json_store::task_write_definition(flow_dir, &doc.frontmatter) {
         error_exit(&format!("Failed to write task definition: {e}"));
     }
-    if let Err(e) = flowctl_core::json_store::task_spec_write(flow_dir, &doc.frontmatter.id, &doc.body) {
+    if let Err(e) =
+        flowctl_core::json_store::task_spec_write(flow_dir, &doc.frontmatter.id, &doc.body)
+    {
         error_exit(&format!("Failed to write task spec: {e}"));
     }
 }
@@ -258,10 +257,14 @@ fn find_dependents(flow_dir: &Path, task_id: &str) -> Vec<String> {
     };
 
     // Load all tasks in the epic from JSON files
-    let all_tasks: Vec<(String, Vec<String>)> = match flowctl_core::json_store::task_list_by_epic(flow_dir, &epic_id) {
-        Ok(tasks) => tasks.into_iter().map(|t| (t.id.clone(), t.depends_on.clone())).collect(),
-        Err(_) => return vec![],
-    };
+    let all_tasks: Vec<(String, Vec<String>)> =
+        match flowctl_core::json_store::task_list_by_epic(flow_dir, &epic_id) {
+            Ok(tasks) => tasks
+                .into_iter()
+                .map(|t| (t.id.clone(), t.depends_on.clone()))
+                .collect(),
+            Err(_) => return vec![],
+        };
 
     // BFS
     let mut dependents: Vec<String> = Vec::new();
@@ -323,9 +326,20 @@ pub fn dispatch(cmd: &TaskCmd, json: bool, dry_run: bool) {
             desc,
             accept,
             investigation,
-        } => query::cmd_task_set_spec(json, id, file.as_deref(), desc.as_deref(), accept.as_deref(), investigation.as_deref()),
-        TaskCmd::Reset { task_id, cascade } => mutate::cmd_task_reset(json, task_id, *cascade, dry_run),
-        TaskCmd::Skip { task_id, reason } => mutate::cmd_task_skip(json, task_id, reason.as_deref(), dry_run),
+        } => query::cmd_task_set_spec(
+            json,
+            id,
+            file.as_deref(),
+            desc.as_deref(),
+            accept.as_deref(),
+            investigation.as_deref(),
+        ),
+        TaskCmd::Reset { task_id, cascade } => {
+            mutate::cmd_task_reset(json, task_id, *cascade, dry_run)
+        }
+        TaskCmd::Skip { task_id, reason } => {
+            mutate::cmd_task_skip(json, task_id, reason.as_deref(), dry_run)
+        }
         TaskCmd::Split {
             task_id,
             titles,
@@ -336,8 +350,16 @@ pub fn dispatch(cmd: &TaskCmd, json: bool, dry_run: bool) {
             impl_spec,
             review,
             sync,
-        } => query::cmd_task_set_backend(json, id, impl_spec.as_deref(), review.as_deref(), sync.as_deref()),
+        } => query::cmd_task_set_backend(
+            json,
+            id,
+            impl_spec.as_deref(),
+            review.as_deref(),
+            sync.as_deref(),
+        ),
         TaskCmd::ShowBackend { id } => query::cmd_task_show_backend(json, id),
-        TaskCmd::SetDeps { task_id, deps } => mutate::cmd_task_set_deps(json, task_id, deps, dry_run),
+        TaskCmd::SetDeps { task_id, deps } => {
+            mutate::cmd_task_set_deps(json, task_id, deps, dry_run)
+        }
     }
 }

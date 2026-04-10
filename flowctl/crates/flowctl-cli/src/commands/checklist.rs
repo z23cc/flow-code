@@ -159,54 +159,81 @@ fn set_item_checked(cl: &mut Checklist, item_key: &str, checked: bool) -> String
             return item.label.clone();
         }
     }
-    error_exit(&format!("Item '{}' not found in checklist for task {}", item_key, cl.task_id));
+    error_exit(&format!(
+        "Item '{}' not found in checklist for task {}",
+        item_key, cl.task_id
+    ));
 }
 
 fn build_default_checklist(task_id: &str) -> Checklist {
     let mut items = BTreeMap::new();
 
     let mut context = BTreeMap::new();
-    context.insert("spec_read".to_string(), ChecklistItem {
-        label: "Task spec read and understood".to_string(),
-        checked: false,
-    });
-    context.insert("architecture_compliant".to_string(), ChecklistItem {
-        label: "Compliant with project architecture".to_string(),
-        checked: false,
-    });
+    context.insert(
+        "spec_read".to_string(),
+        ChecklistItem {
+            label: "Task spec read and understood".to_string(),
+            checked: false,
+        },
+    );
+    context.insert(
+        "architecture_compliant".to_string(),
+        ChecklistItem {
+            label: "Compliant with project architecture".to_string(),
+            checked: false,
+        },
+    );
     items.insert("context".to_string(), context);
 
     let mut implementation = BTreeMap::new();
-    implementation.insert("all_ac_satisfied".to_string(), ChecklistItem {
-        label: "All acceptance criteria satisfied".to_string(),
-        checked: false,
-    });
-    implementation.insert("edge_cases_handled".to_string(), ChecklistItem {
-        label: "Edge cases handled".to_string(),
-        checked: false,
-    });
+    implementation.insert(
+        "all_ac_satisfied".to_string(),
+        ChecklistItem {
+            label: "All acceptance criteria satisfied".to_string(),
+            checked: false,
+        },
+    );
+    implementation.insert(
+        "edge_cases_handled".to_string(),
+        ChecklistItem {
+            label: "Edge cases handled".to_string(),
+            checked: false,
+        },
+    );
     items.insert("implementation".to_string(), implementation);
 
     let mut testing = BTreeMap::new();
-    testing.insert("unit_tests_added".to_string(), ChecklistItem {
-        label: "Core functionality unit tests added".to_string(),
-        checked: false,
-    });
-    testing.insert("existing_tests_pass".to_string(), ChecklistItem {
-        label: "Existing tests pass (no regression)".to_string(),
-        checked: false,
-    });
-    testing.insert("lint_pass".to_string(), ChecklistItem {
-        label: "Lint and type checks pass".to_string(),
-        checked: false,
-    });
+    testing.insert(
+        "unit_tests_added".to_string(),
+        ChecklistItem {
+            label: "Core functionality unit tests added".to_string(),
+            checked: false,
+        },
+    );
+    testing.insert(
+        "existing_tests_pass".to_string(),
+        ChecklistItem {
+            label: "Existing tests pass (no regression)".to_string(),
+            checked: false,
+        },
+    );
+    testing.insert(
+        "lint_pass".to_string(),
+        ChecklistItem {
+            label: "Lint and type checks pass".to_string(),
+            checked: false,
+        },
+    );
     items.insert("testing".to_string(), testing);
 
     let mut documentation = BTreeMap::new();
-    documentation.insert("files_listed".to_string(), ChecklistItem {
-        label: "Changed files list complete".to_string(),
-        checked: false,
-    });
+    documentation.insert(
+        "files_listed".to_string(),
+        ChecklistItem {
+            label: "Changed files list complete".to_string(),
+            checked: false,
+        },
+    );
     items.insert("documentation".to_string(), documentation);
 
     Checklist {
@@ -248,7 +275,10 @@ fn cmd_init(json_mode: bool, task_id: &str) {
             "checklist": cl,
         }));
     } else {
-        println!("Checklist created for {} (8 items in 4 categories)", task_id);
+        println!(
+            "Checklist created for {} (8 items in 4 categories)",
+            task_id
+        );
     }
 }
 
@@ -258,7 +288,10 @@ fn cmd_check(json_mode: bool, task_id: &str, item_key: &str) {
 
     // Check if item exists first
     if find_item(&cl, item_key).is_none() {
-        error_exit(&format!("Item '{}' not found in checklist for task {}", item_key, task_id));
+        error_exit(&format!(
+            "Item '{}' not found in checklist for task {}",
+            item_key, task_id
+        ));
     }
 
     let label = set_item_checked(&mut cl, item_key, true);
@@ -280,7 +313,11 @@ fn cmd_check(json_mode: bool, task_id: &str, item_key: &str) {
 fn cmd_check_all(json_mode: bool, task_id: &str, items_csv: &str) {
     ensure_flow();
     let mut cl = read_checklist(task_id);
-    let keys: Vec<&str> = items_csv.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let keys: Vec<&str> = items_csv
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
     let mut checked: Vec<serde_json::Value> = Vec::new();
     let mut missing: Vec<String> = Vec::new();
 
@@ -317,7 +354,10 @@ fn cmd_uncheck(json_mode: bool, task_id: &str, item_key: &str) {
     let mut cl = read_checklist(task_id);
 
     if find_item(&cl, item_key).is_none() {
-        error_exit(&format!("Item '{}' not found in checklist for task {}", item_key, task_id));
+        error_exit(&format!(
+            "Item '{}' not found in checklist for task {}",
+            item_key, task_id
+        ));
     }
 
     let label = set_item_checked(&mut cl, item_key, false);
@@ -371,7 +411,10 @@ fn cmd_verify(json_mode: bool, task_id: &str) {
             "missing": missing,
         }));
     } else if gate == "pass" {
-        println!("DoD check PASS for {} ({}/{} items checked)", task_id, checked_count, total);
+        println!(
+            "DoD check PASS for {} ({}/{} items checked)",
+            task_id, checked_count, total
+        );
     } else {
         println!(
             "DoD check FAIL for {} \u{2014} {}/{} items unchecked:",

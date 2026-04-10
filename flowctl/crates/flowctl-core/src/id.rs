@@ -21,14 +21,12 @@ static ID_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Regex for slugify: non-word characters (except spaces and hyphens).
-static SLUGIFY_NON_WORD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[^\w\s-]").expect("slugify non-word regex is valid")
-});
+static SLUGIFY_NON_WORD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[^\w\s-]").expect("slugify non-word regex is valid"));
 
 /// Regex for slugify: collapsing whitespace and hyphens.
-static SLUGIFY_COLLAPSE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[-\s]+").expect("slugify collapse regex is valid")
-});
+static SLUGIFY_COLLAPSE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[-\s]+").expect("slugify collapse regex is valid"));
 
 /// Parsed ID components.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,16 +136,12 @@ pub fn parse_id(id_str: &str) -> Result<ParsedId, crate::error::CoreError> {
 
 /// Check whether a string is a valid epic ID (fn-N or fn-N-slug, no task number).
 pub fn is_epic_id(id_str: &str) -> bool {
-    parse_id(id_str)
-        .map(|p| p.task.is_none())
-        .unwrap_or(false)
+    parse_id(id_str).map(|p| p.task.is_none()).unwrap_or(false)
 }
 
 /// Check whether a string is a valid task ID (fn-N.M or fn-N-slug.M).
 pub fn is_task_id(id_str: &str) -> bool {
-    parse_id(id_str)
-        .map(|p| p.task.is_some())
-        .unwrap_or(false)
+    parse_id(id_str).map(|p| p.task.is_some()).unwrap_or(false)
 }
 
 /// Extract the epic ID from a task ID string.
@@ -541,14 +535,8 @@ mod tests {
 
     #[test]
     fn test_epic_id_from_task() {
-        assert_eq!(
-            epic_id_from_task("fn-1.3").unwrap(),
-            "fn-1"
-        );
-        assert_eq!(
-            epic_id_from_task("fn-5-x7k.3").unwrap(),
-            "fn-5-x7k"
-        );
+        assert_eq!(epic_id_from_task("fn-1.3").unwrap(), "fn-1");
+        assert_eq!(epic_id_from_task("fn-5-x7k.3").unwrap(), "fn-5-x7k");
         assert_eq!(
             epic_id_from_task("fn-2-add-auth.1").unwrap(),
             "fn-2-add-auth"
@@ -581,10 +569,7 @@ mod tests {
 
     #[test]
     fn test_slugify_accented() {
-        assert_eq!(
-            slugify("cafe resume", 40),
-            Some("cafe-resume".to_string())
-        );
+        assert_eq!(slugify("cafe resume", 40), Some("cafe-resume".to_string()));
         assert_eq!(
             slugify("cafe\u{0301} re\u{0301}sume\u{0301}", 40),
             Some("cafe-resume".to_string())
@@ -653,14 +638,8 @@ mod tests {
 
     #[test]
     fn test_slugify_leading_trailing_special() {
-        assert_eq!(
-            slugify("---hello---", 40),
-            Some("hello".to_string())
-        );
-        assert_eq!(
-            slugify("  hello  ", 40),
-            Some("hello".to_string())
-        );
+        assert_eq!(slugify("---hello---", 40), Some("hello".to_string()));
+        assert_eq!(slugify("  hello  ", 40), Some("hello".to_string()));
     }
 
     // ── generate_epic_suffix tests ──────────────────────────────────
@@ -670,7 +649,11 @@ mod tests {
         let suffix = generate_epic_suffix(3);
         assert_eq!(suffix.len(), 3);
         // All chars should be a-z0-9.
-        assert!(suffix.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
+        assert!(
+            suffix
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        );
     }
 
     #[test]
@@ -716,16 +699,10 @@ mod tests {
                         expected_epic,
                         "Epic mismatch for {input}"
                     );
-                    assert_eq!(
-                        parsed.task, expected_task,
-                        "Task mismatch for {input}"
-                    );
+                    assert_eq!(parsed.task, expected_task, "Task mismatch for {input}");
                 }
                 Err(_) => {
-                    assert_eq!(
-                        expected_epic, None,
-                        "Expected valid parse for {input}"
-                    );
+                    assert_eq!(expected_epic, None, "Expected valid parse for {input}");
                 }
             }
         }
@@ -779,7 +756,10 @@ mod tests {
     #[test]
     fn test_expand_already_full_id_unchanged() {
         assert_eq!(
-            expand_dep_id("fn-42-confidence-calibration.1", "fn-42-confidence-calibration"),
+            expand_dep_id(
+                "fn-42-confidence-calibration.1",
+                "fn-42-confidence-calibration"
+            ),
             "fn-42-confidence-calibration.1"
         );
     }
@@ -795,27 +775,18 @@ mod tests {
 
     #[test]
     fn test_expand_legacy_short_id() {
-        assert_eq!(
-            expand_dep_id("fn-5.3", "fn-5-add-auth"),
-            "fn-5-add-auth.3"
-        );
+        assert_eq!(expand_dep_id("fn-5.3", "fn-5-add-auth"), "fn-5-add-auth.3");
     }
 
     #[test]
     fn test_expand_invalid_id_unchanged() {
-        assert_eq!(
-            expand_dep_id("invalid", "fn-42-slug"),
-            "invalid"
-        );
+        assert_eq!(expand_dep_id("invalid", "fn-42-slug"), "invalid");
     }
 
     #[test]
     fn test_expand_epic_id_not_task_unchanged() {
         // Not a task ID (no .N) — return as-is
-        assert_eq!(
-            expand_dep_id("fn-42", "fn-42-slug"),
-            "fn-42"
-        );
+        assert_eq!(expand_dep_id("fn-42", "fn-42-slug"), "fn-42");
     }
 
     #[test]

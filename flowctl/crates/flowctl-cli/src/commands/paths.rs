@@ -23,11 +23,7 @@ pub fn cmd_paths(json: bool) {
                     "memory_dir": paths.memory_dir(),
                 }));
             } else {
-                println!(
-                    "Project: {} ({})",
-                    paths.slug,
-                    paths.project_root.display()
-                );
+                println!("Project: {} ({})", paths.slug, paths.project_root.display());
                 println!("Runtime:  {}", paths.runtime_dir.display());
                 println!("Config:   {}", paths.config_dir.display());
                 println!("Global:   {}", paths.global_project_dir.display());

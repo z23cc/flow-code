@@ -7,11 +7,12 @@ FLOWCTL="$HOME/.flow/bin/flowctl"
 **Always run (both modes):** Read relevant code, git log, and project structure to understand scope.
 
 **In auto mode, gather deep context:**
-1. Search for files related to the request:
+1. Start with the local fast path before any RP escalation:
    - `$FLOWCTL find "<key terms>" --json` — auto-routes to best search backend
    - `$FLOWCTL graph refs "<symbol>" --json` — if investigating a specific function/type
    - `$FLOWCTL graph map --json` — project overview (instant, cached)
    - `file_search` (RP MCP) or Grep/Glob (fallback) for exact regex patterns
+   - If graph/index artifacts are missing in an older repo, backfill once with `$FLOWCTL graph build --json`
 2. Read git log for recent changes in relevant areas
 3. Check existing `.flow/` specs/epics for related work
 4. Read key config files, README, CLAUDE.md for project constraints

@@ -129,8 +129,7 @@ fn filter_cargo_test(output: &str) -> FilterResult {
         }
 
         // Skip "running N tests" and individual passing tests
-        if line.starts_with("running ") || (line.starts_with("test ") && line.ends_with("... ok"))
-        {
+        if line.starts_with("running ") || (line.starts_with("test ") && line.ends_with("... ok")) {
             continue;
         }
 
@@ -302,10 +301,7 @@ fn filter_guard_output(cmd_type: &str, stdout: &str, stderr: &str) -> FilterResu
         "typecheck" => filter_typecheck_output(&combined),
         _ => {
             // Unknown type: show last few meaningful lines
-            let meaningful: Vec<&str> = combined
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .collect();
+            let meaningful: Vec<&str> = combined.lines().filter(|l| !l.trim().is_empty()).collect();
             let last_lines: Vec<&str> = meaningful.iter().rev().take(5).rev().copied().collect();
             FilterResult {
                 summary: last_lines.join("; "),
@@ -341,8 +337,7 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
     let config = if config_path.exists() {
         match fs::read_to_string(&config_path) {
             Ok(content) => {
-                let raw =
-                    serde_json::from_str::<serde_json::Value>(&content).unwrap_or(json!({}));
+                let raw = serde_json::from_str::<serde_json::Value>(&content).unwrap_or(json!({}));
                 deep_merge(&get_default_config(), &raw)
             }
             Err(_) => get_default_config(),
@@ -445,11 +440,7 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
         .ok()
         .and_then(|o| {
             if o.status.success() {
-                Some(
-                    String::from_utf8_lossy(&o.stdout)
-                        .trim()
-                        .to_string(),
-                )
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
             } else {
                 None
             }
@@ -569,7 +560,13 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
 
 // ── Worker-prompt command ──────────────────────────────────────────
 
-pub fn cmd_worker_prompt(json_mode: bool, task: String, tdd: bool, review: Option<String>, inline_skills: bool) {
+pub fn cmd_worker_prompt(
+    json_mode: bool,
+    task: String,
+    tdd: bool,
+    review: Option<String>,
+    inline_skills: bool,
+) {
     // Determine epic from task ID
     let epic_id = if flowctl_core::id::is_task_id(&task) {
         flowctl_core::id::epic_id_from_task(&task).unwrap_or_else(|_| task.clone())
@@ -600,7 +597,11 @@ pub fn cmd_worker_prompt(json_mode: bool, task: String, tdd: bool, review: Optio
         .as_ref()
         .map(|r| format!("REVIEW_MODE: {}", r))
         .unwrap_or_else(|| "REVIEW_MODE: none".to_string());
-    let tdd_line = if tdd { "TDD_MODE: true" } else { "TDD_MODE: false" };
+    let tdd_line = if tdd {
+        "TDD_MODE: true"
+    } else {
+        "TDD_MODE: false"
+    };
 
     let phase_list: Vec<String> = phases
         .iter()
@@ -630,7 +631,7 @@ pub fn cmd_worker_prompt(json_mode: bool, task: String, tdd: bool, review: Optio
     };
 
     let prompt_text = format!(
-        "TASK_ID: {task}\nEPIC_ID: {epic_id}\n{tdd_line}\n{review_line}\n\nPhase sequence:\n{phases}\n\nExecute phases in order. Use flowctl worker-phase next/done to track progress.{skills}",
+        "TASK_ID: {task}\nEPIC_ID: {epic_id}\n{tdd_line}\n{review_line}\n\nPhase sequence:\n{phases}\n\nExecute phases in order. Every `flowctl worker-phase done` must include a JSON receipt (`--receipt` or `--receipt-file`). Phase 10 also requires `flowctl done` to have already marked the task done. Use flowctl worker-phase next/done to track progress.{skills}",
         task = task,
         epic_id = epic_id,
         tdd_line = tdd_line,

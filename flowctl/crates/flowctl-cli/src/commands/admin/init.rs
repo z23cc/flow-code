@@ -7,11 +7,12 @@ use serde_json::json;
 use crate::output::{error_exit, json_output};
 
 use flowctl_core::types::{
-    CONFIG_FILE, EPICS_DIR, MEMORY_DIR, META_FILE, REVIEWS_DIR, SCHEMA_VERSION,
-    SPECS_DIR, SUPPORTED_SCHEMA_VERSIONS, TASKS_DIR,
+    CONFIG_FILE, EPICS_DIR, MEMORY_DIR, META_FILE, REVIEWS_DIR, SCHEMA_VERSION, SPECS_DIR,
+    SUPPORTED_SCHEMA_VERSIONS, TASKS_DIR,
 };
 
 use super::{deep_merge, get_default_config, get_flow_dir, write_json_file};
+use crate::commands::helpers::bootstrap_search_artifacts_from_root;
 
 // ── Init command ────────────────────────────────────────────────────
 
@@ -34,7 +35,15 @@ pub fn cmd_init(json: bool) {
     let flow_dir = get_flow_dir();
 
     // Create directories if missing (idempotent, never destroys existing)
-    for subdir in &[EPICS_DIR, SPECS_DIR, TASKS_DIR, MEMORY_DIR, REVIEWS_DIR, "checklists", "index"] {
+    for subdir in &[
+        EPICS_DIR,
+        SPECS_DIR,
+        TASKS_DIR,
+        MEMORY_DIR,
+        REVIEWS_DIR,
+        "checklists",
+        "index",
+    ] {
         let dir_path = flow_dir.join(subdir);
         if !dir_path.exists() {
             if let Err(e) = fs::create_dir_all(&dir_path) {
@@ -63,8 +72,7 @@ pub fn cmd_init(json: bool) {
     } else {
         // Load raw config, compare with merged (which includes new defaults)
         let raw = match fs::read_to_string(&config_path) {
-            Ok(content) => serde_json::from_str::<serde_json::Value>(&content)
-                .unwrap_or(json!({})),
+            Ok(content) => serde_json::from_str::<serde_json::Value>(&content).unwrap_or(json!({})),
             Err(_) => json!({}),
         };
         let merged = deep_merge(&get_default_config(), &raw);
@@ -181,6 +189,12 @@ pub fn cmd_init(json: bool) {
     }
     let has_project_context = project_context_path.exists();
 
+    let bootstrap = bootstrap_search_artifacts_from_root(&cwd, &flow_dir);
+    actions.extend(bootstrap.actions.iter().cloned());
+    for warning in &bootstrap.warnings {
+        eprintln!("warning: {warning}");
+    }
+
     // Build output
     let message = if actions.is_empty() {
         ".flow/ already up to date".to_string()
@@ -193,6 +207,7 @@ pub fn cmd_init(json: bool) {
             "message": message,
             "path": flow_dir.to_string_lossy(),
             "actions": actions,
+            "warnings": bootstrap.warnings,
             "hint": if has_project_context { serde_json::Value::Null } else {
                 serde_json::Value::String("Tip: copy templates/project-context.md to .flow-config/project-context.md to share technical standards with all worker agents".to_string())
             },
@@ -200,7 +215,9 @@ pub fn cmd_init(json: bool) {
     } else {
         println!("{}", message);
         if !has_project_context {
-            println!("Tip: copy templates/project-context.md to .flow-config/project-context.md to share technical standards with all worker agents");
+            println!(
+                "Tip: copy templates/project-context.md to .flow-config/project-context.md to share technical standards with all worker agents"
+            );
         }
     }
 }
@@ -276,7 +293,8 @@ fn detect_stack(root: &std::path::Path) -> DetectedStack {
 
         // Detect framework
         if pj.contains("\"react\"") || pj.contains("\"next\"") {
-            s.stack_lines.push("- Framework: React / Next.js".to_string());
+            s.stack_lines
+                .push("- Framework: React / Next.js".to_string());
         } else if pj.contains("\"vue\"") || pj.contains("\"nuxt\"") {
             s.stack_lines.push("- Framework: Vue / Nuxt".to_string());
         } else if pj.contains("\"svelte\"") || pj.contains("\"@sveltejs/kit\"") {
@@ -296,13 +314,18 @@ fn detect_stack(root: &std::path::Path) -> DetectedStack {
             s.stack_lines.push("- Testing: Vitest".to_string());
         } else if pj.contains("\"jest\"") {
             s.has_jest = true;
-            s.stack_lines.push("- Testing: Jest (consider migrating to Vitest)".to_string());
+            s.stack_lines
+                .push("- Testing: Jest (consider migrating to Vitest)".to_string());
         }
 
         // Detect linting (modern first: biome > eslint)
-        if pj.contains("\"@biomejs/biome\"") || root.join("biome.json").exists() || root.join("biome.jsonc").exists() {
+        if pj.contains("\"@biomejs/biome\"")
+            || root.join("biome.json").exists()
+            || root.join("biome.jsonc").exists()
+        {
             s.has_biome = true;
-            s.stack_lines.push("- Linting + Formatting: Biome".to_string());
+            s.stack_lines
+                .push("- Linting + Formatting: Biome".to_string());
         } else {
             if pj.contains("\"eslint\"") {
                 s.has_eslint = true;
@@ -315,7 +338,10 @@ fn detect_stack(root: &std::path::Path) -> DetectedStack {
     }
 
     // Python — detect modern toolchain (uv > pip)
-    if root.join("pyproject.toml").exists() || root.join("setup.py").exists() || root.join("requirements.txt").exists() {
+    if root.join("pyproject.toml").exists()
+        || root.join("setup.py").exists()
+        || root.join("requirements.txt").exists()
+    {
         s.has_python = true;
         s.stack_lines.push("- Language: Python".to_string());
 
@@ -326,9 +352,15 @@ fn detect_stack(root: &std::path::Path) -> DetectedStack {
         }
 
         let pyp = fs::read_to_string(root.join("pyproject.toml")).unwrap_or_default();
-        if pyp.contains("django") { s.stack_lines.push("- Framework: Django".to_string()); }
-        if pyp.contains("fastapi") { s.stack_lines.push("- Framework: FastAPI".to_string()); }
-        if pyp.contains("flask") { s.stack_lines.push("- Framework: Flask".to_string()); }
+        if pyp.contains("django") {
+            s.stack_lines.push("- Framework: Django".to_string());
+        }
+        if pyp.contains("fastapi") {
+            s.stack_lines.push("- Framework: FastAPI".to_string());
+        }
+        if pyp.contains("flask") {
+            s.stack_lines.push("- Framework: Flask".to_string());
+        }
         if pyp.contains("pytest") {
             s.has_pytest = true;
             s.stack_lines.push("- Testing: pytest".to_string());
@@ -336,7 +368,8 @@ fn detect_stack(root: &std::path::Path) -> DetectedStack {
         // Detect linting (ruff replaces flake8+isort+black)
         if pyp.contains("ruff") || root.join("ruff.toml").exists() {
             s.has_ruff = true;
-            s.stack_lines.push("- Linting + Formatting: Ruff".to_string());
+            s.stack_lines
+                .push("- Linting + Formatting: Ruff".to_string());
         }
     }
 
@@ -364,10 +397,18 @@ fn detect_stack(root: &std::path::Path) -> DetectedStack {
     let compose = fs::read_to_string(root.join("docker-compose.yml"))
         .or_else(|_| fs::read_to_string(root.join("docker-compose.yaml")))
         .unwrap_or_default();
-    if compose.contains("postgres") { s.stack_lines.push("- Database: PostgreSQL".to_string()); }
-    if compose.contains("mysql") { s.stack_lines.push("- Database: MySQL".to_string()); }
-    if compose.contains("mongo") { s.stack_lines.push("- Database: MongoDB".to_string()); }
-    if compose.contains("redis") { s.stack_lines.push("- Database: Redis".to_string()); }
+    if compose.contains("postgres") {
+        s.stack_lines.push("- Database: PostgreSQL".to_string());
+    }
+    if compose.contains("mysql") {
+        s.stack_lines.push("- Database: MySQL".to_string());
+    }
+    if compose.contains("mongo") {
+        s.stack_lines.push("- Database: MongoDB".to_string());
+    }
+    if compose.contains("redis") {
+        s.stack_lines.push("- Database: Redis".to_string());
+    }
 
     // Rust workspace testing/linting
     if root.join("flowctl").exists() && s.has_rust {
@@ -385,7 +426,13 @@ fn generate_guard_commands(s: &DetectedStack) -> String {
     let mut format_check = String::new();
 
     // Determine the JS/TS runner prefix (modern first: bun > pnpm > npx)
-    let js_run = if s.has_bun { "bunx" } else if s.has_pnpm { "pnpm exec" } else { "npx" };
+    let js_run = if s.has_bun {
+        "bunx"
+    } else if s.has_pnpm {
+        "pnpm exec"
+    } else {
+        "npx"
+    };
     // Determine the Python runner (modern first: uv > raw)
     let py_run = if s.has_uv { "uv run" } else { "" };
 
@@ -395,11 +442,23 @@ fn generate_guard_commands(s: &DetectedStack) -> String {
         format_check = "cargo fmt --all -- --check".to_string();
     } else if s.has_python {
         if s.has_pytest {
-            test = if py_run.is_empty() { "pytest".to_string() } else { format!("{py_run} pytest") };
+            test = if py_run.is_empty() {
+                "pytest".to_string()
+            } else {
+                format!("{py_run} pytest")
+            };
         }
         if s.has_ruff {
-            lint = if py_run.is_empty() { "ruff check .".to_string() } else { format!("{py_run} ruff check .") };
-            format_check = if py_run.is_empty() { "ruff format --check .".to_string() } else { format!("{py_run} ruff format --check .") };
+            lint = if py_run.is_empty() {
+                "ruff check .".to_string()
+            } else {
+                format!("{py_run} ruff check .")
+            };
+            format_check = if py_run.is_empty() {
+                "ruff format --check .".to_string()
+            } else {
+                format!("{py_run} ruff format --check .")
+            };
         }
         // No flake8/black fallback — ruff is the modern standard
     } else if s.has_node {
@@ -414,7 +473,9 @@ fn generate_guard_commands(s: &DetectedStack) -> String {
         } else if s.has_eslint {
             lint = format!("{js_run} eslint .");
         }
-        if s.has_typescript { typecheck = format!("{js_run} tsc --noEmit"); }
+        if s.has_typescript {
+            typecheck = format!("{js_run} tsc --noEmit");
+        }
     } else if s.has_go {
         test = "go test ./...".to_string();
         lint = "golangci-lint run".to_string();
@@ -438,35 +499,81 @@ fn generate_file_conventions(root: &std::path::Path) -> String {
     let mut docs: Vec<&str> = Vec::new();
 
     // Frontend directories
-    if root.join("src/components").exists() { frontend.push("src/components/"); }
-    if root.join("src/pages").exists() { frontend.push("src/pages/"); }
-    if root.join("src/app").exists() { frontend.push("src/app/"); }
-    if root.join("src/views").exists() { frontend.push("src/views/"); }
-    if root.join("frontend").exists() { frontend.push("frontend/"); }
-    if root.join("app/javascript").exists() { frontend.push("app/javascript/"); }
+    if root.join("src/components").exists() {
+        frontend.push("src/components/");
+    }
+    if root.join("src/pages").exists() {
+        frontend.push("src/pages/");
+    }
+    if root.join("src/app").exists() {
+        frontend.push("src/app/");
+    }
+    if root.join("src/views").exists() {
+        frontend.push("src/views/");
+    }
+    if root.join("frontend").exists() {
+        frontend.push("frontend/");
+    }
+    if root.join("app/javascript").exists() {
+        frontend.push("app/javascript/");
+    }
 
     // Backend directories
-    if root.join("src/api").exists() { backend.push("src/api/"); }
-    if root.join("src/server").exists() { backend.push("src/server/"); }
-    if root.join("src/lib").exists() { backend.push("src/lib/"); }
-    if root.join("crates").exists() { backend.push("crates/"); }
-    if root.join("flowctl/crates").exists() { backend.push("flowctl/crates/"); }
-    if root.join("app/models").exists() { backend.push("app/models/"); }
-    if root.join("app/controllers").exists() { backend.push("app/controllers/"); }
-    if root.join("cmd").exists() { backend.push("cmd/"); }
-    if root.join("internal").exists() { backend.push("internal/"); }
-    if root.join("pkg").exists() { backend.push("pkg/"); }
+    if root.join("src/api").exists() {
+        backend.push("src/api/");
+    }
+    if root.join("src/server").exists() {
+        backend.push("src/server/");
+    }
+    if root.join("src/lib").exists() {
+        backend.push("src/lib/");
+    }
+    if root.join("crates").exists() {
+        backend.push("crates/");
+    }
+    if root.join("flowctl/crates").exists() {
+        backend.push("flowctl/crates/");
+    }
+    if root.join("app/models").exists() {
+        backend.push("app/models/");
+    }
+    if root.join("app/controllers").exists() {
+        backend.push("app/controllers/");
+    }
+    if root.join("cmd").exists() {
+        backend.push("cmd/");
+    }
+    if root.join("internal").exists() {
+        backend.push("internal/");
+    }
+    if root.join("pkg").exists() {
+        backend.push("pkg/");
+    }
 
     // Testing directories
-    if root.join("tests").exists() { testing.push("tests/"); }
-    if root.join("test").exists() { testing.push("test/"); }
-    if root.join("spec").exists() { testing.push("spec/"); }
-    if root.join("scripts").exists() { testing.push("scripts/"); }
-    if root.join("__tests__").exists() { testing.push("__tests__/"); }
+    if root.join("tests").exists() {
+        testing.push("tests/");
+    }
+    if root.join("test").exists() {
+        testing.push("test/");
+    }
+    if root.join("spec").exists() {
+        testing.push("spec/");
+    }
+    if root.join("scripts").exists() {
+        testing.push("scripts/");
+    }
+    if root.join("__tests__").exists() {
+        testing.push("__tests__/");
+    }
 
     // Docs directories
-    if root.join("docs").exists() { docs.push("docs/"); }
-    if root.join("doc").exists() { docs.push("doc/"); }
+    if root.join("docs").exists() {
+        docs.push("docs/");
+    }
+    if root.join("doc").exists() {
+        docs.push("doc/");
+    }
 
     let fmt_list = |items: &[&str]| -> String {
         if items.is_empty() {
@@ -490,8 +597,12 @@ fn detect_rules(root: &std::path::Path) -> Vec<String> {
     let mut rules = Vec::new();
 
     // CI detection
-    if root.join(".github/workflows").exists() { rules.push("- CI: GitHub Actions".to_string()); }
-    if root.join(".gitlab-ci.yml").exists() { rules.push("- CI: GitLab CI".to_string()); }
+    if root.join(".github/workflows").exists() {
+        rules.push("- CI: GitHub Actions".to_string());
+    }
+    if root.join(".gitlab-ci.yml").exists() {
+        rules.push("- CI: GitLab CI".to_string());
+    }
 
     // Cargo.toml: unsafe_code = "forbid"
     if root.join("Cargo.toml").exists() {
@@ -587,7 +698,10 @@ pub fn cmd_detect(json: bool) {
             match fs::read_to_string(&meta_path) {
                 Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
                     Ok(meta) => {
-                        let version = meta.get("schema_version").and_then(serde_json::Value::as_u64).unwrap_or(0) as u32;
+                        let version = meta
+                            .get("schema_version")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0) as u32;
                         if !SUPPORTED_SCHEMA_VERSIONS.contains(&version) {
                             issues.push(format!(
                                 "schema_version unsupported (supported {:?}, got {})",
@@ -667,9 +781,17 @@ pub fn cmd_startup(json: bool) {
                             if let Ok(task_entries) = fs::read_dir(&tasks_dir) {
                                 for te in task_entries.flatten() {
                                     if let Ok(tc) = fs::read_to_string(te.path()) {
-                                        if let Ok(task) = serde_json::from_str::<serde_json::Value>(&tc) {
-                                            let epic_id = task.get("epic").and_then(|s| s.as_str()).unwrap_or("");
-                                            let task_status = task.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                                        if let Ok(task) =
+                                            serde_json::from_str::<serde_json::Value>(&tc)
+                                        {
+                                            let epic_id = task
+                                                .get("epic")
+                                                .and_then(|s| s.as_str())
+                                                .unwrap_or("");
+                                            let task_status = task
+                                                .get("status")
+                                                .and_then(|s| s.as_str())
+                                                .unwrap_or("");
                                             if epic_id == id && task_status == "in_progress" {
                                                 interrupted.push(json!({
                                                     "epic": id,
@@ -689,13 +811,20 @@ pub fn cmd_startup(json: bool) {
     }
 
     // Review backend
-    let config_dir = flow_dir.parent().map(|p| p.join(".flow-config")).unwrap_or_default();
+    let config_dir = flow_dir
+        .parent()
+        .map(|p| p.join(".flow-config"))
+        .unwrap_or_default();
     let config_path = config_dir.join("config.json");
     let review_backend = if config_path.exists() {
         fs::read_to_string(&config_path)
             .ok()
             .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
-            .and_then(|v| v.get("review").and_then(|r| r.get("backend")).and_then(|b| b.as_str().map(String::from)))
+            .and_then(|v| {
+                v.get("review")
+                    .and_then(|r| r.get("backend"))
+                    .and_then(|b| b.as_str().map(String::from))
+            })
             .unwrap_or_else(|| "rp".to_string())
     } else {
         "rp".to_string()
@@ -726,10 +855,19 @@ pub fn cmd_startup(json: bool) {
             "review_backend": review_backend,
             "branch": branch,
             "epic_count": epic_count,
+            "artifacts": {
+                "graph": flow_dir.join("graph.bin").exists(),
+                "index": flow_dir.join("index").join("ngram.bin").exists(),
+            },
         }));
     } else {
-        println!("Flow: {} | Branch: {} | Review: {} | Epics: {} | Interrupted: {}",
+        println!(
+            "Flow: {} | Branch: {} | Review: {} | Epics: {} | Interrupted: {}",
             if valid { "ready" } else { "not initialized" },
-            branch, review_backend, epic_count, interrupted.len());
+            branch,
+            review_backend,
+            epic_count,
+            interrupted.len()
+        );
     }
 }

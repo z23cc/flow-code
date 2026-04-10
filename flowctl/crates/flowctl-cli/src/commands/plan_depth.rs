@@ -16,11 +16,30 @@ const DEEP_KEYWORDS: &[&str] = &["architecture", "refactor", "migration", "重�
 
 const QUICK_STEPS: &[&str] = &["init", "write", "validate", "return"];
 const STANDARD_STEPS: &[&str] = &[
-    "init", "clarity", "skill-route", "research", "gap-analysis", "write", "validate",
+    "init",
+    "clarity",
+    "skill-route",
+    "research",
+    "gap-analysis",
+    "write",
+    "validate",
 ];
 const DEEP_STEPS: &[&str] = &[
-    "init", "clarity", "skill-route", "research", "gap-analysis", "depth", "constraints",
-    "dependencies", "risks", "write", "review", "refine", "validate", "memory", "return",
+    "init",
+    "clarity",
+    "skill-route",
+    "research",
+    "gap-analysis",
+    "depth",
+    "constraints",
+    "dependencies",
+    "risks",
+    "write",
+    "review",
+    "refine",
+    "validate",
+    "memory",
+    "return",
 ];
 
 // ── File reference counting ──────────────────────────────────────────
@@ -40,9 +59,26 @@ fn count_file_refs(request: &str) -> usize {
             if let Some((_name, ext)) = w.rsplit_once('.') {
                 matches!(
                     ext,
-                    "rs" | "py" | "js" | "ts" | "tsx" | "jsx" | "go" | "java"
-                        | "rb" | "md" | "json" | "yaml" | "yml" | "toml" | "css"
-                        | "html" | "sql" | "sh" | "c" | "cpp" | "h"
+                    "rs" | "py"
+                        | "js"
+                        | "ts"
+                        | "tsx"
+                        | "jsx"
+                        | "go"
+                        | "java"
+                        | "rb"
+                        | "md"
+                        | "json"
+                        | "yaml"
+                        | "yml"
+                        | "toml"
+                        | "css"
+                        | "html"
+                        | "sql"
+                        | "sh"
+                        | "c"
+                        | "cpp"
+                        | "h"
                 )
             } else {
                 false

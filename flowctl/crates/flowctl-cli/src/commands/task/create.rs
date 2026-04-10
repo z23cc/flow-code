@@ -11,7 +11,7 @@ use flowctl_core::changes::{Changes, Mutation};
 use flowctl_core::id::{epic_id_from_task, is_epic_id, is_task_id};
 use flowctl_core::json_store::TaskState;
 use flowctl_core::state_machine::Status;
-use flowctl_core::types::{Domain, Task, FLOW_DIR};
+use flowctl_core::types::{Domain, FLOW_DIR, Task};
 
 use super::{
     create_task_spec, ensure_flow_exists, parse_domain, read_file_or_stdin, scan_max_task_id,

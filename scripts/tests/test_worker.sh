@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests: context hints, build_review_prompt, worker-prompt, worker-phase
+# Tests: worker-prompt and worker-phase
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
 echo -e "${YELLOW}=== worker tests ===${NC}"
@@ -8,106 +8,6 @@ echo -e "${YELLOW}=== worker tests ===${NC}"
 EPIC1_JSON="$($FLOWCTL epic create --title "Worker Epic" --json)"
 EPIC1="$(echo "$EPIC1_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 $FLOWCTL task create --epic "$EPIC1" --title "Task 1" --json >/dev/null
-
-echo -e "${YELLOW}--- context hints ---${NC}"
-# Create files in same commit, then modify one to test context hints
-mkdir -p "$TEST_DIR/repo/src"
-# First commit: both auth.py and handler.py together
-cat > "$TEST_DIR/repo/src/auth.py" << 'EOF'
-def validate_token(token: str) -> bool:
-    """Validate JWT token."""
-    return len(token) > 10
-
-class User:
-    def __init__(self, name: str):
-        self.name = name
-EOF
-cat > "$TEST_DIR/repo/src/handler.py" << 'EOF'
-from auth import validate_token, User
-
-def handle_request(token: str):
-    if validate_token(token):
-        return User("test")
-    return None
-EOF
-git -C "$TEST_DIR/repo" add src/
-git -C "$TEST_DIR/repo" commit -m "Add auth and handler" >/dev/null
-
-# Second commit: only modify auth.py (handler.py stays unchanged)
-cat > "$TEST_DIR/repo/src/auth.py" << 'EOF'
-def validate_token(token: str) -> bool:
-    """Validate JWT token with expiry check."""
-    if len(token) < 10:
-        return False
-    return True
-
-class User:
-    def __init__(self, name: str, email: str = ""):
-        self.name = name
-        self.email = email
-EOF
-git -C "$TEST_DIR/repo" add src/auth.py
-git -C "$TEST_DIR/repo" commit -m "Update auth with expiry" >/dev/null
-
-# Test context hints: should find handler.py referencing validate_token/User
-cd "$TEST_DIR/repo"
-hints_output="$(PYTHONPATH="$PLUGIN_ROOT/scripts" "$PYTHON_BIN" -c "
-from flowctl import gather_context_hints
-hints = gather_context_hints('HEAD~1')
-print(hints)
-" 2>&1)"
-
-# Verify hints mention handler.py referencing validate_token or User
-if echo "$hints_output" | grep -q "handler.py"; then
-  echo -e "${GREEN}✓${NC} context hints finds references"
-  PASS=$((PASS + 1))
-else
-  echo -e "${RED}✗${NC} context hints finds references (got: $hints_output)"
-  FAIL=$((FAIL + 1))
-fi
-
-echo -e "${YELLOW}--- build_review_prompt ---${NC}"
-cd "$TEST_DIR/repo"
-# Test that build_review_prompt generates proper structure
-"$PYTHON_BIN" - "$PLUGIN_ROOT/scripts" <<'PY'
-import sys
-sys.path.insert(0, sys.argv[1])
-from flowctl import build_review_prompt
-
-# Test impl prompt has all 7 criteria
-impl_prompt = build_review_prompt("impl", "Test spec", "Test hints", "Test diff")
-assert "<review_instructions>" in impl_prompt
-assert "Correctness" in impl_prompt
-assert "Simplicity" in impl_prompt
-assert "DRY" in impl_prompt
-assert "Architecture" in impl_prompt
-assert "Edge Cases" in impl_prompt
-assert "Tests" in impl_prompt
-assert "Security" in impl_prompt
-assert "<verdict>SHIP</verdict>" in impl_prompt
-assert "File:Line" in impl_prompt  # Structured output format
-
-# Test plan prompt has all 7 criteria
-plan_prompt = build_review_prompt("plan", "Test spec", "Test hints")
-assert "Completeness" in plan_prompt
-assert "Feasibility" in plan_prompt
-assert "Clarity" in plan_prompt
-assert "Architecture" in plan_prompt
-assert "Risks" in plan_prompt
-assert "Scope" in plan_prompt
-assert "Testability" in plan_prompt
-assert "<verdict>SHIP</verdict>" in plan_prompt
-
-# Test context hints and diff are included
-assert "<context_hints>" in impl_prompt
-assert "Test hints" in impl_prompt
-assert "<diff_summary>" in impl_prompt
-assert "Test diff" in impl_prompt
-assert "<spec>" in impl_prompt
-assert "Test spec" in impl_prompt
-PY
-echo -e "${GREEN}✓${NC} build_review_prompt has full criteria"
-PASS=$((PASS + 1))
 
 echo -e "${YELLOW}--- worker-prompt ---${NC}"
 
@@ -133,6 +33,44 @@ EPIC_PH_JSON="$($FLOWCTL epic create --title "Phase test" --json)"
 EPIC_PH="$(echo "$EPIC_PH_JSON" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 $FLOWCTL task create --epic "$EPIC_PH" --title "Phase task" --json >/dev/null
 $FLOWCTL start "${EPIC_PH}.1" --json >/dev/null
+mkdir -p "$TEST_DIR/repo/src" "$TEST_DIR/repo/.flow/outputs"
+cat > "$TEST_DIR/repo/src/phase_task.py" <<'EOF'
+def run():
+    return "ok"
+EOF
+cat > "$TEST_DIR/repo/.flow/tasks/${EPIC_PH}.1.md" <<EOF
+# ${EPIC_PH}.1 Phase task
+
+## Description
+Exercise worker phase gating.
+
+## Investigation targets
+- src/phase_task.py
+
+## Acceptance
+- [ ] Worker phase gates require receipts
+
+**Files:**
+- src/phase_task.py
+EOF
+
+phase_receipt_file() {
+  local phase="$1"
+  echo "$TEST_DIR/worker-phase-${phase}.json"
+}
+
+worker_phase_done() {
+  local phase="$1"
+  local payload="${2:-}"
+  local receipt_file
+  receipt_file="$(phase_receipt_file "$phase")"
+  if [[ -n "$payload" ]]; then
+    printf '%s\n' "$payload" > "$receipt_file"
+    $FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --receipt-file "$receipt_file" --json >/dev/null
+  else
+    $FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --json >/dev/null
+  fi
+}
 
 # Test: worker-phase next returns phase 1 initially (worktree+teams default)
 wph_next="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
@@ -148,7 +86,15 @@ fi
 
 # Test: worker-phase done phase 1 -> next returns phase 2
 wph_next1="$wph_next"
-$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 1 --json >/dev/null
+phase1_gate_err="$($FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 1 --json 2>&1 || true)"
+if echo "$phase1_gate_err" | grep -q "requires --receipt"; then
+  echo -e "${GREEN}✓${NC} worker-phase gate: phase 1 rejects missing receipt"
+  PASS=$((PASS + 1))
+else
+  echo -e "${RED}✗${NC} worker-phase gate: expected missing-receipt error for phase 1, got: $phase1_gate_err"
+  FAIL=$((FAIL + 1))
+fi
+worker_phase_done 1 '{"owned_files":["src/phase_task.py"],"config_valid":true}'
 wph_next1b="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_phase1b="$(echo "$wph_next1b" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
 if [[ "$wph_phase1b" == "2" ]]; then
@@ -159,9 +105,10 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# Advance through phase 2 and 5 to test 6
-$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 2 --json >/dev/null
-$FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase 5 --json >/dev/null
+# Advance through phases 2, 3, and 5 to test 6
+worker_phase_done 2 '{"acceptance_points":["- [ ] Worker phase gates require receipts"]}'
+worker_phase_done 3 '{"files_read":[".flow/tasks/'"${EPIC_PH}"'.1.md","src/phase_task.py"]}'
+worker_phase_done 5 '{"files_changed":["src/phase_task.py"],"implemented":true}'
 wph_next6="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_phase6="$(echo "$wph_next6" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["phase"])')"
 if [[ "$wph_phase6" == "6" ]]; then
@@ -216,10 +163,15 @@ else
 fi
 
 # Test: complete all remaining default phases -> all_done
-# Phases 1, 2, 5 already done above; complete remaining: 6, 7, 9, 10, 11, 12
-for phase in 6 7 9 10 11 12; do
-  $FLOWCTL worker-phase done --task "${EPIC_PH}.1" --phase "$phase" --json >/dev/null
-done
+# Phases 1, 2, 3, 5 already done above; complete remaining: 6, 7, 9, 10, 11, 12
+worker_phase_done 6 '{"guard_passed":true,"diff_reviewed":true}'
+worker_phase_done 7 '{"commit":"abcdef1234567"}'
+printf 'Implemented worker phase gate test.\n' > "$TEST_DIR/repo/.flow/outputs/${EPIC_PH}.1.md"
+worker_phase_done 9 '{"output_path":".flow/outputs/'"${EPIC_PH}"'.1.md"}'
+$FLOWCTL done "${EPIC_PH}.1" --summary-file "$TEST_DIR/summary.md" --evidence-json "$TEST_DIR/evidence.json" --json >/dev/null
+worker_phase_done 10
+worker_phase_done 11 '{"checked":true,"saved":false}'
+worker_phase_done 12 '{"summary":"Completed worker phase lifecycle in the smoke test."}'
 wph_final="$($FLOWCTL worker-phase next --task "${EPIC_PH}.1" --json)"
 wph_all_done="$(echo "$wph_final" | "$PYTHON_BIN" -c 'import json,sys; print(json.load(sys.stdin)["all_done"])')"
 if [[ "$wph_all_done" == "True" ]]; then

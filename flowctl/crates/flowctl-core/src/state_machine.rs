@@ -226,7 +226,10 @@ mod tests {
         assert_eq!(Status::parse("skipped"), Some(Status::Skipped));
         assert_eq!(Status::parse("failed"), Some(Status::Failed));
         assert_eq!(Status::parse("up_for_retry"), Some(Status::UpForRetry));
-        assert_eq!(Status::parse("upstream_failed"), Some(Status::UpstreamFailed));
+        assert_eq!(
+            Status::parse("upstream_failed"),
+            Some(Status::UpstreamFailed)
+        );
         assert_eq!(Status::parse("DONE"), Some(Status::Done));
         assert_eq!(Status::parse("invalid"), None);
     }
@@ -292,15 +295,15 @@ mod tests {
     fn test_invalid_transitions() {
         let invalid = [
             (Status::Todo, Status::Done),           // Must go through in_progress
-            (Status::Todo, Status::Failed),          // Must go through in_progress
-            (Status::Done, Status::InProgress),      // Terminal
-            (Status::Done, Status::Todo),            // Terminal
-            (Status::Skipped, Status::Todo),         // Terminal
-            (Status::Skipped, Status::InProgress),   // Terminal
-            (Status::Blocked, Status::Done),         // Must go through todo -> in_progress
-            (Status::InProgress, Status::Todo),      // Can't go back without restart
-            (Status::InProgress, Status::Skipped),   // Can't skip while running
-            (Status::UpstreamFailed, Status::Todo),  // Propagated failure is sticky
+            (Status::Todo, Status::Failed),         // Must go through in_progress
+            (Status::Done, Status::InProgress),     // Terminal
+            (Status::Done, Status::Todo),           // Terminal
+            (Status::Skipped, Status::Todo),        // Terminal
+            (Status::Skipped, Status::InProgress),  // Terminal
+            (Status::Blocked, Status::Done),        // Must go through todo -> in_progress
+            (Status::InProgress, Status::Todo),     // Can't go back without restart
+            (Status::InProgress, Status::Skipped),  // Can't skip while running
+            (Status::UpstreamFailed, Status::Todo), // Propagated failure is sticky
         ];
 
         for (from, to) in invalid {

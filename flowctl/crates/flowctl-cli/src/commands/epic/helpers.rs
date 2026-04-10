@@ -33,9 +33,11 @@ pub fn load_epic(id: &str) -> Document<Epic> {
     let flow_dir = get_flow_dir();
     let epic = flowctl_core::json_store::epic_read(&flow_dir, id)
         .unwrap_or_else(|_| error_exit(&format!("Epic {id} not found")));
-    let body = flowctl_core::json_store::epic_spec_read(&flow_dir, id)
-        .unwrap_or_default();
-    Document { frontmatter: epic, body }
+    let body = flowctl_core::json_store::epic_spec_read(&flow_dir, id).unwrap_or_default();
+    Document {
+        frontmatter: epic,
+        body,
+    }
 }
 
 /// Write an epic document to JSON files.
@@ -44,8 +46,13 @@ pub fn save_epic(doc: &Document<Epic>) {
     if let Err(e) = flowctl_core::json_store::epic_write(&flow_dir, &doc.frontmatter) {
         error_exit(&format!("Failed to write epic {}: {e}", doc.frontmatter.id));
     }
-    if let Err(e) = flowctl_core::json_store::epic_spec_write(&flow_dir, &doc.frontmatter.id, &doc.body) {
-        error_exit(&format!("Failed to write epic spec {}: {e}", doc.frontmatter.id));
+    if let Err(e) =
+        flowctl_core::json_store::epic_spec_write(&flow_dir, &doc.frontmatter.id, &doc.body)
+    {
+        error_exit(&format!(
+            "Failed to write epic spec {}: {e}",
+            doc.frontmatter.id
+        ));
     }
 }
 

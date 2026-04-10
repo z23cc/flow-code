@@ -9,7 +9,7 @@ mod commands;
 mod output;
 
 use clap::{CommandFactory, Parser, Subcommand};
-use clap_complete::{generate, Shell};
+use clap_complete::{Shell, generate};
 
 use commands::{
     admin::{self, ConfigCmd, ReviewCmd},
@@ -605,8 +605,6 @@ enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
-
-
 }
 
 fn main() {
@@ -647,7 +645,9 @@ fn main() {
     /// Resolve dual-mode argument: positional `id` takes precedence over `--epic` flag.
     fn resolve_epic(id: Option<String>, epic_flag: Option<String>, cmd_name: &str) -> String {
         id.or(epic_flag).unwrap_or_else(|| {
-            output::error_exit(&format!("{cmd_name} requires an epic ID (positional or --epic)"));
+            output::error_exit(&format!(
+                "{cmd_name} requires an epic ID (positional or --epic)"
+            ));
         })
     }
 
@@ -657,7 +657,12 @@ fn main() {
         Commands::Paths => commands::paths::cmd_paths(json),
         Commands::Detect => admin::cmd_detect(json),
         Commands::Startup => admin::cmd_startup(json),
-        Commands::Status { interrupted, dag, epic, progress } => {
+        Commands::Status {
+            interrupted,
+            dag,
+            epic,
+            progress,
+        } => {
             if dag {
                 commands::stats::cmd_dag(json, epic);
             } else if progress {
@@ -678,9 +683,13 @@ fn main() {
         } => admin::cmd_parse_findings(json, file, epic, register, source),
         Commands::Guard { layer } => admin::cmd_guard(json, layer),
         Commands::PreLaunch => commands::pre_launch::cmd_pre_launch(json),
-        Commands::WorkerPrompt { task, tdd, review, bootstrap: _, inline_skills } => {
-            admin::cmd_worker_prompt(json, task, tdd, review, inline_skills)
-        }
+        Commands::WorkerPrompt {
+            task,
+            tdd,
+            review,
+            bootstrap: _,
+            inline_skills,
+        } => admin::cmd_worker_prompt(json, task, tdd, review, inline_skills),
 
         Commands::Review { cmd } => admin::dispatch_review(&cmd, json),
         Commands::Dag { id } => commands::stats::cmd_dag(json, Some(id)),
@@ -688,7 +697,11 @@ fn main() {
             let epic = resolve_epic(id, epic_flag, "estimate");
             commands::stats::cmd_estimate(json, &epic);
         }
-        Commands::Replay { epic_id, dry_run, force } => commands::epic::cmd_replay(json, &epic_id, dry_run, force),
+        Commands::Replay {
+            epic_id,
+            dry_run,
+            force,
+        } => commands::epic::cmd_replay(json, &epic_id, dry_run, force),
         Commands::Diff { epic_id } => commands::epic::cmd_diff(json, &epic_id),
 
         // Nested groups
@@ -771,7 +784,11 @@ fn main() {
             force,
         ),
         Commands::Restart { id, dry_run, force } => workflow::cmd_restart(json, id, dry_run, force),
-        Commands::Block { id, reason, reason_file } => {
+        Commands::Block {
+            id,
+            reason,
+            reason_file,
+        } => {
             let reason_text = if let Some(r) = reason {
                 r
             } else if let Some(f) = reason_file {
@@ -790,9 +807,12 @@ fn main() {
         }
 
         // File I/O
-        Commands::WriteFile { path, content, stdin, append } => {
-            commands::file::cmd_write_file(json, path, content, stdin, append)
-        }
+        Commands::WriteFile {
+            path,
+            content,
+            stdin,
+            append,
+        } => commands::file::cmd_write_file(json, path, content, stdin, append),
 
         // Patch
         Commands::Patch { cmd } => commands::patch::dispatch(&cmd, json),
@@ -831,8 +851,6 @@ fn main() {
             let mut cmd = Cli::command();
             generate(shell, &mut cmd, "flowctl", &mut std::io::stdout());
         }
-
-
     }
 }
 

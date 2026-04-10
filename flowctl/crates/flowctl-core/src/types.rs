@@ -79,7 +79,8 @@ impl std::fmt::Display for Domain {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskSize {
-    /// Small: minimal phases (skip investigation, outputs, memory).
+    /// Small: minimal worker sequence with investigation preserved; outputs and
+    /// memory may still be added by config.
     #[serde(rename = "S")]
     Small,
     /// Medium: default phase sequence.
@@ -108,7 +109,10 @@ impl std::str::FromStr for TaskSize {
             "S" => Ok(TaskSize::Small),
             "M" => Ok(TaskSize::Medium),
             "L" => Ok(TaskSize::Large),
-            other => Err(format!("invalid task size '{}': expected S, M, or L", other)),
+            other => Err(format!(
+                "invalid task size '{}': expected S, M, or L",
+                other
+            )),
         }
     }
 }
@@ -343,17 +347,53 @@ impl std::fmt::Display for PhaseStatus {
 /// Phase definitions — sequential integer IDs (1-12).
 /// Each entry: (id, title, done_condition).
 pub const PHASE_DEFS: &[(&str, &str, &str)] = &[
-    ("1", "Verify Configuration", "OWNED_FILES verified and configuration validated"),
-    ("2", "Re-anchor", "Run flowctl show <task> and verify spec was read"),
-    ("3", "Investigation", "Required investigation target files read and patterns noted"),
-    ("4", "TDD Red-Green", "Failing tests written and confirmed to fail"),
+    (
+        "1",
+        "Verify Configuration",
+        "OWNED_FILES verified and configuration validated",
+    ),
+    (
+        "2",
+        "Re-anchor",
+        "Run flowctl show <task> and verify spec was read",
+    ),
+    (
+        "3",
+        "Investigation",
+        "Required investigation target files read and patterns noted",
+    ),
+    (
+        "4",
+        "TDD Red-Green",
+        "Failing tests written and confirmed to fail",
+    ),
     ("5", "Implement", "Feature implemented and code compiles"),
-    ("6", "Verify & Fix", "flowctl guard passes and diff reviewed"),
-    ("7", "Commit", "Changes committed with conventional commit message"),
+    (
+        "6",
+        "Verify & Fix",
+        "flowctl guard passes and diff reviewed",
+    ),
+    (
+        "7",
+        "Commit",
+        "Changes committed with conventional commit message",
+    ),
     ("8", "Review", "SHIP verdict received from reviewer"),
-    ("9", "Outputs Dump", "Narrative summary written to .flow/outputs/<task-id>.md"),
-    ("10", "Complete", "flowctl done called and task status is done"),
-    ("11", "Memory Auto-Save", "Non-obvious lessons saved to memory (if any)"),
+    (
+        "9",
+        "Outputs Dump",
+        "Narrative summary written to .flow/outputs/<task-id>.md",
+    ),
+    (
+        "10",
+        "Complete",
+        "flowctl done called and task status is done",
+    ),
+    (
+        "11",
+        "Memory Auto-Save",
+        "Non-obvious lessons saved to memory (if any)",
+    ),
     ("12", "Return", "Summary returned to main conversation"),
 ];
 
@@ -613,13 +653,22 @@ mod tests {
         // Verify all phase sequences reference valid phase IDs
         let valid_ids: Vec<&str> = PHASE_DEFS.iter().map(|(id, _, _)| *id).collect();
         for seq_id in PHASE_SEQ_DEFAULT {
-            assert!(valid_ids.contains(seq_id), "Invalid phase in default seq: {seq_id}");
+            assert!(
+                valid_ids.contains(seq_id),
+                "Invalid phase in default seq: {seq_id}"
+            );
         }
         for seq_id in PHASE_SEQ_TDD {
-            assert!(valid_ids.contains(seq_id), "Invalid phase in TDD seq: {seq_id}");
+            assert!(
+                valid_ids.contains(seq_id),
+                "Invalid phase in TDD seq: {seq_id}"
+            );
         }
         for seq_id in PHASE_SEQ_REVIEW {
-            assert!(valid_ids.contains(seq_id), "Invalid phase in review seq: {seq_id}");
+            assert!(
+                valid_ids.contains(seq_id),
+                "Invalid phase in review seq: {seq_id}"
+            );
         }
     }
 }

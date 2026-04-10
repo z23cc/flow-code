@@ -1,6 +1,9 @@
 # Shared RP Review Protocol
 
 Shared workflow for all three review skills (plan-review, impl-review, epic-review).
+This file is the **review-specific extension** of `skills/_shared/rp-mcp-orchestration.md`.
+Follow the shared orchestration guide for general rules about builder/oracle ownership, selection management, exports, and delegated agents.
+
 Each calling skill MUST define these variables before following this protocol:
 
 ```
@@ -57,6 +60,7 @@ echo "Review backend: $BACKEND (override: --review=rp|codex|none)"
 Use when `BACKEND="rp"`.
 
 After the calling skill has gathered context (Phase 1) and set all required variables, use `context_builder` with `response_type="review"` for the review.
+Per the shared orchestration guide, `context_builder` owns the initial discovery + selection and Oracle follow-ups stay in the same chat unless review scope materially changes.
 
 ### Step 1: Execute Review via context_builder
 
@@ -157,9 +161,10 @@ If verdict is NEEDS_WORK:
    - **impl**: Fix code, run tests, commit: `git add -A && git commit -m "fix: address review feedback"`
    - **epic**: Fix code, run tests, commit: `git add -A && git commit -m "fix: address completion review gaps"`
 
-3. **Re-review** via `oracle_send` (stays in same chat, no new context build):
+3. **Re-review** via the same Oracle chat (`ask_oracle` / `oracle_send`, depending on host surface) — no new context build:
    ```
-   oracle_send(
+   # use `ask_oracle` or `oracle_send`, depending on what your host surface exposes
+   ask_oracle(
      chat_id=<chat_id from Step 1>,
      message="Issues addressed. Please re-review.\n\n**REQUIRED**: End with <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict> or <verdict>MAJOR_RETHINK</verdict>"
    )
@@ -178,7 +183,7 @@ If verdict is NEEDS_WORK:
 - **Mixing backends** - Stick to one backend for the entire review session
 
 **RP backend only:**
-- **Re-running context_builder** - After initial review, use oracle_send with chat_id for follow-ups
+- **Re-running context_builder** - After initial review, use the same Oracle chat for follow-ups unless review scope truly changed
 - **Summarizing fixes in re-review** - RP auto-refreshes file contents; just request re-review
 
 **Codex backend only:**

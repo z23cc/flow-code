@@ -1,6 +1,5 @@
 //! Status, doctor, and validate commands.
 
-
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -9,14 +8,16 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output, pretty_output};
 
+use flowctl_core::graph_store::CodeGraph;
+use flowctl_core::ngram_index::NgramIndex;
+use flowctl_core::paths::FlowPaths;
+use flowctl_core::state_machine::Status;
 use flowctl_core::types::{
     CONFIG_FILE, EPICS_DIR, EpicStatus, MEMORY_DIR, META_FILE, REVIEWS_DIR, SCHEMA_VERSION,
     SPECS_DIR, TASKS_DIR,
 };
-use flowctl_core::state_machine::Status;
 
 use super::get_flow_dir;
-
 
 // ── Status command ──────────────────────────────────────────────────
 
@@ -43,10 +44,7 @@ pub fn cmd_status(json: bool, interrupted: bool) {
         } else if interrupted_epics.is_empty() {
             println!("No interrupted work found.");
         } else {
-            println!(
-                "Found {} interrupted epic(s):\n",
-                interrupted_epics.len()
-            );
+            println!("Found {} interrupted epic(s):\n", interrupted_epics.len());
             for ep in &interrupted_epics {
                 let done = ep["done"].as_u64().unwrap_or(0);
                 let total = ep["total"].as_u64().unwrap_or(0);
@@ -65,7 +63,11 @@ pub fn cmd_status(json: bool, interrupted: bool) {
                     remaining.push(format!("{} blocked", blocked));
                 }
 
-                println!("  {}: {}", ep["id"].as_str().unwrap_or(""), ep["title"].as_str().unwrap_or(""));
+                println!(
+                    "  {}: {}",
+                    ep["id"].as_str().unwrap_or(""),
+                    ep["title"].as_str().unwrap_or("")
+                );
                 println!(
                     "    Progress: {}/{} done ({})",
                     done,
@@ -74,7 +76,8 @@ pub fn cmd_status(json: bool, interrupted: bool) {
                 );
 
                 if in_prog > 0 {
-                    let stale_tasks = ep.get("stale_task_ids")
+                    let stale_tasks = ep
+                        .get("stale_task_ids")
                         .and_then(|v| v.as_array())
                         .cloned()
                         .unwrap_or_default();
@@ -91,10 +94,7 @@ pub fn cmd_status(json: bool, interrupted: bool) {
                         );
                     }
                 } else {
-                    println!(
-                        "    Resume:   {}",
-                        ep["suggested"].as_str().unwrap_or("")
-                    );
+                    println!("    Resume:   {}", ep["suggested"].as_str().unwrap_or(""));
                 }
                 println!();
             }
@@ -182,7 +182,6 @@ fn status_from_db() -> Option<(serde_json::Value, serde_json::Value)> {
     ))
 }
 
-
 /// Find open epics with undone tasks (interrupted work) from JSON files.
 fn find_interrupted_epics(flow_dir: &Path) -> Vec<serde_json::Value> {
     let mut interrupted = Vec::new();
@@ -265,7 +264,9 @@ pub(super) fn validate_flow_root(flow_dir: &Path) -> Vec<String> {
         match fs::read_to_string(&meta_path) {
             Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
                 Ok(meta) => {
-                    let version = meta.get("schema_version").and_then(serde_json::Value::as_u64);
+                    let version = meta
+                        .get("schema_version")
+                        .and_then(serde_json::Value::as_u64);
                     if version != Some(SCHEMA_VERSION as u64) {
                         errors.push(format!(
                             "schema_version unsupported in meta.json (expected {}, got {:?})",
@@ -314,7 +315,10 @@ pub(super) fn validate_epic(flow_dir: &Path, epic_id: &str) -> (Vec<String>, Vec
                     } else {
                         for heading in flowctl_core::types::TASK_SPEC_HEADINGS {
                             if !body.contains(heading) {
-                                errors.push(format!("Task {}: missing required heading '{}'", task_id, heading));
+                                errors.push(format!(
+                                    "Task {}: missing required heading '{}'",
+                                    task_id, heading
+                                ));
                             }
                         }
                     }
@@ -505,15 +509,13 @@ pub fn cmd_progress(json_mode: bool, epic_id: Option<String>) {
         id
     } else {
         match flowctl_core::json_store::epic_list(&flow_dir) {
-            Ok(epics) => {
-                epics
-                    .iter()
-                    .find(|e| e.status == EpicStatus::Open)
-                    .map(|e| e.id.clone())
-                    .unwrap_or_else(|| {
-                        error_exit("No open epic found. Pass --epic <id>.");
-                    })
-            }
+            Ok(epics) => epics
+                .iter()
+                .find(|e| e.status == EpicStatus::Open)
+                .map(|e| e.id.clone())
+                .unwrap_or_else(|| {
+                    error_exit("No open epic found. Pass --epic <id>.");
+                }),
             Err(_) => error_exit("Cannot read epics."),
         }
     };
@@ -527,11 +529,21 @@ pub fn cmd_progress(json_mode: bool, epic_id: Option<String>) {
     };
 
     let total = tasks.len();
-    let done = tasks.iter().filter(|t| t.status == Status::Done || t.status == Status::Skipped).count();
-    let in_progress: Vec<&str> = tasks.iter().filter(|t| t.status == Status::InProgress).map(|t| t.id.as_str()).collect();
+    let done = tasks
+        .iter()
+        .filter(|t| t.status == Status::Done || t.status == Status::Skipped)
+        .count();
+    let in_progress: Vec<&str> = tasks
+        .iter()
+        .filter(|t| t.status == Status::InProgress)
+        .map(|t| t.id.as_str())
+        .collect();
     let blocked = tasks.iter().filter(|t| t.status == Status::Blocked).count();
     let todo = tasks.iter().filter(|t| t.status == Status::Todo).count();
-    let failed = tasks.iter().filter(|t| t.status == Status::Failed || t.status == Status::UpstreamFailed).count();
+    let failed = tasks
+        .iter()
+        .filter(|t| t.status == Status::Failed || t.status == Status::UpstreamFailed)
+        .count();
 
     // Estimate wave: count how many distinct "rounds" have completed
     // Simple heuristic: wave = number of tasks that are done/in_progress groups
@@ -557,8 +569,13 @@ pub fn cmd_progress(json_mode: bool, epic_id: Option<String>) {
         let bar: String = "\u{2588}".repeat(filled) + &"\u{2591}".repeat(empty);
 
         println!("Epic: {epic}");
-        println!("Tasks: {done}/{total} done, {} in progress, {} todo, {} blocked, {} failed",
-            in_progress.len(), todo, blocked, failed);
+        println!(
+            "Tasks: {done}/{total} done, {} in progress, {} todo, {} blocked, {} failed",
+            in_progress.len(),
+            todo,
+            blocked,
+            failed
+        );
         if !in_progress.is_empty() {
             println!("Active: [{}]", in_progress.join(", "));
         }
@@ -599,8 +616,12 @@ fn count_stale_locks(flow_dir: &Path) -> (usize, usize) {
         tasks.iter().map(|t| (t.id.as_str(), &t.status)).collect();
     for lock in &locks {
         match task_map.get(lock.task_id.as_str()) {
-            Some(Status::Done) | Some(Status::Blocked) | Some(Status::Failed)
-            | Some(Status::UpstreamFailed) | Some(Status::Skipped) | None => {
+            Some(Status::Done)
+            | Some(Status::Blocked)
+            | Some(Status::Failed)
+            | Some(Status::UpstreamFailed)
+            | Some(Status::Skipped)
+            | None => {
                 stale += 1;
             }
             _ => {}
@@ -658,7 +679,15 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
         false
     };
 
-    let expected_subdirs = ["epics", "tasks", "specs", "memory", "reviews", "checklists", "index"];
+    let expected_subdirs = [
+        "epics",
+        "tasks",
+        "specs",
+        "memory",
+        "reviews",
+        "checklists",
+        "index",
+    ];
     let mut present_subdirs: Vec<String> = Vec::new();
     let mut missing_subdirs: Vec<String> = Vec::new();
     for sub in &expected_subdirs {
@@ -699,8 +728,16 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     });
     {
         let rp_icon = if rp_status == "ok" { "ok" } else { "missing" };
-        let codex_icon = if codex_status == "ok" { "ok" } else { "missing" };
-        let status = if rp_status == "ok" || codex_status == "ok" { "pass" } else { "warn" };
+        let codex_icon = if codex_status == "ok" {
+            "ok"
+        } else {
+            "missing"
+        };
+        let status = if rp_status == "ok" || codex_status == "ok" {
+            "pass"
+        } else {
+            "warn"
+        };
         checks.push(json!({"name": "review_backends", "status": status,
             "message": format!("rp-cli {} codex {}", rp_icon, codex_icon)}));
     }
@@ -709,8 +746,7 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     let is_repo = run_cmd("git", &["rev-parse", "--is-inside-work-tree"])
         .map(|s| s == "true")
         .unwrap_or(false);
-    let branch = run_cmd("git", &["rev-parse", "--abbrev-ref", "HEAD"])
-        .unwrap_or_default();
+    let branch = run_cmd("git", &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
     let uncommitted_count = run_cmd("git", &["status", "--porcelain"])
         .map(|s| s.lines().filter(|l| !l.is_empty()).count())
         .unwrap_or(0);
@@ -748,8 +784,16 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     } else {
         0
     };
-    let orphaned_tasks = if flow_exists { count_orphaned_tasks(&flow_dir) } else { 0 };
-    let (total_locks, stale_locks) = if flow_exists { count_stale_locks(&flow_dir) } else { (0, 0) };
+    let orphaned_tasks = if flow_exists {
+        count_orphaned_tasks(&flow_dir)
+    } else {
+        0
+    };
+    let (total_locks, stale_locks) = if flow_exists {
+        count_stale_locks(&flow_dir)
+    } else {
+        (0, 0)
+    };
 
     result["state_integrity"] = json!({
         "epics_count": epics_count,
@@ -759,7 +803,11 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
         "stale_locks": stale_locks,
     });
     {
-        let status = if orphaned_tasks > 0 || stale_locks > 0 { "warn" } else { "pass" };
+        let status = if orphaned_tasks > 0 || stale_locks > 0 {
+            "warn"
+        } else {
+            "pass"
+        };
         let mut parts = vec![
             format!("{} epic(s)", epics_count),
             format!("{} task(s)", tasks_count),
@@ -788,30 +836,46 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     }
 
     // ── 7. Search tools ───────────────────────────────────────────
+    let graph_path = flow_dir.join("graph.bin");
+    let graph_status;
+    let mut graph_symbol_count = 0usize;
+    let mut graph_file_count = 0usize;
+    if graph_path.exists() {
+        let stale = fs::metadata(&graph_path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
+            .is_some_and(|d| d.as_secs() > 86400);
+        graph_status = if stale { "stale" } else { "ok" };
+        if let Ok(graph) = CodeGraph::load(&graph_path) {
+            let stats = graph.stats();
+            graph_symbol_count = stats.symbol_count;
+            graph_file_count = stats.file_count;
+        }
+    } else {
+        graph_status = "missing";
+    }
+
     let ngram_path = flow_dir.join("index").join("ngram.bin");
     let ngram_status;
     let mut ngram_file_count = 0usize;
     if ngram_path.exists() {
-        // Check if the index is recent (< 24h old)
         let stale = fs::metadata(&ngram_path)
             .and_then(|m| m.modified())
             .ok()
             .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
             .is_some_and(|d| d.as_secs() > 86400);
-        if stale {
-            ngram_status = "stale";
-        } else {
-            ngram_status = "ok";
+        ngram_status = if stale { "stale" } else { "ok" };
+        if let Ok(index) = NgramIndex::load(&ngram_path) {
+            ngram_file_count = index.stats().file_count;
         }
-        // Estimate file count from index size (rough heuristic)
-        ngram_file_count = fs::metadata(&ngram_path)
-            .map(|m| (m.len() / 100).max(1) as usize)
-            .unwrap_or(0);
     } else {
         ngram_status = "missing";
     }
 
-    let frecency_path = flow_dir.join("frecency.json");
+    let frecency_path = FlowPaths::resolve()
+        .map(|paths| paths.frecency())
+        .unwrap_or_else(|| flow_dir.join("frecency.json"));
     let frecency_status;
     let mut frecency_entry_count = 0usize;
     if frecency_path.exists() {
@@ -819,7 +883,11 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
             Ok(content) => {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                     frecency_entry_count = val.as_object().map(|o| o.len()).unwrap_or(0);
-                    frecency_status = if frecency_entry_count == 0 { "empty" } else { "ok" };
+                    frecency_status = if frecency_entry_count == 0 {
+                        "empty"
+                    } else {
+                        "ok"
+                    };
                 } else {
                     frecency_status = "empty";
                 }
@@ -833,10 +901,23 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     }
 
     result["search_tools"] = json!({
+        "graph": {
+            "status": graph_status,
+            "symbol_count": graph_symbol_count,
+            "file_count": graph_file_count
+        },
         "ngram_index": {"status": ngram_status, "file_count": ngram_file_count},
         "frecency": {"status": frecency_status, "entry_count": frecency_entry_count},
     });
     {
+        let graph_msg = match graph_status {
+            "ok" => format!(
+                "graph ok ({} symbols, {} files)",
+                graph_symbol_count, graph_file_count
+            ),
+            "stale" => "graph stale".to_string(),
+            _ => "graph missing".to_string(),
+        };
         let ngram_msg = match ngram_status {
             "ok" => format!("index ok (~{} files)", ngram_file_count),
             "stale" => "index stale".to_string(),
@@ -847,15 +928,13 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
             "empty" => "frecency empty".to_string(),
             _ => "frecency missing".to_string(),
         };
-        let status = if ngram_status == "ok" && frecency_status == "ok" {
+        let status = if graph_status == "ok" && ngram_status == "ok" {
             "pass"
-        } else if ngram_status == "missing" && frecency_status != "ok" {
-            "warn"
         } else {
             "warn"
         };
         checks.push(json!({"name": "search_tools", "status": status,
-            "message": format!("{} | {}", ngram_msg, frec_msg)}));
+            "message": format!("{} | {} | {}", graph_msg, ngram_msg, frec_msg)}));
     }
 
     // ── 8. External tools ─────────────────────────────────────────
@@ -872,7 +951,14 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
     let mut ext_results = json!({
         "git": {"status": git_tool_status, "version": git_version},
     });
-    let mut ext_parts = vec![format!("git {}", if git_tool_status == "ok" { "ok" } else { "missing" })];
+    let mut ext_parts = vec![format!(
+        "git {}",
+        if git_tool_status == "ok" {
+            "ok"
+        } else {
+            "missing"
+        }
+    )];
 
     for tool_name in &external_tools {
         let (st, _path) = check_tool(tool_name);
@@ -919,12 +1005,26 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
                             checks.push(json!({"name": "config", "status": "fail",
                                 "message": "config.json is not a JSON object"}));
                         } else {
-                            let known_keys: std::collections::HashSet<&str> =
-                                ["memory", "notifications", "planSync", "review", "scouts", "stack", "outputs", "worker"]
-                                    .iter().copied().collect();
-                            let unknown: Vec<String> = parsed.as_object().unwrap()
-                                .keys().filter(|k| !known_keys.contains(k.as_str()))
-                                .cloned().collect();
+                            let known_keys: std::collections::HashSet<&str> = [
+                                "memory",
+                                "notifications",
+                                "planSync",
+                                "review",
+                                "scouts",
+                                "stack",
+                                "outputs",
+                                "worker",
+                            ]
+                            .iter()
+                            .copied()
+                            .collect();
+                            let unknown: Vec<String> = parsed
+                                .as_object()
+                                .unwrap()
+                                .keys()
+                                .filter(|k| !known_keys.contains(k.as_str()))
+                                .cloned()
+                                .collect();
                             if unknown.is_empty() {
                                 checks.push(json!({"name": "config", "status": "pass",
                                     "message": "config.json valid with known keys"}));
@@ -1028,9 +1128,9 @@ pub fn cmd_doctor(json_mode: bool, workflow: bool) {
         // Pretty grouped output
         for c in &checks {
             let icon = match c["status"].as_str().unwrap_or("warn") {
-                "pass" => "\u{2713}",   // checkmark
-                "warn" => "\u{26a0}",   // warning
-                "fail" => "\u{2717}",   // cross
+                "pass" => "\u{2713}", // checkmark
+                "warn" => "\u{26a0}", // warning
+                "fail" => "\u{2717}", // cross
                 _ => "?",
             };
             let name = c["name"].as_str().unwrap_or("");

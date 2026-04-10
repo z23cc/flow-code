@@ -4,7 +4,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Find flow directory — delegates to shared resolver (git-common-dir aware).
 pub fn get_flow_dir() -> PathBuf {
@@ -116,9 +116,7 @@ pub fn chrono_utc_now() -> String {
         .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
         .output();
     match output {
-        Ok(o) if o.status.success() => {
-            String::from_utf8_lossy(&o.stdout).trim().to_string()
-        }
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
         _ => "1970-01-01T00:00:00Z".into(),
     }
 }

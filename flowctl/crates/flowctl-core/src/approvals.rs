@@ -105,9 +105,9 @@ pub struct ResolveRequest {
 
 // ── FileApprovalStore ────────────────────────────────────────────────
 
-use std::path::{Path, PathBuf};
-use chrono::Utc;
 use crate::error::{ServiceError, ServiceResult};
+use chrono::Utc;
+use std::path::{Path, PathBuf};
 
 /// File-backed approval store.
 pub struct FileApprovalStore {
@@ -204,7 +204,8 @@ impl FileApprovalStore {
 
     pub fn approve(&self, id: &str, resolver: Option<String>) -> ServiceResult<Approval> {
         let mut all = self.load_all()?;
-        let approval = all.iter_mut()
+        let approval = all
+            .iter_mut()
             .find(|a| a.id == id)
             .ok_or_else(|| ServiceError::TaskNotFound(format!("approval not found: {id}")))?;
 
@@ -231,7 +232,8 @@ impl FileApprovalStore {
         reason: Option<String>,
     ) -> ServiceResult<Approval> {
         let mut all = self.load_all()?;
-        let approval = all.iter_mut()
+        let approval = all
+            .iter_mut()
             .find(|a| a.id == id)
             .ok_or_else(|| ServiceError::TaskNotFound(format!("approval not found: {id}")))?;
 

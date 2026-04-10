@@ -7,8 +7,8 @@
 //! Uses `serde_saphyr` (not the deprecated `serde_yaml` or RUSTSEC-flagged
 //! `serde_yml`).
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate::error::CoreError;
 
@@ -47,9 +47,8 @@ pub fn parse<T: DeserializeOwned>(input: &str) -> Result<Document<T>, CoreError>
     // Find the closing "---".
     let (yaml_str, body) = find_closing_delimiter(after_open)?;
 
-    let frontmatter: T = serde_saphyr::from_str(yaml_str).map_err(|e| {
-        CoreError::FrontmatterParse(format!("YAML parse error: {e}"))
-    })?;
+    let frontmatter: T = serde_saphyr::from_str(yaml_str)
+        .map_err(|e| CoreError::FrontmatterParse(format!("YAML parse error: {e}")))?;
 
     Ok(Document {
         frontmatter,
@@ -59,9 +58,8 @@ pub fn parse<T: DeserializeOwned>(input: &str) -> Result<Document<T>, CoreError>
 
 /// Serialize frontmatter + body back to a Markdown string.
 pub fn write<T: Serialize>(doc: &Document<T>) -> Result<String, CoreError> {
-    let yaml = serde_saphyr::to_string(&doc.frontmatter).map_err(|e| {
-        CoreError::FrontmatterSerialize(format!("YAML serialize error: {e}"))
-    })?;
+    let yaml = serde_saphyr::to_string(&doc.frontmatter)
+        .map_err(|e| CoreError::FrontmatterSerialize(format!("YAML serialize error: {e}")))?;
 
     let mut out = String::with_capacity(yaml.len() + doc.body.len() + 16);
     out.push_str("---\n");
@@ -101,13 +99,12 @@ fn find_closing_delimiter(s: &str) -> Result<(&str, &str), CoreError> {
                 return Ok((&s[..abs_pos], &s[body_start..]));
             } else if next_char == b'\r' {
                 // Handle \r\n.
-                let body_start = if after_dashes + 1 < s.len()
-                    && s.as_bytes()[after_dashes + 1] == b'\n'
-                {
-                    after_dashes + 2
-                } else {
-                    after_dashes + 1
-                };
+                let body_start =
+                    if after_dashes + 1 < s.len() && s.as_bytes()[after_dashes + 1] == b'\n' {
+                        after_dashes + 2
+                    } else {
+                        after_dashes + 1
+                    };
                 return Ok((&s[..abs_pos], &s[body_start..]));
             }
 

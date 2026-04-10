@@ -17,8 +17,7 @@ pub fn read_config_bool(key: &str, default: bool) -> bool {
         Ok(c) => c,
         Err(_) => return default,
     };
-    let cfg: serde_json::Value =
-        serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+    let cfg: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
 
     let parts: Vec<&str> = key.split('.').collect();
     let mut current = &cfg;

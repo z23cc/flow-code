@@ -5,8 +5,8 @@ use std::fs;
 
 use serde_json::json;
 
-use crate::output::pretty_output;
 use super::common::{chrono_utc_now, get_flow_dir, read_stdin_json, run_flowctl, self_exe};
+use crate::output::pretty_output;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Pre-Compact
@@ -33,24 +33,17 @@ pub fn cmd_pre_compact() {
                     Some(id) => id,
                     None => continue,
                 };
-                let status = e
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("open");
+                let status = e.get("status").and_then(|v| v.as_str()).unwrap_or("open");
                 if status == "done" {
                     continue;
                 }
 
-                if let Some(tasks_val) =
-                    run_flowctl(&flowctl, &["tasks", "--epic", eid, "--json"])
+                if let Some(tasks_val) = run_flowctl(&flowctl, &["tasks", "--epic", eid, "--json"])
                 {
                     if let Some(tasks) = tasks_val.get("tasks").and_then(|v| v.as_array()) {
                         let mut counts: HashMap<String, usize> = HashMap::new();
                         for t in tasks {
-                            let s = t
-                                .get("status")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("todo");
+                            let s = t.get("status").and_then(|v| v.as_str()).unwrap_or("todo");
                             *counts.entry(s.to_string()).or_insert(0) += 1;
                         }
                         let mut progress_parts: Vec<String> =
@@ -61,14 +54,8 @@ pub fn cmd_pre_compact() {
                         // Show in-progress tasks
                         for t in tasks {
                             if t.get("status").and_then(|v| v.as_str()) == Some("in_progress") {
-                                let tid = t
-                                    .get("id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?");
-                                let title = t
-                                    .get("title")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
+                                let tid = t.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let title = t.get("title").and_then(|v| v.as_str()).unwrap_or("");
                                 let files = t
                                     .get("files")
                                     .and_then(|v| v.as_array())
@@ -85,9 +72,7 @@ pub fn cmd_pre_compact() {
                                 } else {
                                     format!(" files=[{files}]")
                                 };
-                                lines.push(format!(
-                                    "  IN_PROGRESS: {tid} \"{title}\"{files_str}"
-                                ));
+                                lines.push(format!("  IN_PROGRESS: {tid} \"{title}\"{files_str}"));
                             }
                         }
                     }
@@ -107,10 +92,8 @@ pub fn cmd_pre_compact() {
                         sorted_keys.sort();
                         for f in sorted_keys {
                             if let Some(info) = locks.get(f) {
-                                let task_id = info
-                                    .get("task_id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?");
+                                let task_id =
+                                    info.get("task_id").and_then(|v| v.as_str()).unwrap_or("?");
                                 lines.push(format!("  {f} -> {task_id}"));
                             }
                         }
@@ -127,8 +110,7 @@ pub fn cmd_pre_compact() {
                     Some(id) => id,
                     None => continue,
                 };
-                if let Some(ready_val) =
-                    run_flowctl(&flowctl, &["ready", "--epic", eid, "--json"])
+                if let Some(ready_val) = run_flowctl(&flowctl, &["ready", "--epic", eid, "--json"])
                 {
                     if let Some(ready) = ready_val.get("ready").and_then(|v| v.as_array()) {
                         if !ready.is_empty() {
@@ -200,10 +182,7 @@ pub fn cmd_task_completed() {
         .get("teammate_name")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let team_name = data
-        .get("team_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let team_name = data.get("team_name").and_then(|v| v.as_str()).unwrap_or("");
     let task_subject = data
         .get("task_subject")
         .and_then(|v| v.as_str())
@@ -211,7 +190,10 @@ pub fn cmd_task_completed() {
 
     // Extract flow task ID from teammate_name (e.g., "worker-fn-1-add-auth.2" -> "fn-1-add-auth.2")
     let mut flow_task_id = if !teammate_name.is_empty() {
-        teammate_name.strip_prefix("worker-").unwrap_or(teammate_name).to_string()
+        teammate_name
+            .strip_prefix("worker-")
+            .unwrap_or(teammate_name)
+            .to_string()
     } else {
         String::new()
     };
@@ -244,7 +226,11 @@ pub fn cmd_task_completed() {
         .open(log_dir.join("events.jsonl"))
         .and_then(|mut f| {
             use std::io::Write;
-            writeln!(f, "{}", serde_json::to_string(&event_json).unwrap_or_default())
+            writeln!(
+                f,
+                "{}",
+                serde_json::to_string(&event_json).unwrap_or_default()
+            )
         });
 
     // If we identified a flow task, unlock its files
@@ -276,7 +262,11 @@ pub fn cmd_task_completed() {
                     .open(log_dir.join("events.jsonl"))
                     .and_then(|mut f| {
                         use std::io::Write;
-                        writeln!(f, "{}", serde_json::to_string(&unlock_json).unwrap_or_default())
+                        writeln!(
+                            f,
+                            "{}",
+                            serde_json::to_string(&unlock_json).unwrap_or_default()
+                        )
                     });
             }
         }

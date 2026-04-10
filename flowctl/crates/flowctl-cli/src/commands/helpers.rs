@@ -4,6 +4,8 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use flowctl_core::graph_store::CodeGraph;
+use flowctl_core::ngram_index::NgramIndex;
 use flowctl_core::types::FLOW_DIR;
 
 /// Get the .flow/ directory path.
@@ -35,26 +37,6 @@ pub fn get_flow_dir() -> PathBuf {
     env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(FLOW_DIR)
-}
-
-/// Get the project root directory (parent of .flow/).
-/// Returns None if .flow/ is not found in any parent directory.
-pub fn get_project_root() -> Option<PathBuf> {
-    if let Ok(dir) = env::var("FLOW_STATE_DIR") {
-        return PathBuf::from(dir).parent().map(|p| p.to_path_buf());
-    }
-    if let Ok(mut current) = env::current_dir() {
-        loop {
-            let candidate = current.join(FLOW_DIR);
-            if candidate.exists() {
-                return Some(current);
-            }
-            if !current.pop() {
-                break;
-            }
-        }
-    }
-    None
 }
 
 /// Resolve the shared flow state directory (real path, not symlink).
@@ -110,8 +92,8 @@ pub fn ensure_flow_symlink(working_dir: &Path) -> Result<PathBuf, String> {
                 let target_canonical = std::fs::canonicalize(&target)
                     .or_else(|_| std::fs::canonicalize(working_dir.join(&target)))
                     .unwrap_or(target);
-                let shared_canonical = std::fs::canonicalize(&shared_dir)
-                    .unwrap_or_else(|_| shared_dir.clone());
+                let shared_canonical =
+                    std::fs::canonicalize(&shared_dir).unwrap_or_else(|_| shared_dir.clone());
                 if target_canonical == shared_canonical {
                     return Ok(shared_dir); // Already correct
                 }
@@ -125,7 +107,10 @@ pub fn ensure_flow_symlink(working_dir: &Path) -> Result<PathBuf, String> {
             std::fs::remove_dir_all(&local_link)
                 .map_err(|e| format!("failed to remove old .flow/: {e}"))?;
         } else {
-            return Err(format!(".flow exists but is not a dir or symlink: {}", local_link.display()));
+            return Err(format!(
+                ".flow exists but is not a dir or symlink: {}",
+                local_link.display()
+            ));
         }
     }
 
@@ -146,8 +131,8 @@ pub fn ensure_flow_symlink(working_dir: &Path) -> Result<PathBuf, String> {
 
 /// Move contents from src dir to dst dir (non-recursive, files + dirs).
 fn migrate_dir_contents(src: &Path, dst: &Path) -> Result<(), String> {
-    let entries = std::fs::read_dir(src)
-        .map_err(|e| format!("failed to read {}: {e}", src.display()))?;
+    let entries =
+        std::fs::read_dir(src).map_err(|e| format!("failed to read {}: {e}", src.display()))?;
 
     for entry in entries {
         let entry = entry.map_err(|e| format!("read_dir entry: {e}"))?;
@@ -183,6 +168,70 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), std::io::Error> {
     Ok(())
 }
 
+#[derive(Debug, Default)]
+pub struct SearchArtifactBootstrap {
+    pub actions: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+pub(crate) fn bootstrap_search_artifacts_from_root(
+    root: &Path,
+    flow_dir: &Path,
+) -> SearchArtifactBootstrap {
+    let mut result = SearchArtifactBootstrap::default();
+
+    if let Err(e) = std::fs::create_dir_all(flow_dir.join("index")) {
+        result
+            .warnings
+            .push(format!("failed to prepare index directory: {e}"));
+        return result;
+    }
+
+    let graph_path = flow_dir.join("graph.bin");
+    if !graph_path.exists() {
+        match CodeGraph::build(root) {
+            Ok(graph) => match graph.save(&graph_path) {
+                Ok(()) => {
+                    let stats = graph.stats();
+                    result.actions.push(format!(
+                        "built graph.bin ({} symbols, {} files)",
+                        stats.symbol_count, stats.file_count
+                    ));
+                }
+                Err(e) => result
+                    .warnings
+                    .push(format!("failed to save graph.bin: {e}")),
+            },
+            Err(e) => result
+                .warnings
+                .push(format!("failed to build graph.bin: {e}")),
+        }
+    }
+
+    let index_path = flow_dir.join("index").join("ngram.bin");
+    if !index_path.exists() {
+        match NgramIndex::build(root) {
+            Ok(index) => match index.save(&index_path) {
+                Ok(()) => {
+                    let stats = index.stats();
+                    result.actions.push(format!(
+                        "built ngram index ({} files, {} trigrams)",
+                        stats.file_count, stats.trigram_count
+                    ));
+                }
+                Err(e) => result
+                    .warnings
+                    .push(format!("failed to save ngram index: {e}")),
+            },
+            Err(e) => result
+                .warnings
+                .push(format!("failed to build ngram index: {e}")),
+        }
+    }
+
+    result
+}
+
 /// Apply a `Changes` batch via the service-layer `ChangesApplier`.
 ///
 /// Applies all mutations (JSON store writes + event logging) in order.
@@ -197,10 +246,10 @@ pub fn apply_changes(flow_dir: &Path, changes: &flowctl_core::changes::Changes) 
 
     let actor = resolve_actor();
 
-    let applier = ChangesApplier::new(flow_dir)
-        .with_actor(&actor);
+    let applier = ChangesApplier::new(flow_dir).with_actor(&actor);
 
-    let result = applier.apply(changes)
+    let result = applier
+        .apply(changes)
         .unwrap_or_else(|e| error_exit(&format!("Failed to apply changes: {e}")));
 
     result.applied
@@ -220,7 +269,11 @@ pub fn maybe_apply_changes(
             "dry_run": true,
             "changes": changes,
         });
-        println!("{}", serde_json::to_string(&preview).expect("JSON serialization of dry-run preview should not fail"));
+        println!(
+            "{}",
+            serde_json::to_string(&preview)
+                .expect("JSON serialization of dry-run preview should not fail")
+        );
         return 0;
     }
     apply_changes(flow_dir, changes)
@@ -235,10 +288,7 @@ pub fn resolve_actor() -> String {
         }
     }
 
-    if let Ok(output) = Command::new("git")
-        .args(["config", "user.email"])
-        .output()
-    {
+    if let Ok(output) = Command::new("git").args(["config", "user.email"]).output() {
         if output.status.success() {
             let email = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !email.is_empty() {
@@ -247,10 +297,7 @@ pub fn resolve_actor() -> String {
         }
     }
 
-    if let Ok(output) = Command::new("git")
-        .args(["config", "user.name"])
-        .output()
-    {
+    if let Ok(output) = Command::new("git").args(["config", "user.name"]).output() {
         if output.status.success() {
             let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !name.is_empty() {
@@ -266,4 +313,27 @@ pub fn resolve_actor() -> String {
     }
 
     "unknown".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bootstrap_search_artifacts_fails_open_when_save_path_is_invalid() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("sample.rs"), "fn sample() {}\n").unwrap();
+
+        let blocked = project.path().join("blocked");
+        std::fs::write(&blocked, "not a directory").unwrap();
+        let invalid_flow_dir = blocked.join(".flow");
+
+        let result = bootstrap_search_artifacts_from_root(project.path(), &invalid_flow_dir);
+
+        assert!(result.actions.is_empty());
+        assert!(
+            !result.warnings.is_empty(),
+            "expected fail-open warnings when artifact save paths are unavailable"
+        );
+    }
 }

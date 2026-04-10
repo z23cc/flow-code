@@ -120,11 +120,7 @@ pub fn sandbox_for(name: &str) -> &'static str {
 ///
 /// Built manually (not via serde) because `developer_instructions` uses
 /// TOML multi-line basic strings (`"""`).
-pub fn generate_agent_toml(
-    fm: &AgentFrontmatter,
-    body: &str,
-    mapping: &ModelMapping,
-) -> String {
+pub fn generate_agent_toml(fm: &AgentFrontmatter, body: &str, mapping: &ModelMapping) -> String {
     let escaped_body = body.replace('\\', "\\\\");
     let sandbox = sandbox_for(&fm.name);
 
@@ -228,15 +224,13 @@ pub fn sync_all(
 
     let agents_out = output_dir.join("agents");
     if !dry_run {
-        std::fs::create_dir_all(&agents_out).map_err(|e| {
-            CoreError::FrontmatterParse(format!("cannot create output dir: {e}"))
-        })?;
+        std::fs::create_dir_all(&agents_out)
+            .map_err(|e| CoreError::FrontmatterParse(format!("cannot create output dir: {e}")))?;
     }
 
     // Read all .md files from agents_dir
-    let entries = std::fs::read_dir(agents_dir).map_err(|e| {
-        CoreError::FrontmatterParse(format!("cannot read agents dir: {e}"))
-    })?;
+    let entries = std::fs::read_dir(agents_dir)
+        .map_err(|e| CoreError::FrontmatterParse(format!("cannot read agents dir: {e}")))?;
 
     for entry in entries {
         let entry = match entry {
@@ -281,10 +275,7 @@ pub fn sync_all(
         if !dry_run {
             let out_path = agents_out.join(format!("{}.toml", doc.frontmatter.name));
             std::fs::write(&out_path, &toml_content).map_err(|e| {
-                CoreError::FrontmatterParse(format!(
-                    "cannot write {}: {e}",
-                    out_path.display()
-                ))
+                CoreError::FrontmatterParse(format!("cannot write {}: {e}", out_path.display()))
             })?;
         }
 
@@ -300,9 +291,7 @@ pub fn sync_all(
                         if !dry_run {
                             let hooks_out = output_dir.join("hooks.json");
                             std::fs::write(&hooks_out, &patched).map_err(|e| {
-                                CoreError::FrontmatterParse(format!(
-                                    "cannot write hooks: {e}"
-                                ))
+                                CoreError::FrontmatterParse(format!("cannot write hooks: {e}"))
                             })?;
                         }
                         summary.hooks_generated = true;
@@ -474,7 +463,10 @@ mod tests {
         assert_eq!(doc.frontmatter.name, "my-agent");
         assert_eq!(doc.frontmatter.description, "A test agent");
         assert_eq!(doc.frontmatter.model, "opus");
-        assert_eq!(doc.frontmatter.disallowed_tools.as_deref(), Some("Edit, Write"));
+        assert_eq!(
+            doc.frontmatter.disallowed_tools.as_deref(),
+            Some("Edit, Write")
+        );
         assert_eq!(doc.frontmatter.color.as_deref(), Some("blue"));
         assert!(doc.body.contains("Body instructions here."));
     }

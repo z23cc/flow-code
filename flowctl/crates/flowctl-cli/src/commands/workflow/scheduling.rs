@@ -207,9 +207,7 @@ pub fn cmd_next(
         }
 
         // Check plan review gate
-        if require_plan_review
-            && epic.plan_review != flowctl_core::types::ReviewStatus::Passed
-        {
+        if require_plan_review && epic.plan_review != flowctl_core::types::ReviewStatus::Passed {
             if json_mode {
                 json_output(json!({
                     "status": "plan",
@@ -502,8 +500,7 @@ pub fn cmd_queue(json_mode: bool) {
 
             if let Some(blocked_by) = e["blocked_by"].as_array() {
                 if !blocked_by.is_empty() {
-                    let names: Vec<&str> =
-                        blocked_by.iter().filter_map(|v| v.as_str()).collect();
+                    let names: Vec<&str> = blocked_by.iter().filter_map(|v| v.as_str()).collect();
                     println!("    \u{2298} blocked by: {}", names.join(", "));
                 }
             }

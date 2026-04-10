@@ -3,7 +3,7 @@
 use std::io::IsTerminal;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Global compact mode flag, set once at startup.
 static COMPACT: AtomicBool = AtomicBool::new(false);
@@ -107,9 +107,7 @@ fn to_columnar(arr: &[Value]) -> Option<Value> {
         .map(|item| {
             headers
                 .iter()
-                .map(|h| {
-                    item.get(h).cloned().unwrap_or(Value::Null)
-                })
+                .map(|h| item.get(h).cloned().unwrap_or(Value::Null))
                 .collect()
         })
         .collect();
@@ -125,7 +123,9 @@ fn to_columnar(arr: &[Value]) -> Option<Value> {
 pub fn json_output(data: Value) {
     let mut obj = match data {
         Value::Object(map) => map,
-        Value::Array(ref arr) if is_compact() && arr.len() >= 10 && arr.first().map_or(false, |v| v.is_object()) => {
+        Value::Array(ref arr)
+            if is_compact() && arr.len() >= 10 && arr.first().map_or(false, |v| v.is_object()) =>
+        {
             let mut m = serde_json::Map::new();
             if let Some(columnar) = to_columnar(arr) {
                 m.insert("data".to_string(), columnar);
@@ -146,7 +146,10 @@ pub fn json_output(data: Value) {
     if COMPACT.load(Ordering::Relaxed) {
         strip_compact(&mut val);
     }
-    println!("{}", serde_json::to_string(&val).expect("JSON serialization of output value should not fail"));
+    println!(
+        "{}",
+        serde_json::to_string(&val).expect("JSON serialization of output value should not fail")
+    );
 }
 
 /// Print an error JSON response and exit with code 1.
@@ -156,6 +159,9 @@ pub fn error_exit(message: &str) -> ! {
         "success": false,
         "error": message,
     });
-    eprintln!("{}", serde_json::to_string(&out).expect("JSON serialization of error output should not fail"));
+    eprintln!(
+        "{}",
+        serde_json::to_string(&out).expect("JSON serialization of error output should not fail")
+    );
     std::process::exit(1);
 }

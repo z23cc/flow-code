@@ -154,11 +154,7 @@ impl CodeGraph {
                 Err(_) => continue,
             };
 
-            let src_ids: Vec<usize> = self
-                .file_to_ids
-                .get(file)
-                .cloned()
-                .unwrap_or_default();
+            let src_ids: Vec<usize> = self.file_to_ids.get(file).cloned().unwrap_or_default();
 
             for (name, def_ids) in &name_to_files {
                 // Skip very short names (likely false positives).
@@ -242,11 +238,7 @@ impl CodeGraph {
             }
 
             for (i, file) in files.iter().enumerate() {
-                let out_degree = self
-                    .file_deps
-                    .get(file)
-                    .map(|s| s.len())
-                    .unwrap_or(0);
+                let out_degree = self.file_deps.get(file).map(|s| s.len()).unwrap_or(0);
 
                 if out_degree == 0 {
                     // Dangling node: distribute rank equally.
@@ -307,10 +299,8 @@ impl CodeGraph {
         }
 
         // 2. Remove edges involving removed symbols.
-        self.refs_forward
-            .retain(|k, _| !removed_ids.contains(k));
-        self.refs_reverse
-            .retain(|k, _| !removed_ids.contains(k));
+        self.refs_forward.retain(|k, _| !removed_ids.contains(k));
+        self.refs_reverse.retain(|k, _| !removed_ids.contains(k));
         for edges in self.refs_forward.values_mut() {
             edges.retain(|id| !removed_ids.contains(id));
         }
@@ -518,10 +508,7 @@ impl CodeGraph {
 
         let serialized =
             bincode::serde::encode_to_vec(self, bincode::config::standard()).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("bincode encode: {e}"),
-                )
+                std::io::Error::new(std::io::ErrorKind::Other, format!("bincode encode: {e}"))
             })?;
 
         let tmp_path = path.with_extension("tmp");

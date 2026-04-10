@@ -58,9 +58,11 @@ pub fn dispatch(cmd: &PatchCmd, json: bool) {
 fn read_diff_input(diff_arg: &str) -> String {
     if diff_arg == "-" {
         let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf).unwrap_or_else(|e| {
-            error_exit(&format!("Failed to read stdin: {e}"));
-        });
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .unwrap_or_else(|e| {
+                error_exit(&format!("Failed to read stdin: {e}"));
+            });
         buf
     } else {
         fs::read_to_string(diff_arg).unwrap_or_else(|e| {

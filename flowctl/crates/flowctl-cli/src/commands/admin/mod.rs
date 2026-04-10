@@ -6,8 +6,8 @@ use std::path::Path;
 
 use serde_json::json;
 
-use crate::output::error_exit;
 use crate::commands::helpers::get_flow_dir;
+use crate::output::error_exit;
 
 // ── Private helpers (admin-only) ───────────────────────────────────
 
@@ -54,18 +54,18 @@ fn write_json_file(path: &Path, value: &serde_json::Value) {
 
 // ── Submodules ─────────────────────────────────────────────────────
 
-mod init;
-mod status;
-mod review;
 mod config;
-mod guard;
 mod exchange;
+mod guard;
+mod init;
+mod review;
+mod status;
 
 // ── Re-exports (preserves public API) ──────────────────────────────
 
-pub use init::{cmd_init, cmd_detect, cmd_startup};
-pub use status::{cmd_status, cmd_doctor, cmd_progress, cmd_validate};
-pub use review::{cmd_review_backend, cmd_parse_findings, dispatch_review, ReviewCmd};
-pub use config::{cmd_config, cmd_state_path, ConfigCmd};
-pub use guard::{cmd_guard, cmd_worker_prompt};
+pub use config::{ConfigCmd, cmd_config, cmd_state_path};
 pub use exchange::{cmd_export, cmd_import};
+pub use guard::{cmd_guard, cmd_worker_prompt};
+pub use init::{cmd_detect, cmd_init, cmd_startup};
+pub use review::{ReviewCmd, cmd_parse_findings, cmd_review_backend, dispatch_review};
+pub use status::{cmd_doctor, cmd_progress, cmd_status, cmd_validate};

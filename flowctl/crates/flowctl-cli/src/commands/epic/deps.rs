@@ -5,8 +5,8 @@ use serde_json::json;
 
 use crate::output::json_output;
 
-use super::helpers::{ensure_flow_exists, load_epic, save_epic, validate_epic_id};
 use super::super::helpers::get_flow_dir;
+use super::helpers::{ensure_flow_exists, load_epic, save_epic, validate_epic_id};
 use crate::output::error_exit;
 
 pub fn cmd_add_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
@@ -26,7 +26,11 @@ pub fn cmd_add_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
 
     let mut doc = load_epic(epic_id);
 
-    if doc.frontmatter.depends_on_epics.contains(&dep_id.to_string()) {
+    if doc
+        .frontmatter
+        .depends_on_epics
+        .contains(&dep_id.to_string())
+    {
         if json_mode {
             json_output(json!({
                 "id": epic_id,
@@ -60,7 +64,11 @@ pub fn cmd_rm_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
 
     let mut doc = load_epic(epic_id);
 
-    if !doc.frontmatter.depends_on_epics.contains(&dep_id.to_string()) {
+    if !doc
+        .frontmatter
+        .depends_on_epics
+        .contains(&dep_id.to_string())
+    {
         if json_mode {
             json_output(json!({
                 "id": epic_id,
@@ -73,9 +81,7 @@ pub fn cmd_rm_dep(epic_id: &str, dep_id: &str, json_mode: bool) {
         return;
     }
 
-    doc.frontmatter
-        .depends_on_epics
-        .retain(|d| d != dep_id);
+    doc.frontmatter.depends_on_epics.retain(|d| d != dep_id);
     doc.frontmatter.updated_at = Utc::now();
     save_epic(&doc);
 

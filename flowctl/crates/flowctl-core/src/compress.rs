@@ -233,8 +233,8 @@ fn compile_filter(name: String, def: TomlFilterDef) -> Result<CompiledFilter, St
 }
 
 fn parse_and_compile(content: &str, source: &str) -> Result<Vec<CompiledFilter>, String> {
-    let file: TomlFilterFile = toml::from_str(content)
-        .map_err(|e| format!("TOML parse error in {}: {}", source, e))?;
+    let file: TomlFilterFile =
+        toml::from_str(content).map_err(|e| format!("TOML parse error in {}: {}", source, e))?;
 
     if file.schema_version != 1 {
         return Err(format!(
@@ -357,10 +357,7 @@ pub fn apply_compiled_filter(filter: &CompiledFilter, stdout: &str) -> String {
 
     // 5. truncate_lines_at — uses truncate (unicode-safe)
     if let Some(max_chars) = filter.truncate_lines_at {
-        lines = lines
-            .into_iter()
-            .map(|l| truncate(&l, max_chars))
-            .collect();
+        lines = lines.into_iter().map(|l| truncate(&l, max_chars)).collect();
     }
 
     // 6. head + tail
@@ -681,7 +678,8 @@ on_empty = "all clean"
             }
         }
         assert_eq!(
-            failed, 0,
+            failed,
+            0,
             "{}/{} inline tests failed",
             failed,
             outcomes.len()
@@ -691,7 +689,10 @@ on_empty = "all clean"
     #[test]
     fn test_builtin_filters_load() {
         let reg = registry();
-        assert!(!reg.is_empty(), "builtin registry should load at least one filter");
+        assert!(
+            !reg.is_empty(),
+            "builtin registry should load at least one filter"
+        );
         // POC filters + fn-21 extensions
         for expected in &[
             "epics",

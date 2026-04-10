@@ -1,7 +1,8 @@
 //! Pipeline phase state machine for epic-level workflow progression.
 //!
-//! Phases form a linear sequence: Brainstorm → Plan → PlanReview → Work → ImplReview → Close.
-//! No branching — each phase has exactly one successor (except Close, which is terminal).
+//! Phases form a linear sequence:
+//! Brainstorm → Plan → PlanReview → Work → ImplReview → Close → Completed.
+//! No branching — each phase has exactly one successor.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -16,6 +17,7 @@ pub enum PipelinePhase {
     Work,
     ImplReview,
     Close,
+    Completed,
 }
 
 static ALL_PHASES: &[PipelinePhase] = &[
@@ -36,13 +38,14 @@ impl PipelinePhase {
             PipelinePhase::PlanReview => Some(PipelinePhase::Work),
             PipelinePhase::Work => Some(PipelinePhase::ImplReview),
             PipelinePhase::ImplReview => Some(PipelinePhase::Close),
-            PipelinePhase::Close => None,
+            PipelinePhase::Close => Some(PipelinePhase::Completed),
+            PipelinePhase::Completed => None,
         }
     }
 
     /// Whether this is the terminal phase (no successor).
     pub fn is_terminal(&self) -> bool {
-        matches!(self, PipelinePhase::Close)
+        matches!(self, PipelinePhase::Completed)
     }
 
     /// Ordered list of all pipeline phases.
@@ -59,6 +62,7 @@ impl PipelinePhase {
             PipelinePhase::Work => "Execute tasks according to the plan",
             PipelinePhase::ImplReview => "Review the implementation for quality and correctness",
             PipelinePhase::Close => "Finalize and close the epic",
+            PipelinePhase::Completed => "All pipeline phases complete",
         }
     }
 
@@ -71,6 +75,7 @@ impl PipelinePhase {
             "work" => Some(PipelinePhase::Work),
             "impl_review" => Some(PipelinePhase::ImplReview),
             "close" => Some(PipelinePhase::Close),
+            "completed" => Some(PipelinePhase::Completed),
             _ => None,
         }
     }
@@ -84,6 +89,7 @@ impl PipelinePhase {
             PipelinePhase::Work => "work",
             PipelinePhase::ImplReview => "impl_review",
             PipelinePhase::Close => "close",
+            PipelinePhase::Completed => "completed",
         }
     }
 }
@@ -107,12 +113,16 @@ mod tests {
             PipelinePhase::Work,
             PipelinePhase::ImplReview,
             PipelinePhase::Close,
+            PipelinePhase::Completed,
         ];
         for exp in &expected {
             phase = phase.next().expect("expected next phase");
             assert_eq!(phase, *exp);
         }
-        assert!(phase.next().is_none(), "Close should have no next phase");
+        assert!(
+            phase.next().is_none(),
+            "Completed should have no next phase"
+        );
     }
 
     #[test]
@@ -122,7 +132,8 @@ mod tests {
         assert!(!PipelinePhase::PlanReview.is_terminal());
         assert!(!PipelinePhase::Work.is_terminal());
         assert!(!PipelinePhase::ImplReview.is_terminal());
-        assert!(PipelinePhase::Close.is_terminal());
+        assert!(!PipelinePhase::Close.is_terminal());
+        assert!(PipelinePhase::Completed.is_terminal());
     }
 
     #[test]
@@ -170,15 +181,21 @@ mod tests {
         assert_eq!(PipelinePhase::Plan.to_string(), "plan");
         assert_eq!(PipelinePhase::PlanReview.to_string(), "plan_review");
         assert_eq!(PipelinePhase::Close.to_string(), "close");
+        assert_eq!(PipelinePhase::Completed.to_string(), "completed");
     }
 
     #[test]
     fn test_invalid_transition_rejection() {
         // Can't skip phases: brainstorm -> plan_review (must go through plan)
-        assert_ne!(PipelinePhase::Brainstorm.next(), Some(PipelinePhase::PlanReview));
+        assert_ne!(
+            PipelinePhase::Brainstorm.next(),
+            Some(PipelinePhase::PlanReview)
+        );
         // Can't skip phases: plan -> work (must go through plan_review)
         assert_ne!(PipelinePhase::Plan.next(), Some(PipelinePhase::Work));
         // Can't go backwards: work -> plan_review
         assert_ne!(PipelinePhase::Work.next(), Some(PipelinePhase::PlanReview));
+        // Close is actionable; completion is terminal
+        assert_eq!(PipelinePhase::Close.next(), Some(PipelinePhase::Completed));
     }
 }

@@ -22,7 +22,11 @@ fn run(work_dir: &Path, args: &[&str]) -> (String, i32) {
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let combined = if stdout.trim().is_empty() { stderr } else { stdout };
+    let combined = if stdout.trim().is_empty() {
+        stderr
+    } else {
+        stdout
+    };
     (combined, output.status.code().unwrap_or(-1))
 }
 
@@ -51,7 +55,14 @@ fn setup(prefix: &str) -> (tempfile::TempDir, String, String) {
 
     let (task_out, _) = run(
         dir.path(),
-        &["task", "create", "--epic", &epic_id, "--title", "Outputs Task"],
+        &[
+            "task",
+            "create",
+            "--epic",
+            &epic_id,
+            "--title",
+            "Outputs Task",
+        ],
     );
     let task_id = parse_json(&task_out).unwrap()["id"]
         .as_str()
@@ -72,17 +83,17 @@ fn outputs_write_and_list() {
     let (out, exit) = run(
         dir.path(),
         &[
-            "outputs", "write", &task_id,
-            "--file", content_file.to_str().unwrap(),
+            "outputs",
+            "write",
+            &task_id,
+            "--file",
+            content_file.to_str().unwrap(),
         ],
     );
     assert_eq!(exit, 0, "outputs write failed: {out}");
 
     // List outputs for the epic
-    let (list_out, list_exit) = run(
-        dir.path(),
-        &["outputs", "list", "--epic", &epic_id],
-    );
+    let (list_out, list_exit) = run(dir.path(), &["outputs", "list", "--epic", &epic_id]);
     assert_eq!(list_exit, 0, "outputs list failed: {list_out}");
     let list_json = parse_json(&list_out).expect("outputs list should return JSON");
     // Outputs list wraps results in "entries"
@@ -104,8 +115,11 @@ fn outputs_show() {
     let (_, write_exit) = run(
         dir.path(),
         &[
-            "outputs", "write", &task_id,
-            "--file", content_file.to_str().unwrap(),
+            "outputs",
+            "write",
+            &task_id,
+            "--file",
+            content_file.to_str().unwrap(),
         ],
     );
     assert_eq!(write_exit, 0);
@@ -124,9 +138,6 @@ fn outputs_show() {
 fn outputs_list_empty() {
     let (dir, epic_id, _task_id) = setup("outputs_em_");
 
-    let (out, exit) = run(
-        dir.path(),
-        &["outputs", "list", "--epic", &epic_id],
-    );
+    let (out, exit) = run(dir.path(), &["outputs", "list", "--epic", &epic_id]);
     assert_eq!(exit, 0, "outputs list on empty should succeed: {out}");
 }

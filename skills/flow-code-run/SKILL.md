@@ -39,16 +39,16 @@ When `--quick` flag is present OR auto-detected as trivial (input ≤10 words, c
 
 ```bash
 # Quick path — use --no-gate to skip evidence requirements
-$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --json
+$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --no-gate --json
 $FLOWCTL epic plan $EPIC_ID --spec "Quick fix: <description>" --json
 $FLOWCTL task create --epic $EPIC_ID --title "<description>" --json
-$FLOWCTL phase done --epic $EPIC_ID --phase plan --json
+$FLOWCTL phase done --epic $EPIC_ID --phase plan --no-gate --json
 $FLOWCTL phase done --epic $EPIC_ID --phase plan_review --no-gate --json
 # Work: single worker, then:
 $FLOWCTL guard
-$FLOWCTL phase done --epic $EPIC_ID --phase work --guard-ran --json
+$FLOWCTL phase done --epic $EPIC_ID --phase work --guard-ran --no-gate --json
 $FLOWCTL phase done --epic $EPIC_ID --phase impl_review --no-gate --json
-$FLOWCTL phase done --epic $EPIC_ID --phase close --guard-ran --json
+$FLOWCTL phase done --epic $EPIC_ID --phase close --guard-ran --no-gate --json
 ```
 
 ---
@@ -86,8 +86,9 @@ $FLOWCTL epic create --title "<title>" --json
 while true; do
   PHASE_JSON=$($FLOWCTL phase next --epic $EPIC_ID --json)
   # Parse: if all_done == true, break
-  # Otherwise: execute the phase, then:
-  $FLOWCTL phase done --epic $EPIC_ID --phase $CURRENT_PHASE --json
+  # Otherwise: execute the phase, then advance it with the required gate inputs
+  # (score/evidence for review phases; receipt/receipt-file for artifact-backed phases).
+  $FLOWCTL phase done --epic $EPIC_ID --phase $CURRENT_PHASE ... --json
 done
 ```
 
@@ -104,20 +105,22 @@ done
 **Otherwise EXECUTE ALL of the following:**
 
 ```bash
-# MANDATORY Step 1: Codebase context via context_builder (replaces manual flowctl find + git log)
+# MANDATORY Step 1: Fast local context first, then deep RP context
 cat .flow/project-context.md 2>/dev/null || true
+$FLOWCTL graph map --json
+$FLOWCTL find "<key terms from request>" --json
 ```
 
 ```
-# Use context_builder for initial analysis — reused by Plan phase (no double-search)
+# Then use context_builder for deeper analysis — reused by Plan phase
 mcp__RepoPrompt__context_builder({
-  instructions: "<request summary>. Analyze: relevant files, existing patterns, potential approaches, complexity.",
+  instructions: "<request summary>. Local fast-path findings: <graph map + find results>. Analyze: relevant files, existing patterns, potential approaches, complexity.",
   response_type: "question"
 })
 → save chat_id as BRAINSTORM_CHAT_ID (Plan phase will reuse this via oracle_send)
 ```
 
-Use context_builder's response to inform the next steps. This replaces `flowctl find` + `git log` — context_builder does both more thoroughly.
+Use context_builder's response to deepen the fast-path results. Do NOT skip `flowctl find`/`graph map` just because RP is available — they are the default first pass.
 
 **MANDATORY Step 2: Classify complexity** — Output one of: Trivial / Medium / Large
 
@@ -142,16 +145,23 @@ SPECEOF
 ```
 
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --json
+cat > /tmp/${EPIC_ID}-brainstorm-receipt.json <<EOF
+{"requirements_path":".flow/specs/${SLUG}-requirements.md"}
+EOF
+$FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --receipt-file /tmp/${EPIC_ID}-brainstorm-receipt.json --json
 ```
 
 ---
 
 ### Plan (plan)
 
-**MANDATORY Step 1: Research** — Check ADRs/invariants (skip `flowctl find` — Brainstorm already did deep search via context_builder):
+**MANDATORY Step 1: Research** — Refresh the fast path, then check ADRs/invariants:
 ```bash
-# ADRs and invariants only — context_builder already covered codebase search
+# Re-anchor on the cached graph/index before scout fan-out
+$FLOWCTL graph map --json
+$FLOWCTL find "<key terms from request>" --json
+
+# ADRs and invariants
 ls docs/decisions/ADR-*.md 2>/dev/null
 $FLOWCTL invariants show --json 2>/dev/null || true
 ```
@@ -187,7 +197,10 @@ $FLOWCTL task create --epic $EPIC_ID --title "<task 1>" --domain <domain> --json
 $FLOWCTL task create --epic $EPIC_ID --title "<task 2>" --deps "$EPIC_ID.1" --json
 # ... etc
 $FLOWCTL validate --epic $EPIC_ID --json
-$FLOWCTL phase done --epic $EPIC_ID --phase plan --json
+cat > /tmp/${EPIC_ID}-plan-receipt.json <<EOF
+{"spec_path":".flow/specs/${EPIC_ID}.md","task_ids":["${EPIC_ID}.1","${EPIC_ID}.2"]}
+EOF
+$FLOWCTL phase done --epic $EPIC_ID --phase plan --receipt-file /tmp/${EPIC_ID}-plan-receipt.json --json
 ```
 
 ---
@@ -255,7 +268,13 @@ mcp__RepoPrompt__oracle_send({
 ```
 
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --score TOTAL_SCORE --evidence "<paste RP's full response here>" --json
+cat > /tmp/${EPIC_ID}-plan-review-findings.md <<'EOF'
+<paste RP's full response here>
+EOF
+cat > /tmp/${EPIC_ID}-plan-review-receipt.json <<EOF
+{"backend":"$REVIEW_BACKEND","verdict":"SHIP","findings_path":"/tmp/${EPIC_ID}-plan-review-findings.md","score":${TOTAL_SCORE}}
+EOF
+$FLOWCTL phase done --epic $EPIC_ID --phase plan_review --score TOTAL_SCORE --evidence "<paste RP's full response here>" --receipt-file /tmp/${EPIC_ID}-plan-review-receipt.json --json
 ```
 
 The evidence field contains RP's analysis, not your own. flowctl validates ≥200 chars + ≥5 question references.
@@ -274,7 +293,7 @@ Save the `chat_id` as `PLAN_REVIEW_CHAT_ID` — Impl Review can reuse this conte
 
 **Failure 1 (CRITICAL): Workers ran without worktree isolation — 6 parallel agents wrote to same directory, risking file corruption.**
 **Failure 2 (HIGH): No file locking — concurrent edits to settings.py and requirements.txt.**
-**Failure 3 (HIGH): No wave checkpoint guard — broken code passed silently.**
+**Failure 3 (HIGH): No integration checkpoint guard — broken code passed silently.**
 
 ---
 
@@ -347,7 +366,10 @@ $FLOWCTL invariants check
 
 **W4: Complete work phase**
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase work --guard-ran --json
+cat > /tmp/${EPIC_ID}-work-receipt.json <<EOF
+{"guard_passed":true,"invariants_passed":true}
+EOF
+$FLOWCTL phase done --epic $EPIC_ID --phase work --guard-ran --receipt-file /tmp/${EPIC_ID}-work-receipt.json --json
 ```
 
 ---
@@ -451,7 +473,13 @@ Max 2 iterations. After max → proceed with warning.
 **Do NOT call `context_builder` again** — `oracle_send` continues in the same chat with all prior context intact. This saves 30s-5min of context rebuilding per re-review.
 
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase impl_review --score TOTAL_SCORE --evidence "<paste RP's full response>" --json
+cat > /tmp/${EPIC_ID}-impl-review-findings.md <<'EOF'
+<paste RP's full response>
+EOF
+cat > /tmp/${EPIC_ID}-impl-review-receipt.json <<EOF
+{"backend":"$REVIEW_BACKEND","verdict":"SHIP","findings_path":"/tmp/${EPIC_ID}-impl-review-findings.md","score":${TOTAL_SCORE}}
+EOF
+$FLOWCTL phase done --epic $EPIC_ID --phase impl_review --score TOTAL_SCORE --evidence "<paste RP's full response>" --receipt-file /tmp/${EPIC_ID}-impl-review-receipt.json --json
 ```
 
 ---
@@ -558,7 +586,10 @@ PREOF
 ```
 
 ```bash
-$FLOWCTL phase done --epic $EPIC_ID --phase close --guard-ran --json
+cat > /tmp/${EPIC_ID}-close-receipt.json <<EOF
+{"guard_passed":true,"pre_launch_passed":true,"validate_passed":true}
+EOF
+$FLOWCTL phase done --epic $EPIC_ID --phase close --guard-ran --receipt-file /tmp/${EPIC_ID}-close-receipt.json --json
 ```
 
 ---
@@ -588,7 +619,7 @@ FLOWEOF
 - **NEVER skip mandatory commands** — run every `$FLOWCTL` command shown above
 - **NEVER skip self-review questions** — execute all forcing questions per phase
 - **NEVER skip worktree isolation** — workers MUST use `isolation: "worktree"`
-- **NEVER skip guard** — run `$FLOWCTL guard` at work wave checkpoints AND close
+- **NEVER skip guard** — run `$FLOWCTL guard` at the work integration checkpoint AND close
 - **NEVER fake command output** — actually run the command and use its real output
 
 ## Post-Run Compliance Verification
@@ -601,7 +632,7 @@ COMPLIANCE CHECK (must be ALL Y before shipping):
 [ ] Brainstorm: complexity classified + all tier questions answered + 3 approaches scored + requirements.md written
 [ ] Plan: research tools used (graph map/find) + scouts spawned + spec written + tasks created + validated
 [ ] Plan Review: all 10 self-review questions answered with scores + total /30 computed
-[ ] Work: tasks started + files locked + workers used isolation:"worktree" + guard run between waves
+[ ] Work: tasks started + files locked + workers used isolation:"worktree" + integration checkpoint guard receipt recorded
 [ ] Impl Review: guard run + diff generated + all 10 questions answered with scores + total /30 computed
 [ ] Close: validate + guard + quick commands + checklists + 7 ship questions scored + push + PR
 ```

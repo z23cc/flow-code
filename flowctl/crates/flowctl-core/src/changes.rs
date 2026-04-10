@@ -86,12 +86,8 @@ impl Mutation {
             Mutation::SetTaskState { task_id, .. } | Mutation::RemoveTaskState { task_id } => {
                 task_id
             }
-            Mutation::SetEpicSpec { epic_id, .. } | Mutation::RemoveEpicSpec { epic_id } => {
-                epic_id
-            }
-            Mutation::SetTaskSpec { task_id, .. } | Mutation::RemoveTaskSpec { task_id } => {
-                task_id
-            }
+            Mutation::SetEpicSpec { epic_id, .. } | Mutation::RemoveEpicSpec { epic_id } => epic_id,
+            Mutation::SetTaskSpec { task_id, .. } | Mutation::RemoveTaskSpec { task_id } => task_id,
         }
     }
 
@@ -238,7 +234,11 @@ impl<'a> ChangesApplier<'a> {
                 json_store::state_write(self.flow_dir, task_id, state).map_err(store_err)?;
             }
             Mutation::RemoveTaskState { task_id } => {
-                let path = self.flow_dir.join(".state").join("tasks").join(format!("{task_id}.state.json"));
+                let path = self
+                    .flow_dir
+                    .join(".state")
+                    .join("tasks")
+                    .join(format!("{task_id}.state.json"));
                 if path.exists() {
                     std::fs::remove_file(&path)?;
                 }
@@ -270,9 +270,7 @@ impl<'a> ChangesApplier<'a> {
         let event_type = mutation.event_type();
         let entity_id = mutation.entity_id();
 
-        let epic_id = mutation
-            .epic_id()
-            .unwrap_or(entity_id);
+        let epic_id = mutation.epic_id().unwrap_or(entity_id);
         let task_id = match mutation {
             Mutation::CreateTask { task } | Mutation::UpdateTask { task } => Some(task.id.as_str()),
             Mutation::RemoveTask { id } => Some(id.as_str()),
@@ -433,9 +431,7 @@ mod tests {
     #[test]
     fn entity_id_extraction() {
         let epic = make_epic("fn-1-test");
-        let m = Mutation::UpdateEpic {
-            epic: epic.clone(),
-        };
+        let m = Mutation::UpdateEpic { epic: epic.clone() };
         assert_eq!(m.entity_id(), "fn-1-test");
         assert_eq!(m.epic_id(), Some("fn-1-test"));
 

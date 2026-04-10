@@ -35,7 +35,7 @@ After restarts, find ready tasks normally:
 $FLOWCTL ready <epic-id> --json
 ```
 
-Collect ALL ready tasks (no unresolved dependencies). If no ready tasks, check for completion review gate (see Step 10 / wave checkpoint).
+Collect ALL ready tasks (no unresolved dependencies). If no ready tasks, check for the completion review gate / final integration checkpoint handoff (see Step 10).
 
 ## Readiness Check
 

@@ -22,7 +22,11 @@ fn run(work_dir: &Path, args: &[&str]) -> (String, i32) {
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let combined = if stdout.trim().is_empty() { stderr } else { stdout };
+    let combined = if stdout.trim().is_empty() {
+        stderr
+    } else {
+        stdout
+    };
     (combined, output.status.code().unwrap_or(-1))
 }
 
@@ -51,7 +55,14 @@ fn setup(prefix: &str) -> (tempfile::TempDir, String, String) {
 
     let (task_out, _) = run(
         dir.path(),
-        &["task", "create", "--epic", &epic_id, "--title", "Approval Task"],
+        &[
+            "task",
+            "create",
+            "--epic",
+            &epic_id,
+            "--title",
+            "Approval Task",
+        ],
     );
     let task_id = parse_json(&task_out).unwrap()["id"]
         .as_str()
@@ -69,10 +80,14 @@ fn approval_create_and_list() {
     let (out, exit) = run(
         dir.path(),
         &[
-            "approval", "create",
-            "--task", &task_id,
-            "--kind", "generic",
-            "--payload", r#"{"message":"need review"}"#,
+            "approval",
+            "create",
+            "--task",
+            &task_id,
+            "--kind",
+            "generic",
+            "--payload",
+            r#"{"message":"need review"}"#,
         ],
     );
     assert_eq!(exit, 0, "approval create failed: {out}");
@@ -99,10 +114,14 @@ fn approval_approve_resolves() {
     let (out, _) = run(
         dir.path(),
         &[
-            "approval", "create",
-            "--task", &task_id,
-            "--kind", "file_access",
-            "--payload", r#"{"files":["src/main.rs"]}"#,
+            "approval",
+            "create",
+            "--task",
+            &task_id,
+            "--kind",
+            "file_access",
+            "--payload",
+            r#"{"files":["src/main.rs"]}"#,
         ],
     );
     let approval_id = parse_json(&out).unwrap()["id"]
@@ -111,10 +130,7 @@ fn approval_approve_resolves() {
         .to_string();
 
     // Approve it
-    let (approve_out, approve_exit) = run(
-        dir.path(),
-        &["approval", "approve", &approval_id],
-    );
+    let (approve_out, approve_exit) = run(dir.path(), &["approval", "approve", &approval_id]);
     assert_eq!(approve_exit, 0, "approval approve failed: {approve_out}");
 }
 
@@ -126,10 +142,14 @@ fn approval_reject_resolves() {
     let (out, _) = run(
         dir.path(),
         &[
-            "approval", "create",
-            "--task", &task_id,
-            "--kind", "generic",
-            "--payload", r#"{"question":"should we proceed?"}"#,
+            "approval",
+            "create",
+            "--task",
+            &task_id,
+            "--kind",
+            "generic",
+            "--payload",
+            r#"{"question":"should we proceed?"}"#,
         ],
     );
     let approval_id = parse_json(&out).unwrap()["id"]

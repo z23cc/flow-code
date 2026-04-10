@@ -1,9 +1,12 @@
 ---
 name: flow-code:uninstall
-description: Remove flow-code files from project
+description: "Remove flow-code files from the current project"
+argument-hint: ""
 ---
 
 # Flow-Code Uninstall
+
+Choose this front door when you want to remove flow-code from the current project. Use `/flow-code:update` to refresh the plugin instead of removing it, and `/flow-code:setup` if you only need to repair or refresh optional local tooling support.
 
 Use `AskUserQuestion` to confirm:
 

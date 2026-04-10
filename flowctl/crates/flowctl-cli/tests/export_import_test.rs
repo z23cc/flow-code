@@ -9,7 +9,7 @@ use std::fs;
 
 use flowctl_core::frontmatter;
 use flowctl_core::state_machine::Status;
-use flowctl_core::types::{Domain, Epic, EpicStatus, Task, EPICS_DIR, TASKS_DIR};
+use flowctl_core::types::{Domain, EPICS_DIR, Epic, EpicStatus, TASKS_DIR, Task};
 
 fn make_test_epic(id: &str, title: &str) -> Epic {
     Epic {
@@ -88,10 +88,12 @@ fn export_import_round_trip() {
     fs::write(tasks_dir.join("fn-50-roundtrip.1.md"), &tcontent).unwrap();
 
     // Step 3: Verify data can be read back from JSON store.
-    let reimported_epic = flowctl_core::json_store::epic_read(&flow_dir, "fn-50-roundtrip").unwrap();
+    let reimported_epic =
+        flowctl_core::json_store::epic_read(&flow_dir, "fn-50-roundtrip").unwrap();
     assert_eq!(reimported_epic.title, "Round Trip Test");
 
-    let reimported_tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, "fn-50-roundtrip").unwrap();
+    let reimported_tasks =
+        flowctl_core::json_store::task_list_by_epic(&flow_dir, "fn-50-roundtrip").unwrap();
     assert_eq!(reimported_tasks.len(), 1);
     assert_eq!(reimported_tasks[0].title, "First Task");
 }

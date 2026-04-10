@@ -43,10 +43,7 @@ pub fn build_reference_graph(symbols: &[Symbol], root: &Path) -> DiGraph<String,
     // Build a map: symbol name -> list of defining files.
     let mut name_to_files: HashMap<&str, Vec<&str>> = HashMap::new();
     for sym in symbols {
-        name_to_files
-            .entry(&sym.name)
-            .or_default()
-            .push(&sym.file);
+        name_to_files.entry(&sym.name).or_default().push(&sym.file);
     }
 
     // For each file, scan its content for references to symbols defined elsewhere.
@@ -193,7 +190,9 @@ pub fn generate_repo_map(root: &Path, token_budget: usize) -> Result<String, Str
 
     for rs in &ranked {
         let display_file = if rs.symbol.file.starts_with(&root_str) {
-            rs.symbol.file[root_str.len()..].trim_start_matches('/').to_string()
+            rs.symbol.file[root_str.len()..]
+                .trim_start_matches('/')
+                .to_string()
         } else {
             rs.symbol.file.clone()
         };

@@ -5,8 +5,8 @@
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::output::{error_exit, json_output};
 use super::helpers::get_flow_dir;
+use crate::output::{error_exit, json_output};
 
 #[derive(Subcommand, Debug)]
 pub enum ScoutCacheCmd {
@@ -46,7 +46,9 @@ fn detect_commit(explicit: &Option<String>) -> String {
         .ok()
         .and_then(|o| {
             if o.status.success() {
-                String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+                String::from_utf8(o.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
             } else {
                 None
             }
@@ -77,8 +79,7 @@ pub fn dispatch(cmd: &ScoutCacheCmd, json_mode: bool) {
                 let result = std::fs::read_to_string(&path).unwrap_or_default();
                 if json_mode {
                     let parsed: serde_json::Value =
-                        serde_json::from_str(&result)
-                            .unwrap_or(serde_json::Value::String(result));
+                        serde_json::from_str(&result).unwrap_or(serde_json::Value::String(result));
                     json_output(json!({"hit": true, "key": key, "result": parsed}));
                 } else {
                     println!("hit: {}", result);

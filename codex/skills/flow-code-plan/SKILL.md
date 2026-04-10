@@ -100,8 +100,10 @@ Research: repo-scout + rp(<mcp|cli|scout-fallback>) | Depth: <short|standard|dee
 ### Explicit flag overrides
 
 These flags override the corresponding AI decision without entering the analysis flow:
-- `--research=rp|grep`, `--depth=short|standard|deep`, `--review=rp|codex|export|none`, `--plan-only`, `--no-capability-scan` (skip capability-scout in Step 4)
+- `--research=rp|grep`, `--depth=short|standard|deep`, `--review=rp|codex|export|none`, `--no-capability-scan` (skip capability-scout in Step 4)
 - `--interactive` — **opt-in** interview refinement. Before Context Analysis, invoke `/flow-code:interview` with the raw request text. The interview returns refined-spec markdown (Problem / Scope / Acceptance / Open Questions). Use that refined text as the effective request for Context Analysis and Step 4. When this flag is NOT passed, the plan flow is unchanged and the zero-interaction default (AGENTS.md:99) is preserved. There is intentionally no auto-trigger heuristic and no `--no-interview` flag — interview is opt-in only.
+
+`--plan-only` is redundant on `/flow-code:plan`: this front door already stops after planning. Use `--plan-only` on `/flow-code:go` when you want the execution pipeline to stop after the plan phase.
 
 Proceed to Step 4 immediately.
 
@@ -128,12 +130,11 @@ All plans go into `.flow/`:
 - No code changes
 - No plan files outside `.flow/`
 
-## Auto-Execute
+## Default Stop Point
 
-**Steps.md Step 15 handles auto-execution.** After steps complete:
-- Default: `/flow-code:work <epic-id> --no-review` invoked automatically (Step 15)
-- `--plan-only`: shows plan summary and stops (Step 15)
+`/flow-code:plan` is planning-only. After the steps complete, stop and present the plan result plus the next recommended command.
 
-**After work completes** (if auto-executed):
-- All tasks done → Layer 3 adversarial review runs automatically (Phase 3j)
-- Then auto push + draft PR (Phase 5)
+Typical next steps:
+- `/flow-code:work <epic-id>` — execute the planned tasks
+- `/flow-code:go <epic-id>` — resume through the full execution pipeline from the planned epic
+- `/flow-code:plan-review <epic-id>` — re-run or inspect plan review explicitly if needed

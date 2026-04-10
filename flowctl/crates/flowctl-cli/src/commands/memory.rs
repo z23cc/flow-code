@@ -168,13 +168,26 @@ pub fn dispatch(cmd: &MemoryCmd, json: bool) {
             severity,
             problem_type,
             tags,
-        } => cmd_memory_add(json, entry_type, content, module.as_deref(), severity.as_deref(), problem_type.as_deref(), tags.as_deref()),
+        } => cmd_memory_add(
+            json,
+            entry_type,
+            content,
+            module.as_deref(),
+            severity.as_deref(),
+            problem_type.as_deref(),
+            tags.as_deref(),
+        ),
         MemoryCmd::Read { entry_type } => cmd_memory_read(json, entry_type.as_deref()),
         MemoryCmd::List {
             module,
             track,
             entry_type,
-        } => cmd_memory_list(json, module.as_deref(), track.as_deref(), entry_type.as_deref()),
+        } => cmd_memory_list(
+            json,
+            module.as_deref(),
+            track.as_deref(),
+            entry_type.as_deref(),
+        ),
         MemoryCmd::Search {
             pattern,
             module,
@@ -221,10 +234,7 @@ fn memory_stats_path() -> PathBuf {
 fn normalize_memory_type(raw: &str) -> Option<&'static str> {
     let lower = raw.to_lowercase();
     let trimmed = lower.trim_end_matches('s');
-    MEMORY_VALID_TYPES
-        .iter()
-        .find(|&&t| t == trimmed)
-        .copied()
+    MEMORY_VALID_TYPES.iter().find(|&&t| t == trimmed).copied()
 }
 
 /// SHA256 prefix for deduplication (matches Python _content_hash).
@@ -288,11 +298,7 @@ fn save_index(index_path: &Path, entries: &[serde_json::Value]) {
         let _ = fs::create_dir_all(parent);
     }
     if let Err(e) = fs::write(index_path, &content) {
-        error_exit(&format!(
-            "Failed to write {}: {}",
-            index_path.display(),
-            e
-        ));
+        error_exit(&format!("Failed to write {}: {}", index_path.display(), e));
     }
 }
 
@@ -312,13 +318,10 @@ fn save_stats(stats_path: &Path, stats: &serde_json::Value) {
     if let Some(parent) = stats_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let content = serde_json::to_string_pretty(stats).expect("stats JSON serialization should not fail");
+    let content =
+        serde_json::to_string_pretty(stats).expect("stats JSON serialization should not fail");
     if let Err(e) = fs::write(stats_path, &content) {
-        error_exit(&format!(
-            "Failed to write {}: {}",
-            stats_path.display(),
-            e
-        ));
+        error_exit(&format!("Failed to write {}: {}", stats_path.display(), e));
     }
 }
 
@@ -381,8 +384,7 @@ fn require_memory_enabled(json: bool) -> PathBuf {
     let memory_enabled = if config_path.exists() {
         match fs::read_to_string(&config_path) {
             Ok(content) => {
-                let config: serde_json::Value =
-                    serde_json::from_str(&content).unwrap_or(json!({}));
+                let config: serde_json::Value = serde_json::from_str(&content).unwrap_or(json!({}));
                 config
                     .get("memory")
                     .and_then(|m| m.get("enabled"))
@@ -433,8 +435,7 @@ fn cmd_memory_init(json: bool) {
     let memory_enabled = if config_path.exists() {
         match fs::read_to_string(&config_path) {
             Ok(content) => {
-                let config: serde_json::Value =
-                    serde_json::from_str(&content).unwrap_or(json!({}));
+                let config: serde_json::Value = serde_json::from_str(&content).unwrap_or(json!({}));
                 config
                     .get("memory")
                     .and_then(|m| m.get("enabled"))
@@ -607,7 +608,13 @@ fn cmd_memory_add(
         }
     }
 
-    let summary: String = content.lines().next().unwrap_or("").chars().take(120).collect();
+    let summary: String = content
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(120)
+        .collect();
     let created = Utc::now().format("%Y-%m-%d").to_string();
     let track = derive_track(problem_type, type_name);
 
@@ -739,8 +746,7 @@ fn cmd_memory_read(json: bool, entry_type: Option<&str>) {
             println!("{}", r["content"].as_str().unwrap_or(""));
             if let Some(tags) = r["tags"].as_array() {
                 if !tags.is_empty() {
-                    let tag_strs: Vec<&str> =
-                        tags.iter().filter_map(|t| t.as_str()).collect();
+                    let tag_strs: Vec<&str> = tags.iter().filter_map(|t| t.as_str()).collect();
                     println!("  Tags: {}", tag_strs.join(", "));
                 }
             }
@@ -802,7 +808,11 @@ fn cmd_memory_list(
         .as_object()
         .map(|m| {
             m.values()
-                .map(|v| v.get("refs").and_then(serde_json::Value::as_i64).unwrap_or(0))
+                .map(|v| {
+                    v.get("refs")
+                        .and_then(serde_json::Value::as_i64)
+                        .unwrap_or(0)
+                })
                 .sum()
         })
         .unwrap_or(0);
@@ -816,7 +826,11 @@ fn cmd_memory_list(
         let index_data: Vec<serde_json::Value> = index
             .iter()
             .map(|idx| {
-                let eid = idx.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0).to_string();
+                let eid = idx
+                    .get("id")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0)
+                    .to_string();
                 let last_verified = idx
                     .get("last_verified")
                     .or_else(|| idx.get("created"))
@@ -865,9 +879,17 @@ fn cmd_memory_list(
         use std::fmt::Write as _;
         let mut buf = String::new();
         let mut stale_count = 0;
-        writeln!(buf, "Memory: {} entries, {} total references\n", total, total_refs).ok();
+        writeln!(
+            buf,
+            "Memory: {} entries, {} total references\n",
+            total, total_refs
+        )
+        .ok();
         for idx in &index {
-            let eid = idx.get("id").and_then(serde_json::Value::as_i64).unwrap_or(0);
+            let eid = idx
+                .get("id")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0);
             let eid_str = eid.to_string();
             let refs = stats
                 .get(&eid_str)
@@ -1040,11 +1062,7 @@ fn cmd_memory_search(
         println!("No matches for '{}'", pattern);
     } else {
         for m in &matches {
-            let mut meta = format!(
-                "--- #{} [{}]",
-                m["id"],
-                m["type"].as_str().unwrap_or("")
-            );
+            let mut meta = format!("--- #{} [{}]", m["id"], m["type"].as_str().unwrap_or(""));
             if let Some(module) = m.get("module").and_then(|v| v.as_str()) {
                 meta.push_str(&format!(" module={}", module));
             }
@@ -1164,11 +1182,7 @@ fn cmd_memory_inject(json: bool, entry_type: Option<&str>, tags: Option<&str>, f
                 let tags_arr = e.get("tags").and_then(|v| v.as_array());
                 let tags_str = tags_arr
                     .map(|arr| {
-                        let ts: Vec<&str> = arr
-                            .iter()
-                            .filter_map(|t| t.as_str())
-                            .take(3)
-                            .collect();
+                        let ts: Vec<&str> = arr.iter().filter_map(|t| t.as_str()).take(3).collect();
                         if ts.is_empty() {
                             String::new()
                         } else {
@@ -1186,9 +1200,7 @@ fn cmd_memory_inject(json: bool, entry_type: Option<&str>, tags: Option<&str>, f
                     summary_trunc
                 );
             }
-            println!(
-                "\nUse `memory search <pattern>` for full content of specific entries."
-            );
+            println!("\nUse `memory search <pattern>` for full content of specific entries.");
         }
     } else {
         // Full content for filtered entries

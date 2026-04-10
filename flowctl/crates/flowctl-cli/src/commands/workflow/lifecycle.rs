@@ -6,10 +6,10 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
-use flowctl_core::state_machine::Status;
 use flowctl_core::lifecycle::{
     BlockTaskRequest, DoneTaskRequest, FailTaskRequest, RestartTaskRequest, StartTaskRequest,
 };
+use flowctl_core::state_machine::Status;
 
 use super::{ensure_flow_exists, resolve_actor};
 
@@ -26,7 +26,9 @@ pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>
         if let Ok(tasks) = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id) {
             let in_progress: Vec<String> = tasks
                 .iter()
-                .filter(|t| t.status == flowctl_core::state_machine::Status::InProgress && t.id != id)
+                .filter(|t| {
+                    t.status == flowctl_core::state_machine::Status::InProgress && t.id != id
+                })
                 .map(|t| t.id.clone())
                 .collect();
             if !in_progress.is_empty() && !force {
@@ -56,9 +58,12 @@ pub fn cmd_start(json_mode: bool, id: String, force: bool, _note: Option<String>
                     "status": "in_progress",
                 });
                 // Include parallel warning in JSON so agent sees it
-                let epic_id = flowctl_core::id::epic_id_from_task(&resp.task_id).unwrap_or_default();
+                let epic_id =
+                    flowctl_core::id::epic_id_from_task(&resp.task_id).unwrap_or_default();
                 if !epic_id.is_empty() {
-                    if let Ok(tasks) = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id) {
+                    if let Ok(tasks) =
+                        flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id)
+                    {
                         let in_progress_count = tasks
                             .iter()
                             .filter(|t| t.status == flowctl_core::state_machine::Status::InProgress)
@@ -127,7 +132,11 @@ pub fn cmd_done(
                         format!(" ({}s)", secs)
                     }
                 });
-                println!("Task {} completed{}", resp.task_id, dur_str.unwrap_or_default());
+                println!(
+                    "Task {} completed{}",
+                    resp.task_id,
+                    dur_str.unwrap_or_default()
+                );
                 if let Some(warn) = resp.ws_warning {
                     println!("  warning: {}", warn);
                 }
@@ -187,7 +196,10 @@ pub fn cmd_fail(json_mode: bool, id: String, reason: Option<String>, force: bool
                 println!("Task {} {}", resp.task_id, resp.final_status);
                 if resp.final_status == Status::UpForRetry {
                     if let (Some(count), Some(max)) = (resp.retry_count, resp.max_retries) {
-                        println!("  retry {}/{} \u{2014} will be retried on next run", count, max);
+                        println!(
+                            "  retry {}/{} \u{2014} will be retried on next run",
+                            count, max
+                        );
                     }
                 }
                 if !resp.upstream_failed_ids.is_empty() {

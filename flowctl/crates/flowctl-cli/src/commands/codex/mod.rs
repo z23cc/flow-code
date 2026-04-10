@@ -13,8 +13,6 @@ use clap::Subcommand;
 use regex::Regex;
 use serde_json::json;
 
-
-
 #[derive(Subcommand, Debug)]
 pub enum CodexCmd {
     /// Check codex availability.
@@ -131,16 +129,15 @@ pub enum CodexCmd {
 
 /// Locate `codex` in PATH, returning the full path or None.
 fn find_codex() -> Option<String> {
-    which::which("codex").ok().map(|p| p.to_string_lossy().to_string())
+    which::which("codex")
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
 }
 
 /// Get codex version string (e.g. "0.1.2") or None.
 fn get_codex_version() -> Option<String> {
     let codex = find_codex()?;
-    let output = Command::new(&codex)
-        .arg("--version")
-        .output()
-        .ok()?;
+    let output = Command::new(&codex).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -187,7 +184,14 @@ fn run_codex_exec(
 ) -> (String, Option<String>, i32, String) {
     let codex = match find_codex() {
         Some(c) => c,
-        None => return (String::new(), None, 2, "codex not found in PATH".to_string()),
+        None => {
+            return (
+                String::new(),
+                None,
+                2,
+                "codex not found in PATH".to_string(),
+            );
+        }
     };
 
     let timeout_secs: u64 = env::var("FLOW_CODEX_TIMEOUT")
@@ -232,9 +236,12 @@ fn run_codex_exec(
     let mut cmd = Command::new(&codex);
     cmd.args([
         "exec",
-        "--model", &model,
-        "-c", &effort_config,
-        "--sandbox", sandbox,
+        "--model",
+        &model,
+        "-c",
+        &effort_config,
+        "--sandbox",
+        sandbox,
         "--skip-git-repo-check",
         "--json",
         "-",
@@ -265,7 +272,12 @@ fn run_codex_exec(
                 Err(e) => (String::new(), None, 2, format!("codex exec error: {e}")),
             }
         }
-        Err(e) => (String::new(), None, 2, format!("failed to spawn codex: {e}")),
+        Err(e) => (
+            String::new(),
+            None,
+            2,
+            format!("failed to spawn codex: {e}"),
+        ),
     }
 }
 
@@ -301,7 +313,10 @@ fn load_receipt(path: Option<&str>) -> (Option<String>, bool) {
     };
     match serde_json::from_str::<serde_json::Value>(&content) {
         Ok(data) => {
-            let sid = data.get("session_id").and_then(|v| v.as_str()).map(std::string::ToString::to_string);
+            let sid = data
+                .get("session_id")
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
             let is_rereview = sid.is_some();
             (sid, is_rereview)
         }
@@ -358,22 +373,54 @@ pub fn dispatch(cmd: &CodexCmd, json: bool) {
     match cmd {
         CodexCmd::Check => review::cmd_check(json),
         CodexCmd::ImplReview {
-            task, base, focus, receipt, sandbox, effort,
-        } => review::cmd_impl_review(json, task.as_deref(), base, focus.as_deref(), receipt.as_deref(), sandbox, effort),
+            task,
+            base,
+            focus,
+            receipt,
+            sandbox,
+            effort,
+        } => review::cmd_impl_review(
+            json,
+            task.as_deref(),
+            base,
+            focus.as_deref(),
+            receipt.as_deref(),
+            sandbox,
+            effort,
+        ),
         CodexCmd::PlanReview {
-            epic, files, base, receipt, sandbox, effort,
+            epic,
+            files,
+            base,
+            receipt,
+            sandbox,
+            effort,
         } => review::cmd_plan_review(json, epic, files, base, receipt.as_deref(), sandbox, effort),
         CodexCmd::Adversarial {
-            base, focus, sandbox, effort,
+            base,
+            focus,
+            sandbox,
+            effort,
         } => review::cmd_adversarial(json, base, focus.as_deref(), sandbox, effort),
         CodexCmd::CrossModel {
-            base, focus, sandbox, effort,
+            base,
+            focus,
+            sandbox,
+            effort,
         } => review::cmd_cross_model(json, base, focus.as_deref(), sandbox, effort),
         CodexCmd::CompletionReview {
-            epic, base, receipt, sandbox, effort,
+            epic,
+            base,
+            receipt,
+            sandbox,
+            effort,
         } => review::cmd_completion_review(json, epic, base, receipt.as_deref(), sandbox, effort),
         CodexCmd::Sync {
-            agents_dir, output_dir, hooks, dry_run, verbose,
+            agents_dir,
+            output_dir,
+            hooks,
+            dry_run,
+            verbose,
         } => sync::cmd_sync(json, agents_dir, output_dir, hooks, *dry_run, *verbose),
     }
 }

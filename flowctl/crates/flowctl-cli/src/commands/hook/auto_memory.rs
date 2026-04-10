@@ -27,9 +27,18 @@ pub fn cmd_auto_memory() {
     if !memory_dir.exists() {
         let _ = fs::create_dir_all(&memory_dir);
         for (fname, header) in [
-            ("pitfalls.md", "# Pitfalls\n\n<!-- Auto-captured by auto-memory hook -->\n"),
-            ("conventions.md", "# Conventions\n\n<!-- Auto-captured by auto-memory hook -->\n"),
-            ("decisions.md", "# Decisions\n\n<!-- Auto-captured by auto-memory hook -->\n"),
+            (
+                "pitfalls.md",
+                "# Pitfalls\n\n<!-- Auto-captured by auto-memory hook -->\n",
+            ),
+            (
+                "conventions.md",
+                "# Conventions\n\n<!-- Auto-captured by auto-memory hook -->\n",
+            ),
+            (
+                "decisions.md",
+                "# Decisions\n\n<!-- Auto-captured by auto-memory hook -->\n",
+            ),
         ] {
             let _ = fs::write(memory_dir.join(fname), header);
         }
@@ -196,7 +205,9 @@ fn summarize_with_gemini(text: &str) -> Vec<Memory> {
                 if start.elapsed() > timeout {
                     let _ = child.kill();
                     let _ = child.wait();
-                    eprintln!("auto-memory: gemini timed out after 10s, falling back to pattern matching");
+                    eprintln!(
+                        "auto-memory: gemini timed out after 10s, falling back to pattern matching"
+                    );
                     return Vec::new();
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -380,7 +391,9 @@ fn save_memories_direct(memories: &[Memory], flow_dir: &Path) -> usize {
 
     let mut saved = 0;
     for mem in memories {
-        let filename = type_to_file.get(mem.mem_type.as_str()).unwrap_or(&"conventions.md");
+        let filename = type_to_file
+            .get(mem.mem_type.as_str())
+            .unwrap_or(&"conventions.md");
         let filepath = memory_dir.join(filename);
         if filepath.exists() {
             let content = fs::read_to_string(&filepath).unwrap_or_default();

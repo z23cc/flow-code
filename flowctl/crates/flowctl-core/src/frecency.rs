@@ -79,10 +79,13 @@ impl FrecencyStore {
     /// Record an access with the given weight. Applies decay before adding.
     pub fn record_access(&mut self, path: &str, weight: f64) {
         let now = Utc::now();
-        let entry = self.entries.entry(path.to_string()).or_insert(FrecencyEntry {
-            score: 0.0,
-            last_access: now,
-        });
+        let entry = self
+            .entries
+            .entry(path.to_string())
+            .or_insert(FrecencyEntry {
+                score: 0.0,
+                last_access: now,
+            });
         let decayed = decay(entry.score, entry.last_access, now);
         entry.score = decayed + weight;
         entry.last_access = now;
@@ -159,6 +162,9 @@ mod tests {
 
         let loaded = FrecencyStore::load(dir.path());
         let score = loaded.get_score("foo.rs");
-        assert!(score > 1.9, "roundtrip score should be close to 2.0, got {score}");
+        assert!(
+            score > 1.9,
+            "roundtrip score should be close to 2.0, got {score}"
+        );
     }
 }

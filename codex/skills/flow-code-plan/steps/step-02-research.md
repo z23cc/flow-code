@@ -46,9 +46,14 @@ Stack is auto-detected on `init`. If present, use it throughout planning:
 
 ## Pre-Scout Quick Context
 
+This is the mandatory first pass before scouts or RP depth. Use the cached graph/index first, then escalate only if needed.
+
 Before spawning scouts, gather initial context using intent-level commands:
 
 ```bash
+# If this repo was initialized before auto-bootstrap existed, backfill artifacts once:
+# $FLOWCTL graph build --json
+
 # Project structure overview (instant from cached graph)
 $FLOWCTL graph map --json
 
@@ -61,7 +66,7 @@ $FLOWCTL graph impact <likely-changed-file> --json
 
 For exact regex with context, use native `Grep`. For file patterns, use native `Glob`.
 
-Feed results into scout prompts for targeted exploration.
+Feed results into scout prompts for targeted exploration. On small/trivial requests, these commands may be sufficient without invoking deeper RP context.
 
 ## Scout Selection: AI Decides Per-Request
 

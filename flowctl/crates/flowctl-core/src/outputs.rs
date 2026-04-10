@@ -28,8 +28,8 @@ pub struct OutputEntry {
 use std::fs;
 use std::time::UNIX_EPOCH;
 
-use crate::id::epic_id_from_task;
 use crate::error::ServiceResult;
+use crate::id::epic_id_from_task;
 
 /// File-system store for `.flow/outputs/*.md` entries.
 ///
@@ -72,7 +72,11 @@ impl OutputsStore {
     /// Matches any `<task_id>.md` whose epic-id prefix equals `epic_id`.
     /// Invalid task IDs are silently skipped. Files with unreadable mtime
     /// fall back to mtime=0.
-    pub fn list_for_epic(&self, epic_id: &str, limit: Option<usize>) -> ServiceResult<Vec<OutputEntry>> {
+    pub fn list_for_epic(
+        &self,
+        epic_id: &str,
+        limit: Option<usize>,
+    ) -> ServiceResult<Vec<OutputEntry>> {
         let mut entries: Vec<OutputEntry> = Vec::new();
         let read_dir = match fs::read_dir(&self.root) {
             Ok(rd) => rd,

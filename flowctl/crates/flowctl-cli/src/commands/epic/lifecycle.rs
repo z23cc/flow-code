@@ -8,13 +8,13 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
-use flowctl_core::types::{EpicStatus, ReviewStatus, ARCHIVE_DIR, REVIEWS_DIR, SPECS_DIR};
+use flowctl_core::types::{ARCHIVE_DIR, EpicStatus, REVIEWS_DIR, ReviewStatus, SPECS_DIR};
 
-use super::helpers::{
-    ensure_flow_exists, load_epic, review_belongs_to_epic, save_epic, validate_epic_id,
-    GAP_BLOCKING_PRIORITIES,
-};
 use super::super::helpers::get_flow_dir;
+use super::helpers::{
+    GAP_BLOCKING_PRIORITIES, ensure_flow_exists, load_epic, review_belongs_to_epic, save_epic,
+    validate_epic_id,
+};
 
 pub fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
     ensure_flow_exists();
@@ -63,9 +63,7 @@ pub fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
         ));
     }
     if open_blocking_count > 0 && skip_gap_check && !json_mode {
-        eprintln!(
-            "WARNING: Bypassing {open_blocking_count} unresolved blocking gap(s)"
-        );
+        eprintln!("WARNING: Bypassing {open_blocking_count} unresolved blocking gap(s)");
     }
 
     doc.frontmatter.status = EpicStatus::Done;
@@ -82,9 +80,7 @@ pub fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
         }));
     } else {
         println!("Epic {id} closed");
-        println!(
-            "\n  Tip: Run /flow-code:retro to capture lessons learned before archiving."
-        );
+        println!("\n  Tip: Run /flow-code:retro to capture lessons learned before archiving.");
     }
 }
 
@@ -108,9 +104,7 @@ pub fn cmd_reopen(id: &str, json_mode: bool) {
     let previous_status = doc.frontmatter.status.to_string();
 
     if doc.frontmatter.status == EpicStatus::Open {
-        error_exit(&format!(
-            "Epic {id} is already open (no-op protection)"
-        ));
+        error_exit(&format!("Epic {id} is already open (no-op protection)"));
     }
 
     doc.frontmatter.status = EpicStatus::Open;
@@ -162,7 +156,10 @@ pub fn cmd_archive(id: &str, force: bool, json_mode: bool) {
     if spec_path.exists() {
         let dest = archive_dir.join(spec_path.file_name().unwrap());
         let _ = fs::rename(&spec_path, &dest);
-        moved.push(format!("specs/{}", spec_path.file_name().unwrap().to_string_lossy()));
+        moved.push(format!(
+            "specs/{}",
+            spec_path.file_name().unwrap().to_string_lossy()
+        ));
     }
 
     // Move review receipts

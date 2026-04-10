@@ -7,9 +7,9 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use petgraph::Direction;
 use petgraph::graph::NodeIndex;
 use petgraph::stable_graph::StableDiGraph;
-use petgraph::Direction;
 
 use crate::error::CoreError;
 use crate::state_machine::Status;
@@ -50,12 +50,13 @@ impl TaskDag {
         for task in tasks {
             let dependent_ni = index[&task.id];
             for dep_id in &task.depends_on {
-                let dep_ni = *index.get(dep_id.as_str()).ok_or_else(|| {
-                    CoreError::UnknownDependency {
-                        task: task.id.clone(),
-                        dependency: dep_id.clone(),
-                    }
-                })?;
+                let dep_ni =
+                    *index
+                        .get(dep_id.as_str())
+                        .ok_or_else(|| CoreError::UnknownDependency {
+                            task: task.id.clone(),
+                            dependency: dep_id.clone(),
+                        })?;
                 // Self-reference check.
                 if dep_ni == dependent_ni {
                     return Err(CoreError::CycleDetected(format!(
@@ -82,17 +83,17 @@ impl TaskDag {
             if status != Status::Todo {
                 continue;
             }
-            let all_deps_satisfied = self
-                .graph
-                .neighbors_directed(ni, Direction::Incoming)
-                .all(|dep_ni| {
-                    let dep_id = &self.graph[dep_ni];
-                    statuses
-                        .get(dep_id.as_str())
-                        .copied()
-                        .unwrap_or(Status::Todo)
-                        .is_satisfied()
-                });
+            let all_deps_satisfied =
+                self.graph
+                    .neighbors_directed(ni, Direction::Incoming)
+                    .all(|dep_ni| {
+                        let dep_id = &self.graph[dep_ni];
+                        statuses
+                            .get(dep_id.as_str())
+                            .copied()
+                            .unwrap_or(Status::Todo)
+                            .is_satisfied()
+                    });
             if all_deps_satisfied {
                 ready.push(id.clone());
             }
@@ -460,10 +461,7 @@ mod tests {
     }
 
     fn status_map(entries: &[(&str, Status)]) -> HashMap<String, Status> {
-        entries
-            .iter()
-            .map(|(id, s)| (id.to_string(), *s))
-            .collect()
+        entries.iter().map(|(id, s)| (id.to_string(), *s)).collect()
     }
 
     // ── Construction ────────────────────────────────────────────────

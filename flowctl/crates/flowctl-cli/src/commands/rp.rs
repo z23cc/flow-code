@@ -10,8 +10,8 @@ use std::process::Command;
 
 use clap::Subcommand;
 use regex::Regex;
-use sha2::{Digest, Sha256};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use crate::commands::helpers::get_flow_dir;
 use crate::output::{error_exit, json_output};
@@ -196,16 +196,20 @@ fn run_rp_cli(args: &[&str], timeout_secs: Option<u64>) -> (String, String) {
             .unwrap_or(1200)
     });
 
-    let result = Command::new(&rp)
-        .args(args)
-        .output();
+    let result = Command::new(&rp).args(args).output();
 
     match result {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             if !output.status.success() {
-                let msg = if !stderr.is_empty() { &stderr } else if !stdout.is_empty() { &stdout } else { "unknown error" };
+                let msg = if !stderr.is_empty() {
+                    &stderr
+                } else if !stdout.is_empty() {
+                    &stdout
+                } else {
+                    "unknown error"
+                };
                 error_exit(&format!("rp-cli failed: {}", msg.trim()));
             }
             (stdout, stderr)
@@ -302,7 +306,10 @@ fn extract_root_paths(win: &serde_json::Value) -> Vec<String> {
     for key in &["rootFolderPaths", "rootFolders", "rootFolderPath"] {
         if let Some(v) = win.get(key) {
             if let Some(arr) = v.as_array() {
-                return arr.iter().filter_map(|x| x.as_str().map(std::string::ToString::to_string)).collect();
+                return arr
+                    .iter()
+                    .filter_map(|x| x.as_str().map(std::string::ToString::to_string))
+                    .collect();
             }
             if let Some(s) = v.as_str() {
                 return vec![s.to_string()];
@@ -370,21 +377,70 @@ pub fn dispatch(cmd: &RpCmd, json: bool) {
     match cmd {
         RpCmd::Windows => cmd_windows(json),
         RpCmd::PickWindow { repo_root } => cmd_pick_window(json, repo_root),
-        RpCmd::EnsureWorkspace { window, repo_root } => cmd_ensure_workspace(json, *window, repo_root),
-        RpCmd::Builder { window, summary, response_type } => cmd_builder(json, *window, summary, response_type.as_deref()),
+        RpCmd::EnsureWorkspace { window, repo_root } => {
+            cmd_ensure_workspace(json, *window, repo_root)
+        }
+        RpCmd::Builder {
+            window,
+            summary,
+            response_type,
+        } => cmd_builder(json, *window, summary, response_type.as_deref()),
         RpCmd::PromptGet { window, tab } => cmd_prompt_get(*window, tab),
-        RpCmd::PromptSet { window, tab, message_file } => cmd_prompt_set(*window, tab, message_file),
+        RpCmd::PromptSet {
+            window,
+            tab,
+            message_file,
+        } => cmd_prompt_set(*window, tab, message_file),
         RpCmd::SelectGet { window, tab } => cmd_select_get(*window, tab),
         RpCmd::SelectAdd { window, tab, paths } => cmd_select_add(*window, tab, paths),
-        RpCmd::ChatSend { window, tab, message_file, new_chat, chat_name, chat_id, mode, selected_paths } => {
-            cmd_chat_send(json, *window, tab, message_file, *new_chat, chat_name.as_deref(), chat_id.as_deref(), mode, selected_paths.as_ref().map(std::vec::Vec::as_slice));
+        RpCmd::ChatSend {
+            window,
+            tab,
+            message_file,
+            new_chat,
+            chat_name,
+            chat_id,
+            mode,
+            selected_paths,
+        } => {
+            cmd_chat_send(
+                json,
+                *window,
+                tab,
+                message_file,
+                *new_chat,
+                chat_name.as_deref(),
+                chat_id.as_deref(),
+                mode,
+                selected_paths.as_ref().map(std::vec::Vec::as_slice),
+            );
         }
         RpCmd::PromptExport { window, tab, out } => cmd_prompt_export(*window, tab, out),
-        RpCmd::SetupReview { repo_root, summary, response_type, create } => {
+        RpCmd::SetupReview {
+            repo_root,
+            summary,
+            response_type,
+            create,
+        } => {
             cmd_setup_review(json, repo_root, summary, response_type.as_deref(), *create);
         }
-        RpCmd::PrepChat { id: _, message_file, mode, new_chat, chat_name, selected_paths, output } => {
-            cmd_prep_chat(message_file, mode, *new_chat, chat_name.as_deref(), selected_paths.as_ref().map(std::vec::Vec::as_slice), output.as_deref());
+        RpCmd::PrepChat {
+            id: _,
+            message_file,
+            mode,
+            new_chat,
+            chat_name,
+            selected_paths,
+            output,
+        } => {
+            cmd_prep_chat(
+                message_file,
+                mode,
+                *new_chat,
+                chat_name.as_deref(),
+                selected_paths.as_ref().map(std::vec::Vec::as_slice),
+                output.as_deref(),
+            );
         }
         RpCmd::Tier { mcp_hint } => cmd_tier(json, *mcp_hint),
     }
@@ -450,7 +506,8 @@ fn cmd_ensure_workspace(_json_mode: bool, window: i64, repo_root: &str) {
         .to_string();
 
     // List workspaces
-    let list_payload = serde_json::to_string(&json!({"action": "list"})).expect("static JSON serialization should not fail");
+    let list_payload = serde_json::to_string(&json!({"action": "list"}))
+        .expect("static JSON serialization should not fail");
     let list_expr = format!("call manage_workspaces {list_payload}");
     let win_str = window.to_string();
     let (stdout, _) = run_rp_cli(&["--raw-json", "-w", &win_str, "-e", &list_expr], None);
@@ -468,7 +525,8 @@ fn cmd_ensure_workspace(_json_mode: bool, window: i64, repo_root: &str) {
             "action": "create",
             "name": ws_name,
             "folder_path": real_root,
-        })).expect("static JSON serialization should not fail");
+        }))
+        .expect("static JSON serialization should not fail");
         let create_expr = format!("call manage_workspaces {create_payload}");
         run_rp_cli(&["-w", &win_str, "-e", &create_expr], None);
     }
@@ -478,7 +536,8 @@ fn cmd_ensure_workspace(_json_mode: bool, window: i64, repo_root: &str) {
         "action": "switch",
         "workspace": ws_name,
         "window_id": window,
-    })).expect("static JSON serialization should not fail");
+    }))
+    .expect("static JSON serialization should not fail");
     let switch_expr = format!("call manage_workspaces {switch_payload}");
     run_rp_cli(&["-w", &win_str, "-e", &switch_expr], None);
 }
@@ -494,19 +553,21 @@ fn extract_workspace_names(data: &serde_json::Value) -> Vec<String> {
     };
 
     if let Some(arr) = list.as_array() {
-        arr.iter().filter_map(|item| {
-            if let Some(s) = item.as_str() {
-                return Some(s.to_string());
-            }
-            if let Some(obj) = item.as_object() {
-                for key in &["name", "workspace", "title"] {
-                    if let Some(v) = obj.get(*key).and_then(|v| v.as_str()) {
-                        return Some(v.to_string());
+        arr.iter()
+            .filter_map(|item| {
+                if let Some(s) = item.as_str() {
+                    return Some(s.to_string());
+                }
+                if let Some(obj) = item.as_object() {
+                    for key in &["name", "workspace", "title"] {
+                        if let Some(v) = obj.get(*key).and_then(|v| v.as_str()) {
+                            return Some(v.to_string());
+                        }
                     }
                 }
-            }
-            None
-        }).collect()
+                None
+            })
+            .collect()
     } else {
         Vec::new()
     }
@@ -527,13 +588,28 @@ fn cmd_builder(json_mode: bool, window: i64, summary: &str, response_type: Optio
     args.extend_from_slice(&["-w", &win_str, "-e", &builder_expr]);
 
     let (stdout, stderr) = run_rp_cli(&args, None);
-    let output = format!("{stdout}{}", if stderr.is_empty() { String::new() } else { format!("\n{stderr}") });
+    let output = format!(
+        "{stdout}{}",
+        if stderr.is_empty() {
+            String::new()
+        } else {
+            format!("\n{stderr}")
+        }
+    );
 
     if response_type == Some("review") {
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(&stdout) {
             let tab = data.get("tab_id").and_then(|v| v.as_str()).unwrap_or("");
-            let chat_id = data.get("review").and_then(|v| v.get("chat_id")).and_then(|v| v.as_str()).unwrap_or("");
-            let review_response = data.get("review").and_then(|v| v.get("response")).and_then(|v| v.as_str()).unwrap_or("");
+            let chat_id = data
+                .get("review")
+                .and_then(|v| v.get("chat_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let review_response = data
+                .get("review")
+                .and_then(|v| v.get("response"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             if json_mode {
                 json_output(json!({
@@ -576,7 +652,8 @@ fn cmd_prompt_get(window: i64, tab: &str) {
 fn cmd_prompt_set(window: i64, tab: &str, message_file: &str) {
     let message = fs::read_to_string(message_file)
         .unwrap_or_else(|e| error_exit(&format!("Failed to read message file: {e}")));
-    let payload = serde_json::to_string(&json!({"op": "set", "text": message})).expect("JSON serialization of prompt payload should not fail");
+    let payload = serde_json::to_string(&json!({"op": "set", "text": message}))
+        .expect("JSON serialization of prompt payload should not fail");
     let expr = format!("call prompt {payload}");
     let win_str = window.to_string();
     let (stdout, _) = run_rp_cli(&["-w", &win_str, "-t", tab, "-e", &expr], None);
@@ -614,18 +691,18 @@ fn cmd_chat_send(
 ) {
     let message = fs::read_to_string(message_file)
         .unwrap_or_else(|e| error_exit(&format!("Failed to read message file: {e}")));
-    let payload = build_chat_payload(
-        &message,
-        mode,
-        new_chat,
-        chat_name,
-        chat_id,
-        selected_paths,
-    );
+    let payload = build_chat_payload(&message, mode, new_chat, chat_name, chat_id, selected_paths);
     let expr = format!("call chat_send {payload}");
     let win_str = window.to_string();
     let (stdout, stderr) = run_rp_cli(&["-w", &win_str, "-t", tab, "-e", &expr], None);
-    let output = format!("{stdout}{}", if stderr.is_empty() { String::new() } else { format!("\n{stderr}") });
+    let output = format!(
+        "{stdout}{}",
+        if stderr.is_empty() {
+            String::new()
+        } else {
+            format!("\n{stderr}")
+        }
+    );
 
     let cid = parse_chat_id(&output);
     if json_mode {
@@ -677,7 +754,9 @@ fn cmd_setup_review(
                         break;
                     }
                 }
-                if win_id.is_some() { break; }
+                if win_id.is_some() {
+                    break;
+                }
             }
         }
     }
@@ -733,14 +812,29 @@ fn cmd_setup_review(
     args.push(&builder_expr);
 
     let (stdout, stderr) = run_rp_cli(&args, Some(1000));
-    let output = format!("{stdout}{}", if stderr.is_empty() { String::new() } else { format!("\n{stderr}") });
+    let output = format!(
+        "{stdout}{}",
+        if stderr.is_empty() {
+            String::new()
+        } else {
+            format!("\n{stderr}")
+        }
+    );
 
     if response_type == Some("review") {
         match serde_json::from_str::<serde_json::Value>(&stdout) {
             Ok(data) => {
                 let tab = data.get("tab_id").and_then(|v| v.as_str()).unwrap_or("");
-                let chat_id = data.get("review").and_then(|v| v.get("chat_id")).and_then(|v| v.as_str()).unwrap_or("");
-                let review_response = data.get("review").and_then(|v| v.get("response")).and_then(|v| v.as_str()).unwrap_or("");
+                let chat_id = data
+                    .get("review")
+                    .and_then(|v| v.get("chat_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let review_response = data
+                    .get("review")
+                    .and_then(|v| v.get("response"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
                 if tab.is_empty() {
                     error_exit("Builder did not return a tab id");
@@ -789,14 +883,7 @@ fn cmd_prep_chat(
 ) {
     let message = fs::read_to_string(message_file)
         .unwrap_or_else(|e| error_exit(&format!("Failed to read message file: {e}")));
-    let json_str = build_chat_payload(
-        &message,
-        mode,
-        new_chat,
-        chat_name,
-        None,
-        selected_paths,
-    );
+    let json_str = build_chat_payload(&message, mode, new_chat, chat_name, None, selected_paths);
 
     if let Some(out) = output_file {
         fs::write(out, &json_str)
@@ -818,7 +905,9 @@ fn cmd_tier(json_mode: bool, mcp_hint: bool) {
         if ["mcp", "cli", "none"].contains(&trimmed.as_str()) {
             (trimmed, "env".to_string())
         } else {
-            eprintln!("warning: FLOW_RP_TIER={env_val} is invalid (expected mcp|cli|none), ignoring");
+            eprintln!(
+                "warning: FLOW_RP_TIER={env_val} is invalid (expected mcp|cli|none), ignoring"
+            );
             detect_rp_tier_from_config()
         }
     } else {
@@ -838,7 +927,8 @@ fn detect_rp_tier_from_config() -> (String, String) {
     if config_path.exists() {
         if let Ok(content) = fs::read_to_string(&config_path) {
             if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(tier_val) = config.pointer("/rp_context/tier").and_then(|v| v.as_str()) {
+                if let Some(tier_val) = config.pointer("/rp_context/tier").and_then(|v| v.as_str())
+                {
                     let t = tier_val.trim().to_lowercase();
                     if ["mcp", "cli", "none"].contains(&t.as_str()) {
                         return (t, "config".to_string());

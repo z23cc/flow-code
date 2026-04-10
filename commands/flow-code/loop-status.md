@@ -1,6 +1,6 @@
 ---
 name: flow-code:loop-status
-description: "Show status of running Ralph or auto-improve loops"
+description: "Show the status of running Ralph or auto-improve loops"
 argument-hint: "[ralph|auto-improve] [--run <id>]"
 ---
 
@@ -9,5 +9,7 @@ argument-hint: "[ralph|auto-improve] [--run <id>]"
 The ONLY purpose of this command is to call the `flow-code-loop-status` skill. You MUST use that skill now.
 
 **User input:** $ARGUMENTS
+
+Choose this front door when you want to inspect a running Ralph or auto-improve loop rather than start new execution. Use `/flow-code:go` to run the main pipeline and `/flow-code:auto-improve` to start autonomous improvement work.
 
 Pass the user input to the skill.

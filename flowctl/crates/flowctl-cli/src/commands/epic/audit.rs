@@ -84,7 +84,8 @@ pub fn cmd_audit(id: &str, force: bool, json_mode: bool) {
     let epic_body = epic_doc.body.clone();
 
     // Load tasks from JSON.
-    let tasks: Vec<flowctl_core::types::Task> = flowctl_core::json_store::task_list_by_epic(&flow_dir, id).unwrap_or_default();
+    let tasks: Vec<flowctl_core::types::Task> =
+        flowctl_core::json_store::task_list_by_epic(&flow_dir, id).unwrap_or_default();
 
     // Shape task summaries for the payload.
     let task_entries: Vec<serde_json::Value> = tasks
@@ -135,8 +136,9 @@ pub fn cmd_audit(id: &str, force: bool, json_mode: bool) {
     let receipt_path = reviews_dir.join(format!("epic-audit-{id}-{ts_slug}.json"));
     let serialized = serde_json::to_string_pretty(&receipt)
         .unwrap_or_else(|e| error_exit(&format!("Failed to serialize audit: {e}")));
-    fs::write(&receipt_path, &serialized)
-        .unwrap_or_else(|e| error_exit(&format!("Failed to write {}: {e}", receipt_path.display())));
+    fs::write(&receipt_path, &serialized).unwrap_or_else(|e| {
+        error_exit(&format!("Failed to write {}: {e}", receipt_path.display()))
+    });
 
     if json_mode {
         json_output(json!({

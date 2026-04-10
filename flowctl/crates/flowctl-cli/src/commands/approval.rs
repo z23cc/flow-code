@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use clap::Subcommand;
 use serde_json::Value;
 
-use flowctl_core::approvals::{ApprovalKind, ApprovalStatus, CreateApprovalRequest};
 use flowctl_core::approvals::FileApprovalStore;
+use flowctl_core::approvals::{ApprovalKind, ApprovalStatus, CreateApprovalRequest};
 
 use crate::output::{error_exit, json_output};
 
@@ -62,17 +62,15 @@ pub enum ApprovalCmd {
 
 pub fn dispatch(cmd: &ApprovalCmd, json: bool) {
     match cmd {
-        ApprovalCmd::Create { task, kind, payload } => {
-            cmd_create(json, task, kind, payload)
-        }
+        ApprovalCmd::Create {
+            task,
+            kind,
+            payload,
+        } => cmd_create(json, task, kind, payload),
         ApprovalCmd::List { pending } => cmd_list(json, *pending),
-        ApprovalCmd::Show { id, wait, timeout } => {
-            cmd_show(json, id, *wait, *timeout)
-        }
+        ApprovalCmd::Show { id, wait, timeout } => cmd_show(json, id, *wait, *timeout),
         ApprovalCmd::Approve { id } => cmd_approve(json, id),
-        ApprovalCmd::Reject { id, reason } => {
-            cmd_reject(json, id, reason.clone())
-        }
+        ApprovalCmd::Reject { id, reason } => cmd_reject(json, id, reason.clone()),
     }
 }
 
@@ -92,8 +90,7 @@ fn parse_payload(s: &str) -> Value {
         return serde_json::from_str(&content)
             .unwrap_or_else(|e| error_exit(&format!("invalid JSON in {rest}: {e}")));
     }
-    serde_json::from_str(s)
-        .unwrap_or_else(|e| error_exit(&format!("invalid --payload JSON: {e}")))
+    serde_json::from_str(s).unwrap_or_else(|e| error_exit(&format!("invalid --payload JSON: {e}")))
 }
 
 // ── Command impls ───────────────────────────────────────────────────
@@ -209,14 +206,8 @@ fn emit_list(json: bool, val: Value) {
     }
     for item in arr {
         let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let task = item
-            .get("task_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
-        let status = item
-            .get("status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
+        let task = item.get("task_id").and_then(|v| v.as_str()).unwrap_or("?");
+        let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("?");
         let kind = item.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
         println!("{id}\t{kind}\ttask={task}\tstatus={status}");
     }

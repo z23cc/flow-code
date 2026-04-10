@@ -22,7 +22,11 @@ fn run(work_dir: &Path, args: &[&str]) -> (String, i32) {
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let combined = if stdout.trim().is_empty() { stderr } else { stdout };
+    let combined = if stdout.trim().is_empty() {
+        stderr
+    } else {
+        stdout
+    };
     (combined, output.status.code().unwrap_or(-1))
 }
 
@@ -52,15 +56,22 @@ fn log_decision_and_query() {
     let (out, exit) = run(
         dir.path(),
         &[
-            "log", "decision",
-            "--key", "review_backend",
-            "--value", "rp-mcp",
-            "--reason", "RP available and faster",
+            "log",
+            "decision",
+            "--key",
+            "review_backend",
+            "--value",
+            "rp-mcp",
+            "--reason",
+            "RP available and faster",
         ],
     );
     assert_eq!(exit, 0, "log decision failed: {out}");
     let json = parse_json(&out).expect("log decision should return JSON");
-    assert!(json.get("id").is_some() || json.get("key").is_some(), "should have id or key");
+    assert!(
+        json.get("id").is_some() || json.get("key").is_some(),
+        "should have id or key"
+    );
 
     // Query decisions
     let (list_out, list_exit) = run(dir.path(), &["log", "decisions"]);
@@ -88,20 +99,22 @@ fn log_decision_with_epic_scope() {
     let (out, exit) = run(
         dir.path(),
         &[
-            "log", "decision",
-            "--key", "branch_strategy",
-            "--value", "worktree",
-            "--reason", "parallel work needed",
-            "--epic", &epic_id,
+            "log",
+            "decision",
+            "--key",
+            "branch_strategy",
+            "--value",
+            "worktree",
+            "--reason",
+            "parallel work needed",
+            "--epic",
+            &epic_id,
         ],
     );
     assert_eq!(exit, 0, "scoped log decision failed: {out}");
 
     // Query scoped
-    let (list_out, list_exit) = run(
-        dir.path(),
-        &["log", "decisions", "--epic", &epic_id],
-    );
+    let (list_out, list_exit) = run(dir.path(), &["log", "decisions", "--epic", &epic_id]);
     assert_eq!(list_exit, 0, "scoped log decisions failed: {list_out}");
 }
 

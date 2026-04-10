@@ -23,7 +23,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::state_machine::Status;
-use crate::types::{Epic, Evidence, Task, EPICS_DIR, MEMORY_DIR, SPECS_DIR, STATE_DIR, TASKS_DIR};
+use crate::types::{EPICS_DIR, Epic, Evidence, MEMORY_DIR, SPECS_DIR, STATE_DIR, TASKS_DIR, Task};
 
 // ── Error ───────────────────────────────────────────────────────────
 
@@ -488,10 +488,7 @@ fn events_path(flow_dir: &Path) -> PathBuf {
 pub fn events_append(flow_dir: &Path, event_json: &str) -> Result<()> {
     ensure_dir(&flow_dir.join(STATE_DIR))?;
     let path = events_path(flow_dir);
-    let mut f = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
+    let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
     writeln!(f, "{}", event_json.trim_end()).map_err(StoreError::Io)?;
     Ok(())
 }
@@ -503,14 +500,21 @@ pub fn events_read_all(flow_dir: &Path) -> Result<Vec<String>> {
         return Ok(vec![]);
     }
     let content = fs::read_to_string(&path)?;
-    Ok(content.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+    Ok(content
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect())
 }
 
 /// Read events filtered by stream_id (substring match on each line).
 pub fn events_read_by_stream(flow_dir: &Path, stream_id: &str) -> Result<Vec<String>> {
     let needle = format!("\"stream_id\":\"{}\"", stream_id);
     let all = events_read_all(flow_dir)?;
-    Ok(all.into_iter().filter(|line| line.contains(&needle)).collect())
+    Ok(all
+        .into_iter()
+        .filter(|line| line.contains(&needle))
+        .collect())
 }
 
 // ── Pipeline progress (.flow/.state/pipeline.json) ─────────────────
@@ -545,7 +549,10 @@ pub fn pipeline_write(flow_dir: &Path, epic_id: &str, phase: &str) -> Result<()>
     } else {
         serde_json::Map::new()
     };
-    map.insert(epic_id.to_string(), serde_json::Value::String(phase.to_string()));
+    map.insert(
+        epic_id.to_string(),
+        serde_json::Value::String(phase.to_string()),
+    );
     let content = serde_json::to_string_pretty(&map)?;
     atomic_write(&path, content.as_bytes())?;
     Ok(())
@@ -566,9 +573,10 @@ pub fn phases_completed(flow_dir: &Path, task_id: &str) -> Result<Vec<String>> {
     let content = fs::read_to_string(&path)?;
     let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)?;
     match map.get(task_id) {
-        Some(serde_json::Value::Array(arr)) => {
-            Ok(arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        }
+        Some(serde_json::Value::Array(arr)) => Ok(arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()),
         _ => Ok(vec![]),
     }
 }
@@ -601,15 +609,102 @@ pub fn phase_mark_done(flow_dir: &Path, task_id: &str, phase: &str) -> Result<()
 /// Reset all phase progress for a task (file-locked read-modify-write).
 pub fn phases_reset(flow_dir: &Path, task_id: &str) -> Result<()> {
     let path = phases_path(flow_dir);
-    if !path.exists() {
-        return Ok(());
+    if path.exists() {
+        let _lock = acquire_lock(&path)?;
+        let content = fs::read_to_string(&path)?;
+        let mut map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)?;
+        map.remove(task_id);
+        let content = serde_json::to_string_pretty(&map)?;
+        atomic_write(&path, content.as_bytes())?;
     }
-    let _lock = acquire_lock(&path)?;
+    let receipts_dir = worker_phase_receipts_dir(flow_dir);
+    if receipts_dir.exists() {
+        for entry in fs::read_dir(receipts_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|name| name.starts_with(&format!("{task_id}.")) && name.ends_with(".json"))
+                    .unwrap_or(false)
+            {
+                fs::remove_file(path)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// ── Phase receipts (.flow/.state/*_receipts/) ──────────────────────
+
+fn pipeline_receipts_dir(flow_dir: &Path) -> PathBuf {
+    flow_dir.join(STATE_DIR).join("pipeline_receipts")
+}
+
+fn worker_phase_receipts_dir(flow_dir: &Path) -> PathBuf {
+    flow_dir.join(STATE_DIR).join("worker_phase_receipts")
+}
+
+fn pipeline_receipt_path(flow_dir: &Path, epic_id: &str, phase: &str) -> PathBuf {
+    pipeline_receipts_dir(flow_dir).join(format!("{epic_id}.{phase}.json"))
+}
+
+fn worker_phase_receipt_path(flow_dir: &Path, task_id: &str, phase: &str) -> PathBuf {
+    worker_phase_receipts_dir(flow_dir).join(format!("{task_id}.{phase}.json"))
+}
+
+pub fn pipeline_phase_receipt_read(
+    flow_dir: &Path,
+    epic_id: &str,
+    phase: &str,
+) -> Result<Option<serde_json::Value>> {
+    let path = pipeline_receipt_path(flow_dir, epic_id, phase);
+    if !path.exists() {
+        return Ok(None);
+    }
     let content = fs::read_to_string(&path)?;
-    let mut map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content)?;
-    map.remove(task_id);
-    let content = serde_json::to_string_pretty(&map)?;
-    atomic_write(&path, content.as_bytes())?;
+    let value = serde_json::from_str(&content)?;
+    Ok(Some(value))
+}
+
+pub fn pipeline_phase_receipt_write(
+    flow_dir: &Path,
+    epic_id: &str,
+    phase: &str,
+    receipt: &serde_json::Value,
+) -> Result<()> {
+    ensure_dir(&pipeline_receipts_dir(flow_dir))?;
+    let path = pipeline_receipt_path(flow_dir, epic_id, phase);
+    let content = serde_json::to_vec_pretty(receipt)?;
+    atomic_write(&path, &content)?;
+    Ok(())
+}
+
+pub fn worker_phase_receipt_read(
+    flow_dir: &Path,
+    task_id: &str,
+    phase: &str,
+) -> Result<Option<serde_json::Value>> {
+    let path = worker_phase_receipt_path(flow_dir, task_id, phase);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&path)?;
+    let value = serde_json::from_str(&content)?;
+    Ok(Some(value))
+}
+
+pub fn worker_phase_receipt_write(
+    flow_dir: &Path,
+    task_id: &str,
+    phase: &str,
+    receipt: &serde_json::Value,
+) -> Result<()> {
+    ensure_dir(&worker_phase_receipts_dir(flow_dir))?;
+    let path = worker_phase_receipt_path(flow_dir, task_id, phase);
+    let content = serde_json::to_vec_pretty(receipt)?;
+    atomic_write(&path, &content)?;
     Ok(())
 }
 
@@ -696,10 +791,7 @@ fn memory_entries_path(flow_dir: &Path) -> PathBuf {
 pub fn memory_append(flow_dir: &Path, entry_json: &str) -> Result<()> {
     ensure_dir(&flow_dir.join(MEMORY_DIR))?;
     let path = memory_entries_path(flow_dir);
-    let mut f = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
+    let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
     writeln!(f, "{}", entry_json.trim_end()).map_err(StoreError::Io)?;
     Ok(())
 }
@@ -711,14 +803,21 @@ pub fn memory_read_all(flow_dir: &Path) -> Result<Vec<String>> {
         return Ok(vec![]);
     }
     let content = fs::read_to_string(&path)?;
-    Ok(content.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+    Ok(content
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect())
 }
 
 /// Search memory entries by case-insensitive substring match.
 pub fn memory_search_text(flow_dir: &Path, query: &str) -> Result<Vec<String>> {
     let query_lower = query.to_lowercase();
     let all = memory_read_all(flow_dir)?;
-    Ok(all.into_iter().filter(|line| line.to_lowercase().contains(&query_lower)).collect())
+    Ok(all
+        .into_iter()
+        .filter(|line| line.to_lowercase().contains(&query_lower))
+        .collect())
 }
 
 // ── Approvals (.flow/.state/approvals.json) ────────────────────────
@@ -932,8 +1031,20 @@ mod tests {
         let flow_dir = tmp.path();
 
         let gaps = vec![
-            GapEntry { id: 1, capability: "auth".into(), priority: "required".into(), source: "test".into(), resolved: false },
-            GapEntry { id: 2, capability: "logging".into(), priority: "nice-to-have".into(), source: "test".into(), resolved: true },
+            GapEntry {
+                id: 1,
+                capability: "auth".into(),
+                priority: "required".into(),
+                source: "test".into(),
+                resolved: false,
+            },
+            GapEntry {
+                id: 2,
+                capability: "logging".into(),
+                priority: "nice-to-have".into(),
+                source: "test".into(),
+                resolved: true,
+            },
         ];
         gaps_write(flow_dir, "fn-1-test", &gaps).unwrap();
 
@@ -973,7 +1084,10 @@ mod tests {
 
         // Verify no leftover .tmp file exists
         let tmp_path = task_state_path(flow_dir, "fn-1-test.1").with_extension("state.json.tmp");
-        assert!(!tmp_path.exists(), "temporary file should be cleaned up by rename");
+        assert!(
+            !tmp_path.exists(),
+            "temporary file should be cleaned up by rename"
+        );
     }
 
     #[test]
@@ -1042,14 +1156,26 @@ mod tests {
         assert_eq!(pipeline_read(flow_dir, "fn-1").unwrap(), None);
 
         pipeline_write(flow_dir, "fn-1", "plan").unwrap();
-        assert_eq!(pipeline_read(flow_dir, "fn-1").unwrap().as_deref(), Some("plan"));
+        assert_eq!(
+            pipeline_read(flow_dir, "fn-1").unwrap().as_deref(),
+            Some("plan")
+        );
 
         pipeline_write(flow_dir, "fn-1", "work").unwrap();
-        assert_eq!(pipeline_read(flow_dir, "fn-1").unwrap().as_deref(), Some("work"));
+        assert_eq!(
+            pipeline_read(flow_dir, "fn-1").unwrap().as_deref(),
+            Some("work")
+        );
 
         pipeline_write(flow_dir, "fn-2", "plan").unwrap();
-        assert_eq!(pipeline_read(flow_dir, "fn-2").unwrap().as_deref(), Some("plan"));
-        assert_eq!(pipeline_read(flow_dir, "fn-1").unwrap().as_deref(), Some("work"));
+        assert_eq!(
+            pipeline_read(flow_dir, "fn-2").unwrap().as_deref(),
+            Some("plan")
+        );
+        assert_eq!(
+            pipeline_read(flow_dir, "fn-1").unwrap().as_deref(),
+            Some("work")
+        );
     }
 
     // ── Phases tests ───────────────────────────────────────────────

@@ -70,10 +70,22 @@ fn cmd_show(json_flag: bool) {
 
         let gc = &ctx.guard_commands;
         println!("Guard Commands:");
-        println!("  test:         {}", gc.test.as_deref().unwrap_or("(not set)"));
-        println!("  lint:         {}", gc.lint.as_deref().unwrap_or("(not set)"));
-        println!("  typecheck:    {}", gc.typecheck.as_deref().unwrap_or("(not set)"));
-        println!("  format_check: {}", gc.format_check.as_deref().unwrap_or("(not set)"));
+        println!(
+            "  test:         {}",
+            gc.test.as_deref().unwrap_or("(not set)")
+        );
+        println!(
+            "  lint:         {}",
+            gc.lint.as_deref().unwrap_or("(not set)")
+        );
+        println!(
+            "  typecheck:    {}",
+            gc.typecheck.as_deref().unwrap_or("(not set)")
+        );
+        println!(
+            "  format_check: {}",
+            gc.format_check.as_deref().unwrap_or("(not set)")
+        );
         println!();
 
         if !ctx.critical_rules.is_empty() {

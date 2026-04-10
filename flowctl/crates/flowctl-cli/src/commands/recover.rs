@@ -35,11 +35,7 @@ fn git_log_mentions(task_id: &str) -> Option<Vec<String>> {
         .map(String::from)
         .collect();
 
-    if lines.is_empty() {
-        None
-    } else {
-        Some(lines)
-    }
+    if lines.is_empty() { None } else { Some(lines) }
 }
 
 /// Extract short commit hashes from `git log --oneline` output lines.
@@ -150,7 +146,11 @@ pub fn cmd_recover(json_mode: bool, epic_id: &str, dry_run: bool) {
             },
         }));
     } else {
-        let action = if dry_run { "Would recover" } else { "Recovered" };
+        let action = if dry_run {
+            "Would recover"
+        } else {
+            "Recovered"
+        };
         println!(
             "{action} {}/{} tasks for epic {epic_id}\n",
             recovered.len(),
@@ -170,10 +170,7 @@ pub fn cmd_recover(json_mode: bool, epic_id: &str, dry_run: bool) {
             for entry in &recovered {
                 let id = entry["id"].as_str().unwrap_or("?");
                 let title = entry["title"].as_str().unwrap_or("?");
-                let commit_count = entry["commits"]
-                    .as_array()
-                    .map(|a| a.len())
-                    .unwrap_or(0);
+                let commit_count = entry["commits"].as_array().map(|a| a.len()).unwrap_or(0);
                 println!("    {id} \u{2014} {title} ({commit_count} commit(s))");
             }
         }
@@ -186,10 +183,7 @@ pub fn cmd_recover(json_mode: bool, epic_id: &str, dry_run: bool) {
         }
 
         if !not_found.is_empty() {
-            println!(
-                "\n  {} task(s) with no matching commits:",
-                not_found.len()
-            );
+            println!("\n  {} task(s) with no matching commits:", not_found.len());
             for id in &not_found {
                 println!("    {id}");
             }

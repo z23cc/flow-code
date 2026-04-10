@@ -235,8 +235,7 @@ impl NgramIndex {
             }
         }
 
-        let remove_set: std::collections::HashSet<u32> =
-            ids_to_remove.iter().copied().collect();
+        let remove_set: std::collections::HashSet<u32> = ids_to_remove.iter().copied().collect();
         if !remove_set.is_empty() {
             self.index.retain(|_tri, postings| {
                 postings.retain(|(fid, _)| !remove_set.contains(fid));
@@ -431,8 +430,10 @@ impl NgramIndex {
             std::fs::create_dir_all(parent)?;
         }
 
-        let serialized = bincode::serde::encode_to_vec(self, bincode::config::standard())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("bincode encode: {e}")))?;
+        let serialized =
+            bincode::serde::encode_to_vec(self, bincode::config::standard()).map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::Other, format!("bincode encode: {e}"))
+            })?;
 
         // Write atomically via temp file
         let tmp_path = path.with_extension("tmp");
@@ -452,7 +453,9 @@ impl NgramIndex {
         file.read_to_end(&mut data)?;
 
         // Try bincode first
-        if let Ok((idx, _)) = bincode::serde::decode_from_slice::<Self, _>(&data, bincode::config::standard()) {
+        if let Ok((idx, _)) =
+            bincode::serde::decode_from_slice::<Self, _>(&data, bincode::config::standard())
+        {
             return Ok(idx);
         }
 
@@ -471,7 +474,10 @@ impl NgramIndex {
         }
 
         let wire: NgramIndexWire = serde_json::from_slice(data).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("deserialize error: {e}"))
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("deserialize error: {e}"),
+            )
         })?;
 
         let mut index: HashMap<[u8; 3], Vec<(u32, u16)>> = HashMap::new();
@@ -568,7 +574,11 @@ mod tests {
     #[test]
     fn test_save_load_bincode() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("test.txt"), "hello world trigram index test").unwrap();
+        std::fs::write(
+            dir.path().join("test.txt"),
+            "hello world trigram index test",
+        )
+        .unwrap();
 
         let idx = NgramIndex::build(dir.path()).unwrap();
         let save_path = dir.path().join("index.bin");

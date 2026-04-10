@@ -8,8 +8,8 @@ use std::io::IsTerminal;
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::output::{error_exit, json_output, pretty_output};
 use super::helpers::get_flow_dir;
+use crate::output::{error_exit, json_output, pretty_output};
 
 /// Determine if output should be JSON: explicit --json flag, or stdout is not a terminal.
 fn should_json(json_flag: bool) -> bool {
@@ -69,7 +69,10 @@ pub fn dispatch(cmd: &StatsCmd, json_flag: bool) {
 fn cmd_summary(json_flag: bool) {
     let flow_dir = get_flow_dir();
     let epics = flowctl_core::json_store::epic_list(&flow_dir).unwrap_or_default();
-    let open_epics = epics.iter().filter(|e| e.status.to_string() == "open").count();
+    let open_epics = epics
+        .iter()
+        .filter(|e| e.status.to_string() == "open")
+        .count();
 
     let mut total_tasks = 0i64;
     let mut done_tasks = 0i64;
@@ -77,7 +80,8 @@ fn cmd_summary(json_flag: bool) {
     let mut blocked_tasks = 0i64;
 
     for epic in &epics {
-        let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
+        let tasks =
+            flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
         for task in &tasks {
             total_tasks += 1;
             match task.status {
@@ -89,7 +93,9 @@ fn cmd_summary(json_flag: bool) {
         }
     }
 
-    let total_events = flowctl_core::json_store::events_read_all(&flow_dir).map(|v| v.len() as i64).unwrap_or(0);
+    let total_events = flowctl_core::json_store::events_read_all(&flow_dir)
+        .map(|v| v.len() as i64)
+        .unwrap_or(0);
 
     if should_json(json_flag) {
         json_output(json!({
@@ -126,8 +132,12 @@ fn cmd_epic(json_flag: bool, epic_filter: Option<&str>) {
 
     let mut data: Vec<serde_json::Value> = Vec::new();
     for epic in &filtered {
-        let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
-        let done_count = tasks.iter().filter(|t| t.status == flowctl_core::state_machine::Status::Done).count();
+        let tasks =
+            flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic.id).unwrap_or_default();
+        let done_count = tasks
+            .iter()
+            .filter(|t| t.status == flowctl_core::state_machine::Status::Done)
+            .count();
         data.push(json!({
             "epic_id": epic.id,
             "title": epic.title,
@@ -145,7 +155,10 @@ fn cmd_epic(json_flag: bool, epic_filter: Option<&str>) {
     } else if data.is_empty() {
         println!("No epic stats found.");
     } else {
-        println!("{:<30} {:>6} {:>5}/{:>5}", "EPIC", "STATUS", "DONE", "TOTAL");
+        println!(
+            "{:<30} {:>6} {:>5}/{:>5}",
+            "EPIC", "STATUS", "DONE", "TOTAL"
+        );
         println!("{}", "-".repeat(55));
         for e in &data {
             println!(
@@ -161,7 +174,9 @@ fn cmd_epic(json_flag: bool, epic_filter: Option<&str>) {
 
 fn cmd_weekly(json_flag: bool) {
     if should_json(json_flag) {
-        json_output(json!({ "weekly_trends": [], "message": "Weekly trends not available (file-based storage)" }));
+        json_output(
+            json!({ "weekly_trends": [], "message": "Weekly trends not available (file-based storage)" }),
+        );
     } else {
         println!("Weekly trends not available with file-based storage.");
     }
@@ -169,7 +184,9 @@ fn cmd_weekly(json_flag: bool) {
 
 fn cmd_tokens(json_flag: bool) {
     if should_json(json_flag) {
-        json_output(json!({ "token_usage": [], "message": "Token tracking not available (file-based storage)" }));
+        json_output(
+            json!({ "token_usage": [], "message": "Token tracking not available (file-based storage)" }),
+        );
     } else {
         println!("Token usage tracking not available with file-based storage.");
     }
@@ -177,7 +194,9 @@ fn cmd_tokens(json_flag: bool) {
 
 fn cmd_bottlenecks(json_flag: bool) {
     if should_json(json_flag) {
-        json_output(json!({ "bottlenecks": [], "message": "Bottleneck analysis not available (file-based storage)" }));
+        json_output(
+            json!({ "bottlenecks": [], "message": "Bottleneck analysis not available (file-based storage)" }),
+        );
     } else {
         println!("Bottleneck analysis not available with file-based storage.");
     }
@@ -199,7 +218,9 @@ fn cmd_dora(json_flag: bool) {
 
 fn cmd_rollup(json_flag: bool) {
     if should_json(json_flag) {
-        json_output(json!({ "months_updated": 0, "message": "Rollups not applicable (file-based storage)" }));
+        json_output(
+            json!({ "months_updated": 0, "message": "Rollups not applicable (file-based storage)" }),
+        );
     } else {
         println!("Rollups not applicable with file-based storage.");
     }
@@ -207,7 +228,9 @@ fn cmd_rollup(json_flag: bool) {
 
 fn cmd_cleanup(json_flag: bool) {
     if should_json(json_flag) {
-        json_output(json!({ "deleted": 0, "message": "Cleanup not applicable (file-based storage)" }));
+        json_output(
+            json!({ "deleted": 0, "message": "Cleanup not applicable (file-based storage)" }),
+        );
     } else {
         println!("Cleanup not applicable with file-based storage.");
     }
@@ -229,7 +252,8 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
         }
     };
 
-    let tasks = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id).unwrap_or_default();
+    let tasks =
+        flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id).unwrap_or_default();
     if tasks.is_empty() {
         error_exit(&format!("No tasks found for epic {}", epic_id));
     }
@@ -308,10 +332,35 @@ pub fn cmd_dag(json_flag: bool, epic_id: Option<String>) {
             let short_id = task.id.rsplit('.').next().unwrap_or(&task.id);
             let label = format!(".{} [{}]", short_id, status_icon);
             let indent = "  ".repeat(layer);
-            let connector = if layer > 0 { "\u{2514}\u{2500}\u{2500} " } else { "" };
-            writeln!(buf, "{}{}\u{250c}\u{2500}{}\u{2500}\u{2510}", indent, connector, "\u{2500}".repeat(label.len())).ok();
-            writeln!(buf, "{}{}\u{2502} {} \u{2502}", indent, if layer > 0 { "    " } else { "" }, label).ok();
-            writeln!(buf, "{}{}\u{2514}\u{2500}{}\u{2500}\u{2518}", indent, if layer > 0 { "    " } else { "" }, "\u{2500}".repeat(label.len())).ok();
+            let connector = if layer > 0 {
+                "\u{2514}\u{2500}\u{2500} "
+            } else {
+                ""
+            };
+            writeln!(
+                buf,
+                "{}{}\u{250c}\u{2500}{}\u{2500}\u{2510}",
+                indent,
+                connector,
+                "\u{2500}".repeat(label.len())
+            )
+            .ok();
+            writeln!(
+                buf,
+                "{}{}\u{2502} {} \u{2502}",
+                indent,
+                if layer > 0 { "    " } else { "" },
+                label
+            )
+            .ok();
+            writeln!(
+                buf,
+                "{}{}\u{2514}\u{2500}{}\u{2500}\u{2518}",
+                indent,
+                if layer > 0 { "    " } else { "" },
+                "\u{2500}".repeat(label.len())
+            )
+            .ok();
         }
 
         if layer < max_layer {

@@ -105,7 +105,8 @@ fn load_config() -> serde_json::Value {
 /// Save config.json.
 fn save_config(config: &serde_json::Value) {
     let config_path = get_flow_dir().join(CONFIG_FILE);
-    let content = serde_json::to_string_pretty(config).expect("config JSON serialization should not fail");
+    let content =
+        serde_json::to_string_pretty(config).expect("config JSON serialization should not fail");
     if let Err(e) = fs::write(&config_path, &content) {
         error_exit(&format!("Failed to write config.json: {}", e));
     }
@@ -160,7 +161,10 @@ fn detect_stack() -> serde_json::Value {
         let prefix = if rust_root == repo {
             String::new()
         } else {
-            format!("cd {} && ", rust_root.file_name().unwrap_or_default().to_string_lossy())
+            format!(
+                "cd {} && ",
+                rust_root.file_name().unwrap_or_default().to_string_lossy()
+            )
         };
         backend["test"] = json!(format!("{prefix}cargo test --all"));
         backend["lint"] = json!(format!("{prefix}cargo clippy --all-targets -- -D warnings"));
@@ -201,8 +205,7 @@ fn detect_stack() -> serde_json::Value {
         if manage_py.exists() || py_lower.contains("django") {
             backend["framework"] = json!("django");
             let mut conventions = Vec::new();
-            if py_content.contains("rest_framework") || py_content.contains("djangorestframework")
-            {
+            if py_content.contains("rest_framework") || py_content.contains("djangorestframework") {
                 conventions.push("DRF");
             }
             if py_lower.contains("celery") {
@@ -698,7 +701,10 @@ fn cmd_invariants_check(json_mode: bool) {
         }));
     } else {
         let total = results.len();
-        let passed_count = results.iter().filter(|r| r["passed"] == json!(true)).count();
+        let passed_count = results
+            .iter()
+            .filter(|r| r["passed"] == json!(true))
+            .count();
         if total == 0 {
             println!("No verify commands found in invariants.md.");
         } else {
@@ -711,4 +717,3 @@ fn cmd_invariants_check(json_mode: bool) {
         std::process::exit(1);
     }
 }
-

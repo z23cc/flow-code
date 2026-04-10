@@ -1,6 +1,6 @@
 {
   "name": "flow-code",
-  "version": "0.1.47",
+  "version": "0.1.49",
   "description": "Zero-dependency planning + execution with .flow/ task tracking and Ralph autonomous mode (multi-model review gates). Worker subagent per task with git worktree isolation for parallel execution. Three-layer quality system (guard + RP plan-review + Codex adversarial). Full-auto by default. Teams-default with file locking, DAG mutation, Codex-driven conflict resolution, auto draft-PR.",
   "author": {
     "name": "z23cc",
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Flow-Code",
     "shortDescription": "Plan-first workflow with subagent execution",
-    "longDescription": "Structured plan-first workflow engine. Tracks epics and tasks in .flow/ directory. Spawns isolated worker subagents per task. Ralph mode enables fully autonomous execution with multi-model review gates. 24 subagents, 22 commands, 74 skills.",
+    "longDescription": "Structured plan-first workflow engine. Tracks epics and tasks in .flow/ directory. Spawns isolated worker subagents per task. Ralph mode enables fully autonomous execution with multi-model review gates. Includes dedicated subagents, slash commands, and skills for planning, execution, review, and autonomous operation.",
     "developerName": "z23cc",
     "category": "Productivity",
     "capabilities": [

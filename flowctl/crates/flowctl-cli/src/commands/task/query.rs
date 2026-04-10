@@ -112,17 +112,29 @@ pub(super) fn cmd_task_set_backend(
     let mut updated = Vec::new();
 
     if let Some(v) = impl_spec {
-        let val = if v.is_empty() { None } else { Some(v.to_string()) };
+        let val = if v.is_empty() {
+            None
+        } else {
+            Some(v.to_string())
+        };
         doc.frontmatter.r#impl = val;
         updated.push(format!("impl={}", if v.is_empty() { "null" } else { v }));
     }
     if let Some(v) = review {
-        let val = if v.is_empty() { None } else { Some(v.to_string()) };
+        let val = if v.is_empty() {
+            None
+        } else {
+            Some(v.to_string())
+        };
         doc.frontmatter.review = val;
         updated.push(format!("review={}", if v.is_empty() { "null" } else { v }));
     }
     if let Some(v) = sync {
-        let val = if v.is_empty() { None } else { Some(v.to_string()) };
+        let val = if v.is_empty() {
+            None
+        } else {
+            Some(v.to_string())
+        };
         doc.frontmatter.sync = val;
         updated.push(format!("sync={}", if v.is_empty() { "null" } else { v }));
     }
@@ -130,7 +142,11 @@ pub(super) fn cmd_task_set_backend(
     doc.frontmatter.updated_at = Utc::now();
     write_task_doc(&flow_dir, task_id, &doc);
 
-    let msg = format!("Task {} backend specs updated: {}", task_id, updated.join(", "));
+    let msg = format!(
+        "Task {} backend specs updated: {}",
+        task_id,
+        updated.join(", ")
+    );
     if json_mode {
         json_output(json!({
             "id": task_id,
@@ -159,27 +175,28 @@ pub(super) fn cmd_task_show_backend(json_mode: bool, task_id: &str) {
     let epic = load_epic_md(&flow_dir, epic_id_str);
 
     // Resolve effective specs with source tracking
-    let resolve = |task_val: &Option<String>, epic_key: &str| -> (serde_json::Value, serde_json::Value) {
-        if let Some(v) = task_val {
-            if !v.is_empty() {
-                return (json!(v), json!("task"));
-            }
-        }
-        if let Some(ref e) = epic {
-            let epic_val = match epic_key {
-                "default_impl" => &e.default_impl,
-                "default_review" => &e.default_review,
-                "default_sync" => &e.default_sync,
-                _ => &None,
-            };
-            if let Some(v) = epic_val {
+    let resolve =
+        |task_val: &Option<String>, epic_key: &str| -> (serde_json::Value, serde_json::Value) {
+            if let Some(v) = task_val {
                 if !v.is_empty() {
-                    return (json!(v), json!("epic"));
+                    return (json!(v), json!("task"));
                 }
             }
-        }
-        (json!(null), json!(null))
-    };
+            if let Some(ref e) = epic {
+                let epic_val = match epic_key {
+                    "default_impl" => &e.default_impl,
+                    "default_review" => &e.default_review,
+                    "default_sync" => &e.default_sync,
+                    _ => &None,
+                };
+                if let Some(v) = epic_val {
+                    if !v.is_empty() {
+                        return (json!(v), json!("epic"));
+                    }
+                }
+            }
+            (json!(null), json!(null))
+        };
 
     let (impl_spec, impl_source) = resolve(&task.r#impl, "default_impl");
     let (review_spec, review_source) = resolve(&task.review, "default_review");
@@ -198,7 +215,11 @@ pub(super) fn cmd_task_show_backend(json_mode: bool, task_id: &str) {
             if spec.is_null() {
                 "null".to_string()
             } else {
-                format!("{} ({})", spec.as_str().unwrap_or("null"), source.as_str().unwrap_or(""))
+                format!(
+                    "{} ({})",
+                    spec.as_str().unwrap_or("null"),
+                    source.as_str().unwrap_or("")
+                )
             }
         };
         println!("impl: {}", fmt(&impl_spec, &impl_source));

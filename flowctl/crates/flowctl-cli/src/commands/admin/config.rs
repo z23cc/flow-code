@@ -27,7 +27,9 @@ pub fn cmd_state_path(json_mode: bool, task: Option<String>) {
                 task_id
             ));
         }
-        let state_path = state_dir.join("tasks").join(format!("{}.state.json", task_id));
+        let state_path = state_dir
+            .join("tasks")
+            .join(format!("{}.state.json", task_id));
         if json_mode {
             json_output(json!({
                 "state_dir": state_dir.to_string_lossy(),
@@ -77,8 +79,7 @@ fn cmd_config_get(json_mode: bool, key: &str) {
     let config = if config_path.exists() {
         match fs::read_to_string(&config_path) {
             Ok(content) => {
-                let raw = serde_json::from_str::<serde_json::Value>(&content)
-                    .unwrap_or(json!({}));
+                let raw = serde_json::from_str::<serde_json::Value>(&content).unwrap_or(json!({}));
                 deep_merge(&get_default_config(), &raw)
             }
             Err(_) => get_default_config(),
@@ -127,8 +128,7 @@ fn cmd_config_set(json_mode: bool, key: &str, value: &str) {
     // Load existing config
     let mut config = if config_path.exists() {
         match fs::read_to_string(&config_path) {
-            Ok(content) => serde_json::from_str::<serde_json::Value>(&content)
-                .unwrap_or(json!({})),
+            Ok(content) => serde_json::from_str::<serde_json::Value>(&content).unwrap_or(json!({})),
             Err(_) => get_default_config(),
         }
     } else {

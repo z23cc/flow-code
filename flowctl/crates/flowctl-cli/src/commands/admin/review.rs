@@ -47,8 +47,7 @@ pub fn cmd_review_backend(json_mode: bool, compare: Option<String>, epic: Option
             let config = if config_path.exists() {
                 match fs::read_to_string(&config_path) {
                     Ok(content) => {
-                        serde_json::from_str::<serde_json::Value>(&content)
-                            .unwrap_or(json!({}))
+                        serde_json::from_str::<serde_json::Value>(&content).unwrap_or(json!({}))
                     }
                     Err(_) => json!({}),
                 }
@@ -77,16 +76,26 @@ pub fn cmd_review_backend(json_mode: bool, compare: Option<String>, epic: Option
             if which::which("rp-cli").is_ok() {
                 (backend, source)
             } else {
-                eprintln!("warning: review backend 'rp' configured but rp-cli not in PATH, falling back to 'none'");
-                ("none".to_string(), format!("{} (fallback: rp-cli not found)", source))
+                eprintln!(
+                    "warning: review backend 'rp' configured but rp-cli not in PATH, falling back to 'none'"
+                );
+                (
+                    "none".to_string(),
+                    format!("{} (fallback: rp-cli not found)", source),
+                )
             }
         }
         "codex" => {
             if which::which("codex").is_ok() {
                 (backend, source)
             } else {
-                eprintln!("warning: review backend 'codex' configured but codex not in PATH, falling back to 'none'");
-                ("none".to_string(), format!("{} (fallback: codex not found)", source))
+                eprintln!(
+                    "warning: review backend 'codex' configured but codex not in PATH, falling back to 'none'"
+                );
+                (
+                    "none".to_string(),
+                    format!("{} (fallback: codex not found)", source),
+                )
             }
         }
         _ => (backend, source),
@@ -115,11 +124,7 @@ pub fn cmd_review_backend(json_mode: bool, compare: Option<String>, epic: Option
                 }
             }
             files.sort();
-            if files.is_empty() {
-                None
-            } else {
-                Some(files)
-            }
+            if files.is_empty() { None } else { Some(files) }
         } else {
             None
         }
@@ -127,9 +132,8 @@ pub fn cmd_review_backend(json_mode: bool, compare: Option<String>, epic: Option
         None
     };
 
-    let receipt_files = receipt_files.or_else(|| {
-        compare.map(|c| c.split(',').map(|f| f.trim().to_string()).collect())
-    });
+    let receipt_files = receipt_files
+        .or_else(|| compare.map(|c| c.split(',').map(|f| f.trim().to_string()).collect()));
 
     if let Some(files) = receipt_files {
         let mut reviews: Vec<serde_json::Value> = Vec::new();
@@ -224,7 +228,7 @@ pub fn cmd_parse_findings(
     _source: String,
 ) {
     use flowctl_core::review_protocol::{
-        filter_by_confidence, AutofixClass, FindingOwner, ReviewFinding, Severity,
+        AutofixClass, FindingOwner, ReviewFinding, Severity, filter_by_confidence,
     };
 
     // Read input from file or stdin
@@ -325,18 +329,20 @@ pub fn cmd_parse_findings(
                         .unwrap_or("")
                         .to_string();
                     let file_path = item.get("file").and_then(|v| v.as_str()).map(String::from);
-                    let line = item.get("line").and_then(serde_json::Value::as_u64).map(|n| n as u32);
+                    let line = item
+                        .get("line")
+                        .and_then(serde_json::Value::as_u64)
+                        .map(|n| n as u32);
                     let confidence = item
                         .get("confidence")
                         .and_then(serde_json::Value::as_f64)
                         .unwrap_or(0.8);
-                    let autofix_class =
-                        match item.get("autofix_class").and_then(|v| v.as_str()) {
-                            Some("safe_auto") => AutofixClass::SafeAuto,
-                            Some("gated_auto") => AutofixClass::GatedAuto,
-                            Some("advisory") => AutofixClass::Advisory,
-                            _ => AutofixClass::Manual,
-                        };
+                    let autofix_class = match item.get("autofix_class").and_then(|v| v.as_str()) {
+                        Some("safe_auto") => AutofixClass::SafeAuto,
+                        Some("gated_auto") => AutofixClass::GatedAuto,
+                        Some("advisory") => AutofixClass::Advisory,
+                        _ => AutofixClass::Manual,
+                    };
                     let owner = match item.get("owner").and_then(|v| v.as_str()) {
                         Some("review-fixer") => FindingOwner::ReviewFixer,
                         Some("downstream-resolver") => FindingOwner::DownstreamResolver,
@@ -396,10 +402,7 @@ pub fn cmd_parse_findings(
 
                 // Cap at 50
                 if findings.len() > 50 {
-                    warnings.push(format!(
-                        "Found {} findings, capping at 50",
-                        findings.len()
-                    ));
+                    warnings.push(format!("Found {} findings, capping at 50", findings.len()));
                     findings.truncate(50);
                 }
             }
@@ -426,7 +429,9 @@ pub fn cmd_parse_findings(
                 "warnings": warnings,
             }));
         } else {
-            eprintln!("WARNING: Zero findings — review may be insufficient. Re-analyze from: concurrency, boundaries, error paths, performance, security.");
+            eprintln!(
+                "WARNING: Zero findings — review may be insufficient. Re-analyze from: concurrency, boundaries, error paths, performance, security."
+            );
             for w in &warnings {
                 eprintln!("  Warning: {}", w);
             }
@@ -464,7 +469,10 @@ pub fn cmd_parse_findings(
                 .unwrap_or_default();
             println!(
                 "  [{}] {} \u{2014} {} (confidence: {:.0}%)",
-                f.severity, f.description, loc, f.confidence * 100.0
+                f.severity,
+                f.description,
+                loc,
+                f.confidence * 100.0
             );
         }
     }
@@ -484,9 +492,7 @@ pub fn dispatch_review(cmd: &ReviewCmd, json_mode: bool) {
 /// - A bare JSON array of findings: `[{...}, {...}]`
 /// - A JSON object with a `findings` key: `{"findings": [{...}, {...}]}`
 fn cmd_review_merge(json_mode: bool, files_arg: &str) {
-    use flowctl_core::review_protocol::{
-        merge_findings, partition_findings, ReviewFinding,
-    };
+    use flowctl_core::review_protocol::{ReviewFinding, merge_findings, partition_findings};
 
     let file_paths: Vec<&str> = files_arg.split(',').map(|s| s.trim()).collect();
     if file_paths.is_empty() {
@@ -534,7 +540,10 @@ fn cmd_review_merge(json_mode: bool, files_arg: &str) {
         let findings: Vec<ReviewFinding> = match serde_json::from_value(findings_val) {
             Ok(f) => f,
             Err(e) => {
-                error_exit(&format!("Failed to parse findings from {}: {}", file_path, e));
+                error_exit(&format!(
+                    "Failed to parse findings from {}: {}",
+                    file_path, e
+                ));
             }
         };
 

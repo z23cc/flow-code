@@ -2,11 +2,20 @@
 name: flow-code-rp-explorer
 description: "Use when user says 'use rp to...' or 'use repoprompt to...' followed by explore, find, understand, search, or similar actions."
 tier: 1
+user-invocable: true
 ---
 
 # RP-Explorer
 
-Token-efficient codebase exploration using RepoPrompt CLI.
+Use when the user explicitly wants RepoPrompt-driven exploration.
+
+Canonical orchestration guidance lives in `skills/_shared/rp-mcp-orchestration.md`.
+
+## Default Mode
+
+Prefer in-session RepoPrompt MCP tools when available. Use `rp-cli` only when:
+- the user explicitly asks for CLI commands; or
+- MCP RepoPrompt tools are unavailable in the current host.
 
 ## Trigger Phrases
 
@@ -16,53 +25,28 @@ Activates when user combines "use rp" or "use repoprompt" with an action:
 - "use rp to understand the data flow"
 - "use repoprompt to search for API endpoints"
 
-## CLI Reference
+## Default Workflow
 
-Read [cli-reference.md](cli-reference.md) for complete command documentation.
+1. **Orient briefly** with `get_file_tree`, `file_search`, or `get_code_structure`.
+2. **Use `context_builder` for broad discovery** when the request is cross-file, architectural, or otherwise hard to answer from a couple of direct reads.
+3. **Use `ask_oracle` only after selection exists** and only for synthesis over the selected context.
+4. **Use `manage_selection` only for targeted add/remove/slice adjustments**. If the builder missed the area entirely, rerun it with better instructions instead of hand-curating a large replacement.
+5. **Use CLI fallback only when needed**; see `cli-reference.md` for CLI-specific commands.
 
-## Quick Start
+## Recommended Patterns
 
-### Step 1: Get Overview
-```bash
-rp-cli -e 'tree'
-rp-cli -e 'structure .'
-```
-
-### Step 2: Find Relevant Files
-```bash
-rp-cli -e 'search "auth" --context-lines 2'
-rp-cli -e 'builder "understand authentication"'
-```
-
-### Step 3: Deep Dive
-```bash
-rp-cli -e 'select set src/auth/'
-rp-cli -e 'structure --scope selected'
-rp-cli -e 'read src/auth/login.ts'
-```
-
-### Step 4: Export Context
-```bash
-rp-cli -e 'context --all > codebase-map.md'
-```
+- **“Use RP to understand a flow”** → `context_builder(response_type="question")`
+- **“Use RP to find similar patterns”** → `file_search` first, then `context_builder` if the pattern spans subsystems
+- **“Use RP to explore this feature before implementing”** → brief orientation, then `context_builder(response_type="plan")`
+- **“Use RP to search for endpoints / handlers / symbols”** → `file_search` or `get_code_structure` first, builder only if the answer is broader than a direct lookup
 
 ## Token Efficiency
 
-- Use `structure` instead of reading full files (10x fewer tokens)
-- Use `builder` for AI-powered file discovery
-- Select only relevant files before exporting context
+- Use `get_code_structure` / `structure` before full file reads when shape is enough
+- Let `context_builder` own the first broad selection
+- Do not ask Oracle questions about files that are not in the current selection
+- Avoid defaulting to `rp-cli` when MCP tools are already present in-session
 
-## Tab Isolation
+## CLI Reference
 
-`builder` creates an isolated compose tab automatically. Use `-t` to target it:
-```bash
-# Builder returns: Tab: <UUID> • <Name>
-rp-cli -w W -t "<Name>" -e 'select add extra.ts && context'
-
-# Or chain commands:
-rp-cli -w W -e 'builder "find auth" && select add extra.ts && context'
-```
-
-## Requirements
-
-RepoPrompt v1.5.62+ with rp-cli installed.
+If the user specifically wants CLI usage or MCP is unavailable, read `cli-reference.md` for the `rp-cli` command surface.

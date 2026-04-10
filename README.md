@@ -6,7 +6,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/code)
-[![Version](https://img.shields.io/badge/Version-0.1.46-green)](https://github.com/z23cc/flow-code/releases)
+[![Version](https://img.shields.io/badge/Version-0.1.48-green)](https://github.com/z23cc/flow-code/releases)
 
 **A production-grade harness for Claude Code. Full-auto development from idea to PR.**
 
@@ -28,7 +28,7 @@ One command goes from idea to draft PR — planning, parallel implementation, th
   → Auto push + draft PR
 ```
 
-Everything lives in `.flow/` state. No external services. Single Rust binary (`flowctl`, 71 commands). Uninstall: delete `.flow/`.
+Everything lives in `.flow/` state. No external services. Single Rust binary (`flowctl`, 70+ commands). Uninstall: delete `.flow/`.
 
 ## Quick Start
 
@@ -48,9 +48,29 @@ Everything lives in `.flow/` state. No external services. Single Rust binary (`f
 # Quick — skip planning for trivial changes
 /flow-code:go "fix typo in README" --quick
 
+# Plan only — research + task breakdown, no execution yet
+/flow-code:plan "add OAuth support"
+
 # Resume — reads .flow state and continues
 /flow-code:go fn-1
+
+# Requirements-first handoff into planning/work
+/flow-code:spec "introduce OAuth for admin login"
+
+# Record architecture decision and alternatives
+/flow-code:adr "choose token/session strategy"
 ```
+
+## Pick the Right Front Door
+
+| If you want to... | Use this |
+|---|---|
+| Execute the full path or resume existing work | `/flow-code:go "idea"` or `/flow-code:go fn-1` — full autopilot / execution path, including resume |
+| Stop after planning | `/flow-code:plan "idea"` — planning-only; use `go --plan-only` only when you are already on the `go` path |
+| Explore and pressure-test before committing | `/flow-code:brainstorm "idea"` — open-ended exploration first |
+| Write a reusable requirements artifact first | `/flow-code:spec "idea / change / refactor"` — artifact-first requirements capture for later planning/work |
+| Record a lasting architecture choice | `/flow-code:adr "decision"` — durable decision record with alternatives and consequences |
+| Replace or remove an old surface safely | [`flow-code-deprecation`](skills/flow-code-deprecation/SKILL.md) — skill surface (no slash command) for replacement/removal guidance |
 
 ## Core Workflow
 
@@ -63,7 +83,7 @@ brainstorm → plan → plan_review → work → impl_review → close
 | **Brainstorm** | AI self-interview, structured deepening (Pre-mortem/First Principles/Inversion) |
 | **Plan** | Parallel scouts research codebase, create task DAG with dependencies |
 | **Plan Review** | RP context_builder or Codex validates spec-code alignment |
-| **Work** | Teams mode: parallel workers per wave, file locking, wave checkpoints |
+| **Work** | Teams mode: continuous parallel worker scheduling, file locking, and a final integration checkpoint |
 | **Impl Review** | 3-layer parallel review: Blind Hunter + Edge Case Hunter + Acceptance Auditor |
 | **Close** | Validate, guard, pre-launch checklist, push + draft PR |
 
@@ -83,11 +103,17 @@ Zero-findings rule: reviewers must find issues. Zero findings → halt and re-an
 
 | Command | Purpose |
 |---------|---------|
-| `/flow-code:go "idea"` | Full autopilot: brainstorm → plan → work → review → PR |
+| `/flow-code:go "idea"` | Full autopilot / execution path: brainstorm → plan → work → review → PR |
 | `/flow-code:go "fix" --quick` | Fast path for trivial changes |
-| `/flow-code:plan "feature"` | Research + task breakdown only |
+| `/flow-code:go fn-1` | Resume an existing epic from its current phase |
+| `/flow-code:plan "feature"` | Planning-only: research + task breakdown, no execution yet |
+| `/flow-code:plan-review fn-1` | Run the formal plan review gate before work starts |
 | `/flow-code:work fn-1` | Execute tasks for an epic |
-| `/flow-code:brainstorm --auto "idea"` | AI self-interview with structured deepening |
+| `/flow-code:impl-review fn-1.2 --base <commit>` | Review implementation changes for a task or branch scope |
+| `/flow-code:epic-review fn-1` | Verify the completed epic against its spec before close |
+| `/flow-code:brainstorm --auto "idea"` | Open-ended exploration and pressure-testing before plan/spec |
+| `/flow-code:spec "idea / change / refactor"` | Produce an artifact-first, planning-ready requirements spec |
+| `/flow-code:adr "decision"` | Capture a durable architecture decision + alternatives |
 | `/flow-code:prime` | Assess codebase readiness (8 pillars, 48 criteria) |
 | `/flow-code:map` | Generate architecture documentation |
 | `/flow-code:auto-improve "goal"` | Autonomous code optimization loops |
@@ -97,11 +123,11 @@ Zero-findings rule: reviewers must find issues. Zero findings → halt and re-an
 | `flowctl graph impact <path>` | What files break if I change this? |
 | `flowctl edit --file <f> --old --new` | Smart edit: exact match + fuzzy fallback |
 
-Full command reference: [docs/commands.md](docs/commands.md) | All flags: [CLAUDE.md](CLAUDE.md)
+Command index: [commands/flow-code/](commands/flow-code/) | All flags: [CLAUDE.md](CLAUDE.md)
 
 ## flowctl CLI
 
-Single Rust binary, 71 top-level commands. All output `--json` for machine consumption.
+Single Rust binary, 70+ top-level commands. All output `--json` for machine consumption.
 
 ```bash
 flowctl init                          # Initialize .flow/
@@ -117,17 +143,17 @@ flowctl codex adversarial --base main # Cross-model review
 flowctl write-file --path f --stdin   # Pipeline file I/O
 ```
 
-Full CLI reference: [docs/flowctl.md](docs/flowctl.md)
+CLI reference: [flowctl/README.md](flowctl/README.md) (plus `flowctl --help`)
 
 ## Architecture
 
 ```
-commands/flow-code/*.md    → 22 slash commands (user entry points)
-skills/*/SKILL.md          → 54 skills (workflow + domain)
+commands/flow-code/*.md    → 20+ slash commands (user entry points, including spec/adr)
+skills/*/SKILL.md          → 50+ skills (workflow + domain)
   └─ steps/*.md            → Step-file architecture (JIT loading)
-agents/*.md                → 24 subagents (scouts, workers, reviewers)
+agents/*.md                → 20+ subagents (scouts, workers, reviewers)
 flowctl/                   → Rust Cargo workspace (core + cli)
-  └─ bin/flowctl           → Single binary, 71 commands
+  └─ bin/flowctl           → Single binary, 70+ commands
 prompts/                   → Review templates (blind-hunter, edge-case, acceptance-auditor)
 templates/                 → project-context.md template
 .flow/                     → Runtime state (JSON/JSONL, per-project)
@@ -137,7 +163,7 @@ templates/                 → project-context.md template
 
 **Full-Auto** — `/flow-code:go` requires zero questions. AI reads git state and `.flow/` config to decide branch, review backend, research depth.
 
-**Teams Mode** — Ready tasks spawn as parallel Agent workers with file locking, stale lock recovery, and wave checkpoints.
+**Teams Mode** — Ready tasks spawn as parallel Agent workers with file locking, stale lock recovery, continuous scheduling, and a final integration checkpoint.
 
 **Step-File Architecture** — Skills split into step files (`steps/step-01-init.md`, etc.) loaded JIT. Saves ~60% tokens per invocation.
 
@@ -156,10 +182,11 @@ templates/                 → project-context.md template
 | Document | Contents |
 |----------|----------|
 | [CLAUDE.md](CLAUDE.md) | Architecture, design decisions, command flags, testing |
-| [docs/flowctl.md](docs/flowctl.md) | Full CLI reference (71 commands) |
-| [docs/skills.md](docs/skills.md) | Skill inventory (54 skills, tier classification) |
+| [commands/flow-code/](commands/flow-code/) | Slash command index (including `spec` and `adr`) |
+| [skills/flow-code-guide/SKILL.md](skills/flow-code-guide/SKILL.md) | Skill/command discovery flowchart |
+| [skills/flow-code-documentation/SKILL.md](skills/flow-code-documentation/SKILL.md) | Documentation patterns (spec/ADR/README/changelog) |
+| [skills/flow-code-deprecation/SKILL.md](skills/flow-code-deprecation/SKILL.md) | Deprecation, replacement, and removal guidance |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
-| [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md) | Auto-generated architecture map |
 
 ## License
 

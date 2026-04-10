@@ -8,8 +8,8 @@ mod scheduling;
 
 // Re-export all public items so callers see the same API.
 pub use lifecycle::{cmd_block, cmd_done, cmd_events, cmd_fail, cmd_restart, cmd_start};
-pub use phase::{dispatch_worker_phase, WorkerPhaseCmd};
-pub use pipeline_phase::{dispatch_pipeline_phase, PipelinePhaseCmd};
+pub use phase::{WorkerPhaseCmd, dispatch_worker_phase};
+pub use pipeline_phase::{PipelinePhaseCmd, dispatch_pipeline_phase};
 pub use scheduling::{cmd_next, cmd_queue, cmd_ready};
 
 use std::collections::HashMap;
@@ -19,9 +19,7 @@ use std::path::{Path, PathBuf};
 use crate::output::error_exit;
 
 use flowctl_core::id::parse_id;
-use flowctl_core::types::{
-    Epic, Task,
-};
+use flowctl_core::types::{Epic, Task};
 
 use super::helpers::{ensure_flow_symlink, get_flow_dir, resolve_actor};
 
@@ -33,7 +31,9 @@ pub(crate) fn ensure_flow_exists() -> PathBuf {
     if !flow_dir.exists() {
         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         if let Err(e) = ensure_flow_symlink(&cwd) {
-            error_exit(&format!(".flow/ does not exist and auto-create failed: {e}. Run 'flowctl init' first."));
+            error_exit(&format!(
+                ".flow/ does not exist and auto-create failed: {e}. Run 'flowctl init' first."
+            ));
         }
         if !flow_dir.exists() {
             error_exit(".flow/ does not exist. Run 'flowctl init' first.");

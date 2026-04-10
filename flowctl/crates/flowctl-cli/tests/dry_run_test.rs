@@ -16,7 +16,11 @@ fn setup_flow_dir() -> (tempfile::TempDir, String) {
         .current_dir(tmp.path())
         .output()
         .expect("flowctl init");
-    assert!(out.status.success(), "init failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     // Create an epic
     let out = flowctl_bin()
@@ -24,7 +28,11 @@ fn setup_flow_dir() -> (tempfile::TempDir, String) {
         .current_dir(tmp.path())
         .output()
         .expect("epic create");
-    assert!(out.status.success(), "epic create failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "epic create failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     // Parse epic ID from stdout (format: "Epic fn-N-dry-run-test created: ...")
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -54,15 +62,25 @@ fn dry_run_task_create_produces_json_preview() {
         .current_dir(tmp.path())
         .output()
         .expect("dry-run task create");
-    assert!(out.status.success(), "dry-run failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "dry-run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("output should be valid JSON");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("output should be valid JSON");
 
     // Verify dry_run envelope
     assert_eq!(parsed["dry_run"], serde_json::json!(true));
     assert!(parsed["changes"]["mutations"].is_array());
-    assert!(!parsed["changes"]["mutations"].as_array().unwrap().is_empty());
+    assert!(
+        !parsed["changes"]["mutations"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 
     // Verify no task was actually created (listing tasks should return empty)
     let out = flowctl_bin()
@@ -71,10 +89,14 @@ fn dry_run_task_create_produces_json_preview() {
         .output()
         .expect("tasks list");
     let tasks_stdout = String::from_utf8_lossy(&out.stdout);
-    let tasks: serde_json::Value = serde_json::from_str(&tasks_stdout).unwrap_or(serde_json::json!({}));
+    let tasks: serde_json::Value =
+        serde_json::from_str(&tasks_stdout).unwrap_or(serde_json::json!({}));
     // tasks should be empty or have zero items
     if let Some(arr) = tasks["tasks"].as_array() {
-        assert!(arr.is_empty(), "dry-run should not have created any tasks, found: {arr:?}");
+        assert!(
+            arr.is_empty(),
+            "dry-run should not have created any tasks, found: {arr:?}"
+        );
     }
 }
 
@@ -122,5 +144,8 @@ fn dry_run_epic_create_produces_no_side_effects() {
     let after: serde_json::Value = serde_json::from_str(&after_stdout).unwrap_or_default();
     let after_count = after["epics"].as_array().map_or(0, Vec::len);
 
-    assert_eq!(before_count, after_count, "dry-run should not create any epic");
+    assert_eq!(
+        before_count, after_count,
+        "dry-run should not create any epic"
+    );
 }

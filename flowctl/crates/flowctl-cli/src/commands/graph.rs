@@ -6,6 +6,7 @@ use clap::Subcommand;
 use serde_json::json;
 
 use flowctl_core::graph_store::CodeGraph;
+use flowctl_core::ngram_index::NgramIndex;
 
 use crate::output::{error_exit, json_output, pretty_output};
 
@@ -63,6 +64,67 @@ fn project_root() -> std::path::PathBuf {
     })
 }
 
+fn index_path() -> std::path::PathBuf {
+    let flow_dir = super::helpers::get_flow_dir();
+    flow_dir.join("index").join("ngram.bin")
+}
+
+fn sync_index(
+    root: &std::path::Path,
+    changed_files: Option<&[String]>,
+) -> Option<serde_json::Value> {
+    let path = index_path();
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            eprintln!("warning: failed to prepare index dir: {e}");
+            return None;
+        }
+    }
+
+    let save_index = |index: &NgramIndex, mode: &str| match index.save(&path) {
+        Ok(()) => {
+            let stats = index.stats();
+            Some(json!({
+                "synced": true,
+                "mode": mode,
+                "file_count": stats.file_count,
+                "trigram_count": stats.trigram_count,
+                "path": path.to_string_lossy(),
+            }))
+        }
+        Err(e) => {
+            eprintln!("warning: failed to save index: {e}");
+            None
+        }
+    };
+
+    if let Some(changed_files) = changed_files {
+        if path.exists() {
+            match NgramIndex::load(&path) {
+                Ok(mut index) => {
+                    let changed_paths: Vec<std::path::PathBuf> =
+                        changed_files.iter().map(std::path::PathBuf::from).collect();
+                    match index.update(&changed_paths) {
+                        Ok(()) => return save_index(&index, "incremental"),
+                        Err(e) => {
+                            eprintln!("warning: incremental index update failed, rebuilding: {e}")
+                        }
+                    }
+                }
+                Err(e) => eprintln!("warning: failed to load existing index, rebuilding: {e}"),
+            }
+        }
+    }
+
+    match NgramIndex::build(root) {
+        Ok(index) => save_index(&index, "rebuild"),
+        Err(e) => {
+            eprintln!("warning: failed to build index: {e}");
+            None
+        }
+    }
+}
+
 fn load_graph() -> CodeGraph {
     let path = graph_path();
     if !path.exists() {
@@ -91,17 +153,22 @@ fn cmd_build(json: bool) {
     }
 
     let stats = graph.stats();
+    let index_sync = sync_index(&root, None);
     let elapsed_ms = start.elapsed().as_millis();
 
     if json {
-        json_output(json!({
+        let mut payload = json!({
             "action": "build",
             "symbol_count": stats.symbol_count,
             "file_count": stats.file_count,
             "edge_count": stats.edge_count,
             "elapsed_ms": elapsed_ms,
             "path": path.to_string_lossy(),
-        }));
+        });
+        if let Some(index) = index_sync {
+            payload["index"] = index;
+        }
+        json_output(payload);
     } else {
         pretty_output(
             "graph",
@@ -130,16 +197,14 @@ fn cmd_update(json: bool) {
         .output();
 
     let changed_files: Vec<String> = match output {
-        Ok(o) if o.status.success() => {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|l| {
-                    let p = root.join(l);
-                    p.display().to_string()
-                })
-                .collect()
-        }
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| {
+                let p = root.join(l);
+                p.display().to_string()
+            })
+            .collect(),
         _ => {
             error_exit("Failed to run git diff. Is this a git repository with at least 2 commits?");
         }
@@ -170,17 +235,22 @@ fn cmd_update(json: bool) {
     }
 
     let stats = graph.stats();
+    let index_sync = sync_index(&root, Some(&changed_files));
     let elapsed_ms = start.elapsed().as_millis();
 
     if json {
-        json_output(json!({
+        let mut payload = json!({
             "action": "update",
             "changed_files": changed_files.len(),
             "symbol_count": stats.symbol_count,
             "file_count": stats.file_count,
             "edge_count": stats.edge_count,
             "elapsed_ms": elapsed_ms,
-        }));
+        });
+        if let Some(index) = index_sync {
+            payload["index"] = index;
+        }
+        json_output(payload);
     } else {
         pretty_output(
             "graph",
@@ -208,7 +278,10 @@ fn cmd_status(json: bool) {
                 "hint": "Run `flowctl graph build` to create the graph",
             }));
         } else {
-            pretty_output("graph", "No graph found. Run `flowctl graph build` to create one.");
+            pretty_output(
+                "graph",
+                "No graph found. Run `flowctl graph build` to create one.",
+            );
         }
         return;
     }
@@ -272,7 +345,10 @@ fn cmd_refs(json: bool, symbol: &str) {
     } else {
         let mut out = format!("{} references to \"{}\":\n", refs.len(), symbol);
         for r in &refs {
-            out.push_str(&format!("  {}:{} {} ({})\n", r.file, r.line, r.name, r.kind));
+            out.push_str(&format!(
+                "  {}:{} {} ({})\n",
+                r.file, r.line, r.name, r.kind
+            ));
         }
         pretty_output("graph", &out);
     }
@@ -302,7 +378,11 @@ fn cmd_impact(json: bool, path: &str) {
     } else if impact.is_empty() {
         pretty_output("graph", &format!("No impact detected for \"{path}\""));
     } else {
-        let mut out = format!("{} files impacted by changes to \"{}\":\n", impact.len(), path);
+        let mut out = format!(
+            "{} files impacted by changes to \"{}\":\n",
+            impact.len(),
+            path
+        );
         for f in &impact {
             out.push_str(&format!("  {f}\n"));
         }

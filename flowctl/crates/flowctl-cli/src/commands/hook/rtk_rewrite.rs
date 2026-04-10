@@ -72,9 +72,7 @@ pub fn cmd_rtk_rewrite() {
     }
 
     // Call rtk rewrite with the command
-    let result = Command::new("rtk")
-        .args(["rewrite", command])
-        .output();
+    let result = Command::new("rtk").args(["rewrite", command]).output();
 
     match result {
         Ok(output) if output.status.success() => {

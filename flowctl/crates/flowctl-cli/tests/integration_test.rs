@@ -86,6 +86,52 @@ fn temp_dir(prefix: &str) -> tempfile::TempDir {
         .expect("Failed to create temp dir")
 }
 
+fn write_file(path: &Path, content: &str) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create parent dirs");
+    }
+    std::fs::write(path, content).expect("write test file");
+}
+
+fn seed_search_fixture(work_dir: &Path) {
+    write_file(
+        &work_dir.join("src/lib.rs"),
+        r#"
+        pub fn helper_fn() -> &'static str {
+            "AlphaLiteralMarker"
+        }
+        "#,
+    );
+    write_file(
+        &work_dir.join("src/main.rs"),
+        r#"
+        fn main() {
+            helper_fn();
+        }
+        "#,
+    );
+}
+
+fn run_git(work_dir: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(work_dir)
+        .env("GIT_AUTHOR_NAME", "Test User")
+        .env("GIT_AUTHOR_EMAIL", "test@example.com")
+        .env("GIT_COMMITTER_NAME", "Test User")
+        .env("GIT_COMMITTER_EMAIL", "test@example.com")
+        .output()
+        .expect("Failed to run git");
+
+    assert!(
+        output.status.success(),
+        "git {:?} failed:\nstdout: {}\nstderr: {}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Core workflow tests (formerly parity tests)
 // ═══════════════════════════════════════════════════════════════════════
@@ -97,7 +143,10 @@ fn init() {
 
     assert_eq!(exit, 0, "init should exit 0");
     // In compact mode (non-TTY), "success" is stripped; just verify valid JSON
-    assert!(parse_json(&out).is_some(), "init: output should be valid JSON");
+    assert!(
+        parse_json(&out).is_some(),
+        "init: output should be valid JSON"
+    );
 }
 
 #[test]
@@ -107,7 +156,124 @@ fn init_idempotent() {
 
     let (out, exit) = run(dir.path(), &["init"]);
     assert_eq!(exit, 0);
-    assert!(parse_json(&out).is_some(), "reinit: output should be valid JSON");
+    assert!(
+        parse_json(&out).is_some(),
+        "reinit: output should be valid JSON"
+    );
+}
+
+#[test]
+fn init_bootstraps_graph_and_index_artifacts() {
+    let dir = temp_dir("rs_bootstrap_");
+    seed_search_fixture(dir.path());
+
+    let (out, exit) = run(dir.path(), &["init"]);
+    assert_eq!(exit, 0, "init should succeed: {out}");
+    assert!(
+        dir.path().join(".flow/graph.bin").exists(),
+        "init should create graph.bin"
+    );
+    assert!(
+        dir.path().join(".flow/index/ngram.bin").exists(),
+        "init should create index/ngram.bin"
+    );
+}
+
+#[test]
+fn startup_reports_artifact_availability() {
+    let dir = temp_dir("rs_startup_artifacts_");
+    seed_search_fixture(dir.path());
+    run(dir.path(), &["init"]);
+
+    let (out, exit) = run(dir.path(), &["startup"]);
+    assert_eq!(exit, 0, "startup should succeed: {out}");
+
+    let json = parse_json(&out).expect("startup should return valid JSON");
+    assert_eq!(json["artifacts"]["graph"], Value::Bool(true));
+    assert_eq!(json["artifacts"]["index"], Value::Bool(true));
+}
+
+#[test]
+fn find_prefers_index_backend_when_index_available() {
+    let dir = temp_dir("rs_find_index_");
+    seed_search_fixture(dir.path());
+    run(dir.path(), &["init"]);
+
+    let (out, exit) = run(dir.path(), &["find", "AlphaLiteralMarker"]);
+    assert_eq!(exit, 0, "find should succeed: {out}");
+
+    let json = parse_json(&out).expect("find should return valid JSON");
+    assert_eq!(json["backend"], "index_literal");
+    assert!(json["count"].as_u64().unwrap_or(0) > 0);
+}
+
+#[test]
+fn find_prefers_graph_backend_for_symbol_queries() {
+    let dir = temp_dir("rs_find_graph_");
+    seed_search_fixture(dir.path());
+    run(dir.path(), &["init"]);
+
+    let (out, exit) = run(dir.path(), &["find", "helper_fn"]);
+    assert_eq!(exit, 0, "find should succeed: {out}");
+
+    let json = parse_json(&out).expect("find should return valid JSON");
+    assert_eq!(json["backend"], "graph_refs");
+    assert!(json["count"].as_u64().unwrap_or(0) > 0);
+}
+
+#[test]
+fn graph_build_rebuilds_index_artifact() {
+    let dir = temp_dir("rs_graph_build_");
+    seed_search_fixture(dir.path());
+    run(dir.path(), &["init"]);
+
+    std::fs::remove_file(dir.path().join(".flow/graph.bin")).expect("remove graph.bin");
+    std::fs::remove_file(dir.path().join(".flow/index/ngram.bin")).expect("remove ngram.bin");
+
+    let (out, exit) = run(dir.path(), &["graph", "build"]);
+    assert_eq!(exit, 0, "graph build should succeed: {out}");
+    assert!(dir.path().join(".flow/graph.bin").exists());
+    assert!(
+        dir.path().join(".flow/index/ngram.bin").exists(),
+        "graph build should also rebuild the index artifact"
+    );
+}
+
+#[test]
+fn graph_update_refreshes_index_after_file_changes() {
+    let dir = temp_dir("rs_graph_update_");
+    seed_search_fixture(dir.path());
+    run_git(dir.path(), &["init"]);
+    run_git(dir.path(), &["config", "user.name", "Test User"]);
+    run_git(dir.path(), &["config", "user.email", "test@example.com"]);
+    run_git(dir.path(), &["add", "."]);
+    run_git(dir.path(), &["commit", "-m", "initial"]);
+
+    let (init_out, init_exit) = run(dir.path(), &["init"]);
+    assert_eq!(init_exit, 0, "init should succeed: {init_out}");
+
+    write_file(
+        &dir.path().join("src/lib.rs"),
+        r#"
+        pub fn helper_fn() -> &'static str {
+            "BetaLiteralMarker"
+        }
+        "#,
+    );
+    run_git(dir.path(), &["add", "src/lib.rs"]);
+    run_git(dir.path(), &["commit", "-m", "update source"]);
+
+    let (update_out, update_exit) = run(dir.path(), &["graph", "update"]);
+    assert_eq!(update_exit, 0, "graph update should succeed: {update_out}");
+
+    let (find_out, find_exit) = run(dir.path(), &["find", "BetaLiteralMarker"]);
+    assert_eq!(
+        find_exit, 0,
+        "find should succeed after graph update: {find_out}"
+    );
+    let json = parse_json(&find_out).expect("find should return valid JSON");
+    assert_eq!(json["backend"], "index_literal");
+    assert!(json["count"].as_u64().unwrap_or(0) > 0);
 }
 
 #[test]
@@ -164,7 +330,10 @@ fn show_epic() {
     assert_eq!(exit, 0);
 
     let json = parse_json(&out).unwrap();
-    assert_eq!(json["title"], "Show Me", "show should return the epic title");
+    assert_eq!(
+        json["title"], "Show Me",
+        "show should return the epic title"
+    );
 }
 
 #[test]
@@ -180,7 +349,14 @@ fn task_create() {
 
     let (out, exit) = run(
         dir.path(),
-        &["task", "create", "--epic", &epic_id, "--title", "Task Alpha"],
+        &[
+            "task",
+            "create",
+            "--epic",
+            &epic_id,
+            "--title",
+            "Task Alpha",
+        ],
     );
     assert_eq!(exit, 0);
     assert_has_keys(&out, &["id"], "task create");
@@ -234,7 +410,10 @@ fn start_task() {
 
     let (out, exit) = run(dir.path(), &["start", &task_id]);
     assert_eq!(exit, 0);
-    assert!(parse_json(&out).is_some(), "start: output should be valid JSON");
+    assert!(
+        parse_json(&out).is_some(),
+        "start: output should be valid JSON"
+    );
 }
 
 #[test]
@@ -264,7 +443,10 @@ fn done_task() {
         &["done", &task_id, "--summary", "Completed", "--force"],
     );
     assert_eq!(exit, 0);
-    assert!(parse_json(&out).is_some(), "done: output should be valid JSON");
+    assert!(
+        parse_json(&out).is_some(),
+        "done: output should be valid JSON"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -356,7 +538,14 @@ fn setup_task(prefix: &str) -> (tempfile::TempDir, String) {
 
     let (task_out, _) = run(
         dir.path(),
-        &["task", "create", "--epic", &epic_id, "--title", "Parity Task"],
+        &[
+            "task",
+            "create",
+            "--epic",
+            &epic_id,
+            "--title",
+            "Parity Task",
+        ],
     );
     let task_id = parse_json(&task_out).unwrap()["id"]
         .as_str()

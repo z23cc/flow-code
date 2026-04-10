@@ -9,8 +9,8 @@ use regex::Regex;
 use serde_json::json;
 
 use flowctl_core::review_protocol::{
-    compute_consensus, filter_by_confidence, AutofixClass, ConsensusResult, FindingOwner,
-    ModelReview, ReviewFinding, ReviewVerdict, Severity,
+    AutofixClass, ConsensusResult, FindingOwner, ModelReview, ReviewFinding, ReviewVerdict,
+    Severity, compute_consensus, filter_by_confidence,
 };
 
 use crate::output::{error_exit, json_output};
@@ -24,7 +24,11 @@ use super::{
 
 pub fn cmd_check(json_mode: bool) {
     let available = super::find_codex().is_some();
-    let version = if available { super::get_codex_version() } else { None };
+    let version = if available {
+        super::get_codex_version()
+    } else {
+        None
+    };
 
     if json_mode {
         json_output(json!({
@@ -32,7 +36,10 @@ pub fn cmd_check(json_mode: bool) {
             "version": version,
         }));
     } else if available {
-        println!("codex available: {}", version.unwrap_or_else(|| "unknown version".to_string()));
+        println!(
+            "codex available: {}",
+            version.unwrap_or_else(|| "unknown version".to_string())
+        );
     } else {
         println!("codex not available");
     }
@@ -60,8 +67,16 @@ pub fn cmd_impl_review(
          {}{}Focus on correctness, quality, performance, and testing.\n\
          Output your verdict as <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>.",
         base,
-        if let Some(t) = task { format!("Task: {t}\n") } else { String::new() },
-        if let Some(f) = focus { format!("Focus areas: {f}\n") } else { String::new() },
+        if let Some(t) = task {
+            format!("Task: {t}\n")
+        } else {
+            String::new()
+        },
+        if let Some(f) = focus {
+            format!("Focus areas: {f}\n")
+        } else {
+            String::new()
+        },
     );
 
     let (output, thread_id, exit_code, stderr) =
@@ -69,21 +84,38 @@ pub fn cmd_impl_review(
 
     if exit_code != 0 {
         delete_stale_receipt(receipt);
-        let msg = if !stderr.is_empty() { &stderr } else if !output.is_empty() { &output } else { "codex exec failed" };
+        let msg = if !stderr.is_empty() {
+            &stderr
+        } else if !output.is_empty() {
+            &output
+        } else {
+            "codex exec failed"
+        };
         error_exit(&format!("codex exec failed: {}", msg.trim()));
     }
 
     let verdict = parse_verdict(&output);
     if verdict.is_none() {
         delete_stale_receipt(receipt);
-        error_exit("Codex review completed but no verdict found in output. Expected <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>");
+        error_exit(
+            "Codex review completed but no verdict found in output. Expected <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>",
+        );
     }
     let verdict = verdict.unwrap();
 
     let review_id = task.unwrap_or("branch");
 
     if let Some(rp) = receipt {
-        save_receipt(rp, "impl_review", review_id, &verdict, thread_id.as_deref(), &output, Some(base), focus);
+        save_receipt(
+            rp,
+            "impl_review",
+            review_id,
+            &verdict,
+            thread_id.as_deref(),
+            &output,
+            Some(base),
+            focus,
+        );
     }
 
     if json_mode {
@@ -130,19 +162,36 @@ pub fn cmd_plan_review(
 
     if exit_code != 0 {
         delete_stale_receipt(receipt);
-        let msg = if !stderr.is_empty() { &stderr } else if !output.is_empty() { &output } else { "codex exec failed" };
+        let msg = if !stderr.is_empty() {
+            &stderr
+        } else if !output.is_empty() {
+            &output
+        } else {
+            "codex exec failed"
+        };
         error_exit(&format!("codex exec failed: {}", msg.trim()));
     }
 
     let verdict = parse_verdict(&output);
     if verdict.is_none() {
         delete_stale_receipt(receipt);
-        error_exit("Codex review completed but no verdict found in output. Expected <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>");
+        error_exit(
+            "Codex review completed but no verdict found in output. Expected <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>",
+        );
     }
     let verdict = verdict.unwrap();
 
     if let Some(rp) = receipt {
-        save_receipt(rp, "plan_review", epic, &verdict, thread_id.as_deref(), &output, None, None);
+        save_receipt(
+            rp,
+            "plan_review",
+            epic,
+            &verdict,
+            thread_id.as_deref(),
+            &output,
+            None,
+            None,
+        );
     }
 
     if json_mode {
@@ -174,14 +223,23 @@ pub fn cmd_adversarial(
          {}Look for bugs, race conditions, security vulnerabilities, edge cases, and logic errors.\n\
          Output your verdict as <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>.\n\
          Also output structured JSON with your findings.",
-        if let Some(f) = focus { format!("Focus area: {f}\n") } else { String::new() },
+        if let Some(f) = focus {
+            format!("Focus area: {f}\n")
+        } else {
+            String::new()
+        },
     );
 
-    let (output, _thread_id, exit_code, stderr) =
-        run_codex_exec(&prompt, None, &sandbox, effort);
+    let (output, _thread_id, exit_code, stderr) = run_codex_exec(&prompt, None, &sandbox, effort);
 
     if exit_code != 0 {
-        let msg = if !stderr.is_empty() { &stderr } else if !output.is_empty() { &output } else { "codex exec failed" };
+        let msg = if !stderr.is_empty() {
+            &stderr
+        } else if !output.is_empty() {
+            &output
+        } else {
+            "codex exec failed"
+        };
         error_exit(&format!("Adversarial review failed: {}", msg.trim()));
     }
 
@@ -204,7 +262,12 @@ pub fn cmd_adversarial(
         }
     } else if let Some(s) = structured {
         println!("{}", serde_json::to_string_pretty(&s).unwrap_or_default());
-        println!("\nVerdict: {}", s.get("verdict").and_then(|v| v.as_str()).unwrap_or("UNKNOWN"));
+        println!(
+            "\nVerdict: {}",
+            s.get("verdict")
+                .and_then(|v| v.as_str())
+                .unwrap_or("UNKNOWN")
+        );
     } else {
         print!("{output}");
         if let Some(v) = parse_verdict(&output) {
@@ -236,21 +299,38 @@ pub fn cmd_completion_review(
 
     if exit_code != 0 {
         delete_stale_receipt(receipt);
-        let msg = if !stderr.is_empty() { &stderr } else if !output.is_empty() { &output } else { "codex exec failed" };
+        let msg = if !stderr.is_empty() {
+            &stderr
+        } else if !output.is_empty() {
+            &output
+        } else {
+            "codex exec failed"
+        };
         error_exit(&format!("codex exec failed: {}", msg.trim()));
     }
 
     let verdict = parse_verdict(&output);
     if verdict.is_none() {
         delete_stale_receipt(receipt);
-        error_exit("Codex review completed but no verdict found in output. Expected <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>");
+        error_exit(
+            "Codex review completed but no verdict found in output. Expected <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>",
+        );
     }
     let verdict = verdict.unwrap();
 
     let session_to_write = thread_id.as_deref().or(session_id.as_deref());
 
     if let Some(rp) = receipt {
-        save_receipt(rp, "completion_review", epic, &verdict, session_to_write, &output, Some(base), None);
+        save_receipt(
+            rp,
+            "completion_review",
+            epic,
+            &verdict,
+            session_to_write,
+            &output,
+            Some(base),
+            None,
+        );
     }
 
     if json_mode {
@@ -284,7 +364,11 @@ pub fn cmd_cross_model(
          {}Look for bugs, race conditions, security vulnerabilities, edge cases, and logic errors.\n\
          Output your verdict as <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>.\n\
          Also output structured JSON with your findings.",
-        if let Some(f) = focus { format!("Focus area: {f}\n") } else { String::new() },
+        if let Some(f) = focus {
+            format!("Focus area: {f}\n")
+        } else {
+            String::new()
+        },
     );
 
     let (codex_output, _codex_thread_id, codex_exit_code, codex_stderr) =
@@ -322,7 +406,11 @@ pub fn cmd_cross_model(
          {}Analyze for correctness, security, performance, and maintainability.\n\
          Output your verdict as <verdict>SHIP</verdict> or <verdict>NEEDS_WORK</verdict>.\n\
          List findings as JSON with fields: severity (critical/warning/info), category, description, file, line.",
-        if let Some(f) = focus { format!("Focus area: {f}\n") } else { String::new() },
+        if let Some(f) = focus {
+            format!("Focus area: {f}\n")
+        } else {
+            String::new()
+        },
     );
 
     let claude_prompt_path = env::temp_dir().join("flowctl-cross-model-claude-prompt.txt");
@@ -407,7 +495,10 @@ pub fn cmd_cross_model(
         println!("  Findings: {}", codex_review.findings.len());
         println!("  Confidence: {:.0}%", codex_review.confidence * 100.0);
         println!();
-        println!("Model 2: {} — {}", claude_review.model, claude_review.verdict);
+        println!(
+            "Model 2: {} — {}",
+            claude_review.model, claude_review.verdict
+        );
         println!("  Findings: {}", claude_review.findings.len());
         println!("  Confidence: {:.0}%", claude_review.confidence * 100.0);
         println!();
@@ -450,7 +541,10 @@ pub(super) fn parse_findings_from_output(output: &str) -> (Vec<ReviewFinding>, f
                     .unwrap_or("")
                     .to_string();
                 let file = item.get("file").and_then(|v| v.as_str()).map(String::from);
-                let line = item.get("line").and_then(serde_json::Value::as_u64).map(|n| n as u32);
+                let line = item
+                    .get("line")
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|n| n as u32);
                 let item_confidence = item
                     .get("confidence")
                     .and_then(serde_json::Value::as_f64)
@@ -534,13 +628,12 @@ fn parse_claude_review_result(content: &str) -> ModelReview {
                 Some("NEEDS_WORK") => ReviewVerdict::NeedsWork,
                 _ => ReviewVerdict::Abstain,
             };
-            let (findings, confidence) = if let Some(review_text) =
-                data.get("review").and_then(|v| v.as_str())
-            {
-                parse_findings_from_output(review_text)
-            } else {
-                (vec![], 0.8)
-            };
+            let (findings, confidence) =
+                if let Some(review_text) = data.get("review").and_then(|v| v.as_str()) {
+                    parse_findings_from_output(review_text)
+                } else {
+                    (vec![], 0.8)
+                };
             let confidence = data
                 .get("confidence")
                 .and_then(serde_json::Value::as_f64)
@@ -583,7 +676,9 @@ pub(super) fn parse_adversarial_output(output: &str) -> Option<serde_json::Value
     // Strategy 2: JSONL streaming events (codex exec --json)
     for line in output.lines() {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
             if event.get("type").and_then(|v| v.as_str()) == Some("item.completed") {
                 if let Some(item) = event.get("item") {

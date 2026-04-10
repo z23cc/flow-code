@@ -11,13 +11,11 @@ use crate::output::{error_exit, json_output};
 
 use flowctl_core::changes::{Changes, Mutation};
 use flowctl_core::id::{generate_epic_suffix, parse_id, slugify};
-use flowctl_core::types::{
-    Epic, EpicStatus, ReviewStatus, FLOW_DIR, SPECS_DIR,
-};
+use flowctl_core::types::{Epic, EpicStatus, FLOW_DIR, ReviewStatus, SPECS_DIR};
 
 use super::helpers::{
-    create_epic_spec_body, ensure_flow_exists, ensure_meta_exists, find_max_epic_number,
-    load_epic, read_file_or_stdin, save_epic, validate_epic_id,
+    create_epic_spec_body, ensure_flow_exists, ensure_meta_exists, find_max_epic_number, load_epic,
+    read_file_or_stdin, save_epic, validate_epic_id,
 };
 
 /// Pure compute: build Changes for epic creation.
@@ -136,7 +134,10 @@ pub fn cmd_set_plan(id: &str, file: Option<&str>, spec: Option<&str>, json_mode:
         .map(|(h, count)| format!("Duplicate heading: {h} (found {count} times)"))
         .collect();
     if !duplicates.is_empty() {
-        error_exit(&format!("Spec validation failed: {}", duplicates.join("; ")));
+        error_exit(&format!(
+            "Spec validation failed: {}",
+            duplicates.join("; ")
+        ));
     }
 
     // Write spec file (body-only Markdown)
@@ -323,12 +324,11 @@ pub fn cmd_set_title(id: &str, new_title: &str, json_mode: bool) {
     let specs_dir = flow_dir.join(SPECS_DIR);
 
     // Check collision (if ID changed) via JSON
-    if new_id != old_id
-        && flowctl_core::json_store::epic_read(&flow_dir, &new_id).is_ok() {
-            error_exit(&format!(
-                "Epic {new_id} already exists. Choose a different title."
-            ));
-        }
+    if new_id != old_id && flowctl_core::json_store::epic_read(&flow_dir, &new_id).is_ok() {
+        error_exit(&format!(
+            "Epic {new_id} already exists. Choose a different title."
+        ));
+    }
 
     // Rename spec file (only MD file we keep)
     let mut files_renamed = 0;
@@ -471,7 +471,11 @@ pub fn cmd_set_backend(
     let mut updated: Vec<String> = Vec::new();
 
     if let Some(val) = impl_spec {
-        let v = if val.is_empty() { None } else { Some(val.clone()) };
+        let v = if val.is_empty() {
+            None
+        } else {
+            Some(val.clone())
+        };
         doc.frontmatter.default_impl = v;
         updated.push(format!(
             "default_impl={}",
@@ -479,7 +483,11 @@ pub fn cmd_set_backend(
         ));
     }
     if let Some(val) = review {
-        let v = if val.is_empty() { None } else { Some(val.clone()) };
+        let v = if val.is_empty() {
+            None
+        } else {
+            Some(val.clone())
+        };
         doc.frontmatter.default_review = v;
         updated.push(format!(
             "default_review={}",
@@ -487,7 +495,11 @@ pub fn cmd_set_backend(
         ));
     }
     if let Some(val) = sync {
-        let v = if val.is_empty() { None } else { Some(val.clone()) };
+        let v = if val.is_empty() {
+            None
+        } else {
+            Some(val.clone())
+        };
         doc.frontmatter.default_sync = v;
         updated.push(format!(
             "default_sync={}",
@@ -507,10 +519,7 @@ pub fn cmd_set_backend(
             "message": format!("Epic {id} backend specs updated: {}", updated.join(", ")),
         }));
     } else {
-        println!(
-            "Epic {id} backend specs updated: {}",
-            updated.join(", ")
-        );
+        println!("Epic {id} backend specs updated: {}", updated.join(", "));
     }
 }
 

@@ -11,6 +11,8 @@ user-invocable: true
 
 Context engineering is about loading the RIGHT information at the RIGHT time — not "load everything." The context window is finite, attention degrades with noise, and wrong context is worse than no context. This skill teaches strategic context management: what to load, when to load it, and when to prune.
 
+For RepoPrompt / MCP-specific workflow ownership, use `skills/_shared/rp-mcp-orchestration.md` as the canonical guide. This skill focuses on *context strategy* and should not be treated as a competing builder/oracle protocol.
+
 ## When to Use
 
 - Starting a new session or complex task that spans multiple files
@@ -104,8 +106,11 @@ Do not reinvent context gathering. flow-code has purpose-built tools for each co
 | Need | Tool | When |
 |------|------|------|
 | Deep codebase understanding | `context-scout` agent | Before planning or major implementation |
-| AI-powered file discovery | `flow-code-rp-explorer` skill | When you need to find all files related to a feature |
-| Cross-model review context | `flow-code-export-context` skill | When preparing context for external LLM review |
+| Broad multi-file discovery | `context_builder` | Default when scope is architectural, review-oriented, or otherwise too broad for direct reads |
+| RP-guided exploration on explicit request | `flow-code-rp-explorer` skill | When the user explicitly wants RepoPrompt-style exploration guidance |
+| Deep reasoning over selected context | `ask_oracle` / Oracle chat | After a builder run or a deliberate selection update |
+| Cross-model review context | `flow-code-export-context` skill | When preparing context for external LLM review or handoff |
+| Parallel delegated work | `agent_run` | When the task should move to a separate worker/session |
 | Code signatures without full reads | `rp-cli structure` or `get_code_structure` | When you need function/type shapes, not full files |
 | Targeted file search | `rp-cli search` or `file_search` | When you know what pattern to find |
 
@@ -119,11 +124,15 @@ Need to understand a feature?
 
 Need cross-file analysis?
   ├─ Architecture question → context_builder(response_type="question")
-  ├─ Planning → context_builder(response_type="plan")
-  └─ Review → context_builder(response_type="review")
+  ├─ Planning / implementation → context_builder(response_type="plan")
+  ├─ Review → context_builder(response_type="review")
+  └─ Follow-up reasoning on selected context → ask_oracle / same Oracle chat
 
 Need to share context externally?
   └─ flow-code-export-context skill
+
+Need a separate parallel worker or isolated session?
+  └─ agent_run
 ```
 
 ### Phase 5: Monitor and Prune

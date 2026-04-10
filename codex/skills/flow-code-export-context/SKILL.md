@@ -8,6 +8,8 @@ tier: 1
 
 Export flow-code context to a markdown file for external LLMs (ChatGPT Pro, Claude web, etc.).
 
+Canonical RP/MCP orchestration guidance lives in `skills/_shared/rp-mcp-orchestration.md`.
+
 ## Input
 
 Arguments: $ARGUMENTS — Format: `<type> <target> [focus areas]`
@@ -17,7 +19,7 @@ Arguments: $ARGUMENTS — Format: `<type> <target> [focus areas]`
 
 ## Workflow
 
-### Step 1: Gather Content
+### Step 1: Gather minimum grounding
 
 ```bash
 FLOWCTL="$HOME/.flow/bin/flowctl"
@@ -31,7 +33,11 @@ mkdir -p prompt-exports
 
 ### Step 2: Export (three-tier fallback)
 
-Build instructions from gathered context. Extract the real task from the request — strip meta-framing about exporting.
+Extract the real task from the request — strip meta-framing about exporting.
+Use the shared orchestration guide's defaults:
+- `context_builder(response_type="clarify")` is the normal RP/MCP path;
+- `prompt export` is the handoff step;
+- fast path is only for tiny, obviously local scope.
 
 ```bash
 # Detect RP tier (pass --mcp-hint if mcp__RepoPrompt__context_builder is in your tool list)
@@ -39,10 +45,14 @@ RP_TIER=$($FLOWCTL rp tier)  # or: $FLOWCTL rp tier --mcp-hint
 ```
 
 - **If RP_TIER is `mcp`**: Call `context_builder(instructions=..., response_type="clarify")`, then `prompt(op="export", path="<OUTPUT_FILE>", copy_preset="<plan|codeReview>")`
-- **If RP_TIER is `cli`**: Get window via `WINDOW_ID=$(rp-cli -e 'windows' | head -1 | awk '{print $1}')`, then run `rp-cli -w "$WINDOW_ID" -e 'builder ...'` and `rp-cli -w "$WINDOW_ID" -e "prompt export ..."`
+- **If RP_TIER is `cli`**: Use `rp-cli` builder/export only when MCP tools are unavailable or the user explicitly asked for CLI usage
 - **If RP_TIER is `none`**: Write gathered content directly to `$OUTPUT_FILE` as structured markdown.
 
 Preset mapping: plan -> `plan`, impl -> `codeReview`.
+
+**Review export rule:** if exporting review context, explicitly include the compare scope and the phrase `code review` in the builder instructions.
+
+**Builder export rule:** after a builder-driven export, trust the generated selection/prompt unless you noticed a concrete issue.
 
 ### Step 3: Report
 

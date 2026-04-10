@@ -5,192 +5,203 @@ tier: 3
 user-invocable: true
 ---
 
-# Deprecation and Migration
+# Deprecation, Replacement, and Removal
 
 ## Overview
 
-Code is a liability, not an asset — every line carries ongoing maintenance cost. This skill enforces a disciplined process for deprecating and removing code that no longer earns its keep, ensuring consumers are migrated safely before anything is removed.
+Code is a liability, not an asset — every line carries maintenance cost, support cost, and future drag. This skill helps you decide whether an old path should be replaced or deleted, assess the blast radius, and remove it responsibly.
+
+**Default stance:** prefer direct replacement or direct removal when the old thing is no longer worth keeping. Use a short temporary bridge only when real consumers or runtime risk make one-pass removal unsafe.
 
 ## When to Use
 
-- Replacing an old system, API, library, or module with a new one
-- Sunsetting a feature, CLI command, or config option that's no longer needed
-- Consolidating duplicate implementations into a single path
-- Removing dead code that nobody owns but everybody depends on
-- Planning the lifecycle of a new system (deprecation planning starts at design time)
-- Deciding whether to maintain a legacy system or invest in migration
+- Replacing an old system, API, library, or module with a better one
+- Removing a feature, CLI command, flag, config option, or code path that no longer earns its keep
+- Consolidating duplicate implementations into a single supported path
+- Cleaning up zombie code that still has consumers but no clear owner
+- Deciding whether a legacy path should be kept, replaced, or removed
+
+## Command Entry Points
+
+- This skill is the front door when the dominant question is how to replace or remove an old surface safely.
+- Use `/flow-code:spec` when you need a reusable requirements artifact before planning.
+- Use `/flow-code:adr` when the change requires explicit architectural decisions.
+- Use `/flow-code:plan` after the scope, consumers, and success criteria are clear.
 
 **When NOT to use:**
-- Routine refactoring that doesn't remove public interfaces — use standard refactoring
-- Adding new features alongside old ones without removing anything
+- Routine refactoring that doesn't remove public interfaces
+- Adding new features while keeping the old path indefinitely
 - Version bumps that don't change or remove behavior
-- Bug fixes in legacy code you intend to keep
+- Bug fixes in legacy code you still intend to maintain
 
-## The Deprecation Decision
+## The Removal Decision
 
-Before deprecating anything, answer these questions:
+Before you deprecate anything, answer these questions:
 
 ```
-1. Does this system still provide unique value?
-   → If yes, maintain it. If no, proceed.
+1. Does this thing still provide unique value?
+   → If yes, keep or improve it. If no, continue.
 
-2. How many consumers depend on it?
-   → Quantify: grep for imports, check API call logs, review dependency graphs.
+2. Who consumes it today?
+   → Quantify with search, dependency graphs, logs, metrics, or config references.
 
-3. Does a replacement exist?
-   → If no, BUILD THE REPLACEMENT FIRST. Never deprecate without an alternative.
+3. Is a replacement actually needed?
+   → If no, plan direct removal.
+   → If yes, make sure the replacement is real enough to move remaining consumers.
 
-4. What's the migration cost per consumer?
-   → If automatable (codemod, sed, script), do it yourself (the Churn Rule).
-   → If manual and high-effort, weigh against ongoing maintenance cost.
+4. Can the consumers be updated directly?
+   → If yes, do that instead of inventing extra temporary machinery.
 
-5. What's the cost of NOT deprecating?
-   → Security risk, engineer time, dependency rot, onboarding friction.
+5. What breaks if we remove it now?
+   → List concrete consumers, workflows, contracts, and edge behaviors.
+
+6. What is the cost of keeping it?
+   → Maintenance burden, security risk, dependency rot, cognitive load, slower delivery.
 ```
 
-If answers 1=no, 3=yes, and 5 > 4, proceed with deprecation.
+Proceed when the old path no longer earns its keep, the consumer impact is understood, and you have a concrete way to update or remove the remaining usage.
 
-## Advisory vs Compulsory Deprecation
+## If You Need a Short Bridge
 
-| Type | When to Use | Mechanism |
-|------|-------------|-----------|
-| **Advisory** | Old system is stable, migration is optional | Warnings, documentation, nudges. Consumers migrate on their own timeline. |
-| **Compulsory** | Security risk, blocks progress, or maintenance cost is unsustainable | Hard deadline. Old system removed by date X. Provide migration tooling. |
+Use a temporary bridge only when at least one of these is true:
 
-**Default to advisory.** Use compulsory only when risk or cost justifies forcing migration. Compulsory deprecation requires providing migration tooling, documentation, and support — you cannot just announce a deadline.
+- external consumers cannot all be changed in one pass;
+- runtime risk is high enough that a brief staged rollout materially reduces danger;
+- the old interface must remain briefly while you land an automated consumer update.
+
+If none of those apply, remove or replace the old path directly.
+
+When you do need a bridge, keep it narrow:
+- define exactly what stays working temporarily;
+- set an explicit owner and removal trigger/date;
+- keep the instructions short and concrete;
+- do not let the temporary path become a second supported surface.
 
 ## Core Process
 
-### Phase 1: Assess Impact
+### Phase 1: Assess Blast Radius
 
-1. **Inventory all consumers** — grep for imports, API calls, config references, CLI invocations. Miss nothing.
-2. **Map the dependency graph** — direct consumers and transitive dependents. Hyrum's Law: with enough users, every observable behavior becomes depended on, including bugs and timing quirks.
-3. **Quantify maintenance cost** — security vulnerabilities, test failures, onboarding friction, dependency update burden.
+1. **Inventory consumers** — imports, API calls, config keys, CLI usage, docs, automation, and tests.
+2. **Map critical behaviors** — not just the happy path; note observable quirks consumers may rely on.
+3. **Classify consumers** — owned/internal, adjacent teams, or external/public.
 4. **Document the assessment:**
    ```
-   Deprecated: <component name>
+   Component: <name>
+   Decision: replace | remove
    Consumers: <count and list>
-   Maintenance cost: <specific burden>
-   Replacement: <name or "to be built">
-   Migration type: advisory | compulsory
+   Replacement: <name or "none; feature removed">
+   Temporary bridge: none | brief | required
+   Main risk: <specific blast-radius concern>
+   Verification: <tests, logs, usage check>
    ```
 
-### Phase 2: Build the Replacement
+### Phase 2: Prepare the Target State
 
-**Do NOT announce deprecation until the replacement is production-proven.**
+1. **Build or validate the replacement** if one is needed.
+2. **Cover the critical use cases** consumers actually rely on.
+3. **Choose the update shape** — direct edit, codemod, brief shim, or staged rollout.
+4. **Write only the docs you need** — usually a short removal/replacement note plus concrete update steps if humans must act.
 
-1. **Cover all critical use cases** of the old system
-2. **Write a migration guide** with concrete steps and examples
-3. **Prove it in production** — not just "theoretically better"
-4. **Verify behavioral parity** on edge cases consumers depend on
+**Do not turn this into extra program management.** The goal is to make the old path disappear safely with the least temporary machinery needed.
 
-### Phase 3: Announce and Document
+### Phase 3: Update Consumers
 
-Create a deprecation notice:
+For each active consumer:
 
-```
-## Deprecation Notice: <ComponentName>
+1. **Change the call sites or integrations** to the replacement, or remove the dependency entirely.
+2. **Automate churn when possible** — codemods, scripts, mechanical edits.
+3. **Verify behavior** with tests, integration checks, or focused manual validation.
+4. **Remove the old references immediately** once the consumer is updated.
 
-Status: Deprecated as of <date>
-Replacement: <NewComponent> (see migration guide)
-Removal date: Advisory — no hard deadline | Compulsory — <date>
-Reason: <specific maintenance burden or risk>
+If you own the deprecated surface and the consumer updates are mechanical, do the updates yourself instead of pushing that burden downstream.
 
-### Migration Steps
-1. Replace <old import/call> with <new import/call>
-2. Update configuration (see examples)
-3. Run migration verification: <command>
-```
+### Phase 4: Remove the Old Path
 
-Place notices where consumers will see them: inline warnings, changelogs, documentation headers.
+Once active usage is handled:
 
-### Phase 4: Migrate Consumers
-
-For each consumer:
-
-1. **Identify all touchpoints** with the deprecated system
-2. **Update to the replacement** — provide codemods or scripts where possible
-3. **Verify behavior matches** — tests, integration checks, manual validation
-4. **Remove references** to the old system
-5. **Confirm no regressions**
-
-**The Churn Rule:** If you own the infrastructure being deprecated, you are responsible for migrating your users — or providing backward-compatible shims. Do not announce deprecation and leave users to figure it out.
-
-### Phase 5: Remove Old Code
-
-Only after all consumers have migrated:
-
-1. **Verify zero active usage** — metrics, logs, dependency analysis, grep
-2. **Remove the code** — implementation, types, exports
-3. **Remove associated artifacts** — tests, documentation, configuration, feature flags
-4. **Remove deprecation notices** — they served their purpose
-5. **Run full verification:**
+1. **Delete the implementation** — code, exports, types, config, flags.
+2. **Delete transitional scaffolding** — warnings, adapters, temporary shims, extra branches.
+3. **Delete stale docs and examples** that teach the removed path.
+4. **Run verification:**
    ```bash
    $FLOWCTL guard
    ```
 
-### Phase 6: Verify Clean Removal
+### Phase 5: Verify Clean Removal
 
-1. **Search for orphaned references** — stale imports, dead config keys, broken links in docs
-2. **Run the full test suite** — no failures from missing code
-3. **Check build artifacts** — no phantom exports or dangling symbols
-4. **Confirm documentation is updated** — no references to removed components
+1. **Re-run consumer detection** — use the same search, dependency, log, or metric checks from Phase 1 to confirm the old path is truly unused.
+2. **Search for orphaned references** — stale imports, docs, scripts, config keys, and links.
+3. **Run tests/build checks** relevant to the removed path.
+4. **Confirm user-facing docs are coherent** — changelog, README, command docs, upgrade notes if needed.
+5. **Confirm no accidental long-term support commitment remains** — no permanent deprecation banners for code that should now be gone.
 
-For planning migration work across multiple tasks, use `/flow-code:plan`.
+For multi-task work, start with `/flow-code:spec` when you need a durable scope-and-requirements artifact; then use `/flow-code:plan` when you need DAG-level breakdown and execution orchestration.
 
-## Migration Patterns
+## Removal Patterns
 
-### Strangler Pattern
-Run old and new in parallel. Route traffic incrementally from old to new. Remove old when it handles 0%.
+Use the smallest pattern that gets you safely to removal.
 
-### Adapter Pattern
-Wrap old interface around new implementation. Consumers keep using the old interface while the backend migrates underneath.
+### Direct Replacement or Removal
+Update consumers and delete the old path in the same change or release window.
 
-### Feature Flag Migration
-Use feature flags to switch consumers from old to new one at a time. Roll back instantly if issues arise.
+**Default choice** when consumers are owned, mechanical, or limited.
+
+### Brief Shim
+Keep a thin shim around the new implementation for a short, explicit window.
+
+**Use when** consumers cannot all move at once, but the end state is still removal.
+
+### Parallel Rollout
+Run old and new in parallel while traffic or workloads move incrementally.
+
+**Use when** runtime risk is high enough to justify the extra complexity. Remove the old path as soon as traffic reaches zero.
 
 ## Zombie Code
 
-Code that nobody owns but everybody depends on. Signs:
-- No commits in 6+ months but active consumers exist
-- No assigned maintainer
-- Failing tests nobody fixes
-- Dependencies with known vulnerabilities nobody updates
+Code that nobody wants to own but somebody still depends on.
 
-**Response:** Either assign an owner and maintain it, or deprecate it with a concrete migration plan. Zombie code cannot stay in limbo.
+Signs:
+- no meaningful maintenance for months;
+- no clear owner;
+- failing or flaky tests nobody fixes;
+- vulnerable or stale dependencies nobody updates;
+- consumers still exist, often undocumented.
+
+**Response:** assess consumers, choose replacement or removal, and drive it to completion. Do not leave zombie code in permanent limbo just because cleanup is inconvenient.
 
 ## Common Rationalizations
 
 | Excuse | Reality |
 |--------|---------|
-| "It still works, why remove it?" | Working code without maintenance accumulates security debt and complexity. Cost grows silently until it's a crisis. |
-| "Someone might need it later" | If needed later, it can be rebuilt with better design. Keeping unused code "just in case" costs more than rebuilding. |
-| "No one uses this anymore" | Did you verify that with grep, metrics, and logs? Undocumented consumers are the norm, not the exception. |
-| "We can remove it later" | Later never comes. Every month you delay, more consumers may adopt the deprecated path. |
-| "Breaking changes are fine for a major version" | A major version bump does not excuse removing things without migration paths. Semver is a signal, not a license to break users. |
-| "The migration is too expensive" | Compare migration cost to 2-3 years of ongoing maintenance. Migration is almost always cheaper long-term. |
-| "Users will migrate on their own" | They won't. Provide tooling, documentation, and support — or do the migration yourself (the Churn Rule). |
-| "We can maintain both indefinitely" | Two systems doing the same thing means double the maintenance, testing, documentation, and onboarding cost. |
+| "It still works, why remove it?" | Working but unwanted code still costs maintenance, security attention, and cognitive load. |
+| "Someone might need it later" | "Maybe" is not a reason to keep paying for it now. Rebuild later if it truly matters. |
+| "We should keep both paths just in case" | A temporary bridge is a tool, not a virtue. Keep it only when concrete consumers require it. |
+| "Let's deprecate it first and decide later" | Deprecation without a removal or replacement path becomes bureaucracy and drift. |
+| "Consumers will update on their own" | If the change is important, drive the update with tooling, direct edits, or explicit instructions. |
+| "The cleanup is too expensive" | Compare that cost with years of carrying duplicate paths, docs, tests, and support burden. |
+| "We can support both forever" | Two paths usually mean duplicated maintenance and slower change everywhere. |
+| "We need a large coordination effort" | Most cleanup work needs impact analysis and execution, not extra ceremony. |
 
 ## Red Flags
 
-- Deprecating a system with no replacement available or proven
-- Deprecation announcement with no migration guide, tooling, or timeline
-- "Soft" deprecation that has been advisory for months or years with no progress
-- Removing code without verifying zero active consumers first
-- New features added to a system already marked deprecated (invest in the replacement instead)
-- Zombie code with no owner and active consumers left in limbo
-- Deprecation without quantifying current usage
+- No inventory of actual consumers before starting removal
+- Long-lived temporary bridge with no concrete removal owner or trigger
+- Keeping the old path because removal feels socially harder than deciding
+- Building a replacement that never becomes the default
+- Removing code without checking logs, search results, or dependency edges first
+- Leaving temporary adapters, flags, or warnings in place indefinitely
+- Updating docs to say "deprecated" but never actually reducing the old surface
 
 ## Verification
 
-After completing a deprecation cycle, confirm:
+After completing a deprecation/removal cycle, confirm:
 
-- [ ] Deprecation decision documented with consumer count, maintenance cost, and replacement name
-- [ ] Replacement is production-proven and covers all critical use cases
-- [ ] Migration guide exists with concrete steps, examples, and verification commands
-- [ ] All active consumers migrated (verified by grep, metrics, or logs — not assumption)
-- [ ] Old code, tests, documentation, and configuration fully removed
-- [ ] No orphaned references to the deprecated system remain in the codebase
+- [ ] Decision documented: replace or remove, with consumer count and main risk
+- [ ] Replacement exists and is validated when one is needed
+- [ ] Active consumers were updated, removed, or explicitly accounted for
+- [ ] Consumer inventory was re-checked with search/logs/metrics as appropriate
+- [ ] Any temporary shim or bridge is narrow, temporary, and tracked for deletion
+- [ ] Old code, exports, tests, docs, and config were fully removed when intended
+- [ ] No orphaned references to the deprecated path remain
 - [ ] `$FLOWCTL guard` passes after removal
-- [ ] Deprecation notices removed (they served their purpose)
+- [ ] No leftover deprecation bureaucracy remains for code that should be gone

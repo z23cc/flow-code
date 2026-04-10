@@ -61,16 +61,16 @@ If review was decided in Context Analysis:
 
 **Why re-anchor every iteration?** Per Anthropic's long-running agent guidance: context compresses, you forget details. Re-read before each fix pass.
 
-## Execute or Offer Next Steps
+## Offer Next Steps
 
-**If `--plan-only`**: print `Plan created: <epic-id> (N tasks) | Next: /flow-code:work <epic-id>` and stop.
+`/flow-code:plan` stops after planning. Print a concise summary and the most relevant next command.
 
-**Otherwise (default — auto-execute immediately, no menu):**
+Default output shape:
 
-```bash
-$FLOWCTL epic auto-exec <epic-id> --pending --json
-```
+- `Plan created: <epic-id> (N tasks)`
+- `Next: /flow-code:work <epic-id>`
+- Optional alternatives:
+  - `/flow-code:go <epic-id>` to continue on the full execution pipeline
+  - `/flow-code:plan-review <epic-id>` if the user wants an explicit follow-up review pass
 
-Invoke `/flow-code:work <epic-id> --no-review` directly (Teams mode handles parallelism regardless of task count).
-
-> **Flag precedence:** `--no-review` passed here overrides any `review.backend` config setting. This is intentional — when plan auto-executes work, per-task review is skipped because the plan was already reviewed. Epic-level review still runs at completion unless explicitly disabled.
+If `--plan-only` was passed, treat it as a no-op compatibility flag and stop here the same way.

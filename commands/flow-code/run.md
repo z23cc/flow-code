@@ -1,16 +1,15 @@
 ---
 name: flow-code:run
-description: "Internal pipeline entry point. Use /flow-code:go instead."
+description: "Backward-compatible alias for /flow-code:go"
+argument-hint: "[same args as /flow-code:go]"
 ---
 
-# This command redirects to /flow-code:go
+# IMPORTANT: This command MUST invoke the skill `flow-code-run`
 
-`/flow-code:run` is now internal. The user-facing entry point is `/flow-code:go`.
+This command exists for backward compatibility. The normal user-facing entry point is `/flow-code:go`.
 
-Tell the user: "Use `/flow-code:go` instead. It runs the full pipeline: brainstorm, plan, work, review, close."
-
-If the user provided arguments, invoke the flow-code-run skill directly:
+Choose this front door only for backward compatibility. Prefer `/flow-code:go` for the normal full execution/resume path.
 
 **User request:** $ARGUMENTS
 
-Pass the user request to the skill. The skill handles all pipeline logic.
+Pass the user request to the skill. The skill handles the full pipeline logic.

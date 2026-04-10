@@ -10,9 +10,7 @@ use serde_json::json;
 use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::id::{is_epic_id, is_task_id};
-use flowctl_core::types::{
-    Epic, Task, SPECS_DIR,
-};
+use flowctl_core::types::{Epic, SPECS_DIR, Task};
 
 use super::helpers::get_flow_dir;
 
@@ -144,7 +142,8 @@ fn get_all_tasks(
 ) -> Vec<Task> {
     match epic_filter {
         Some(epic_id) => {
-            let mut tasks = flowctl_core::json_store::task_list_by_epic(flow_dir, epic_id).unwrap_or_default();
+            let mut tasks =
+                flowctl_core::json_store::task_list_by_epic(flow_dir, epic_id).unwrap_or_default();
             if let Some(status) = status_filter {
                 tasks.retain(|t| t.status.to_string() == status);
             }
@@ -181,10 +180,7 @@ pub fn cmd_show(json: bool, id: String) {
 
         // Get tasks for this epic
         let tasks = get_epic_tasks(&flow_dir, &id);
-        let task_summaries: Vec<serde_json::Value> = tasks
-            .iter()
-            .map(task_summary_json)
-            .collect();
+        let task_summaries: Vec<serde_json::Value> = tasks.iter().map(task_summary_json).collect();
 
         if json {
             let mut result = epic_to_json(&epic);
@@ -302,12 +298,7 @@ pub fn cmd_epics(json: bool) {
 
 // ── Tasks command ───────────────────────────────────────────────────
 
-pub fn cmd_tasks(
-    json: bool,
-    epic: Option<String>,
-    status: Option<String>,
-    domain: Option<String>,
-) {
+pub fn cmd_tasks(json: bool, epic: Option<String>, status: Option<String>, domain: Option<String>) {
     let flow_dir = ensure_flow_exists();
 
     let tasks = get_all_tasks(
@@ -325,12 +316,21 @@ pub fn cmd_tasks(
             "count": tasks_out.len(),
         }));
     } else if tasks_out.is_empty() {
-        let scope = epic.as_ref().map(|e| format!(" for epic {}", e)).unwrap_or_default();
-        let status_filter = status.as_ref().map(|s| format!(" with status '{}'", s)).unwrap_or_default();
+        let scope = epic
+            .as_ref()
+            .map(|e| format!(" for epic {}", e))
+            .unwrap_or_default();
+        let status_filter = status
+            .as_ref()
+            .map(|s| format!(" with status '{}'", s))
+            .unwrap_or_default();
         println!("No tasks found{}{}.", scope, status_filter);
     } else {
         use std::fmt::Write as _;
-        let scope = epic.as_ref().map(|e| format!(" for {}", e)).unwrap_or_default();
+        let scope = epic
+            .as_ref()
+            .map(|e| format!(" for {}", e))
+            .unwrap_or_default();
         let mut buf = String::new();
         writeln!(buf, "Tasks{} ({}):\n", scope, tasks_out.len()).ok();
         for t in &tasks {
@@ -376,7 +376,10 @@ pub fn cmd_list(json: bool) {
         let epics_out: Vec<serde_json::Value> = epics
             .iter()
             .map(|e| {
-                let task_list = tasks_by_epic.get(&e.id).map(std::vec::Vec::len).unwrap_or(0);
+                let task_list = tasks_by_epic
+                    .get(&e.id)
+                    .map(std::vec::Vec::len)
+                    .unwrap_or(0);
                 let done_count = tasks_by_epic
                     .get(&e.id)
                     .map(|tasks| {
@@ -448,10 +451,7 @@ pub fn cmd_list(json: bool) {
                 "0/0".to_string()
             };
 
-            println!(
-                "[{}] {}: {} ({} done)",
-                e.status, e.id, e.title, progress
-            );
+            println!("[{}] {}: {} ({} done)", e.status, e.id, e.title, progress);
 
             if let Some(tasks) = task_list {
                 for t in tasks {
@@ -460,10 +460,7 @@ pub fn cmd_list(json: bool) {
                     } else {
                         format!(" (deps: {})", t.depends_on.join(", "))
                     };
-                    println!(
-                        "    [{}] {}: {}{}",
-                        t.status, t.id, t.title, deps
-                    );
+                    println!("    [{}] {}: {}{}", t.status, t.id, t.title, deps);
                 }
             }
             println!();
@@ -541,10 +538,7 @@ pub fn cmd_files(json_mode: bool, epic: String) {
         }
 
         for fp in task_files {
-            ownership
-                .entry(fp)
-                .or_default()
-                .push(task.id.clone());
+            ownership.entry(fp).or_default().push(task.id.clone());
         }
     }
 
@@ -590,11 +584,14 @@ pub fn cmd_files(json_mode: bool, epic: String) {
 
 // ── Lock commands (Teams mode) ─────────────────────────────────────
 
-
 pub fn cmd_lock(json: bool, task: String, files: String, mode: String) {
     let flow_dir = ensure_flow_exists();
 
-    let file_list: Vec<&str> = files.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let file_list: Vec<&str> = files
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
     if file_list.is_empty() {
         error_exit("No files specified for locking.");
     }
@@ -605,7 +602,9 @@ pub fn cmd_lock(json: bool, task: String, files: String, mode: String) {
     for file in &file_list {
         // Check for conflict: another task holding the file.
         let locks = flowctl_core::json_store::locks_read(&flow_dir).unwrap_or_default();
-        let conflict = locks.iter().find(|l| l.file_path == *file && l.task_id != task);
+        let conflict = locks
+            .iter()
+            .find(|l| l.file_path == *file && l.task_id != task);
         if let Some(holder) = conflict {
             already_locked.push(json!({"file": file, "owners": [format!("{}({mode})", holder.task_id)], "detail": format!("file '{}' already locked by task '{}'", file, holder.task_id)}));
         } else {
@@ -627,7 +626,12 @@ pub fn cmd_lock(json: bool, task: String, files: String, mode: String) {
         }));
     } else {
         if !locked.is_empty() {
-            println!("Locked {} file(s) for task {} (mode: {})", locked.len(), task, mode);
+            println!(
+                "Locked {} file(s) for task {} (mode: {})",
+                locked.len(),
+                task,
+                mode
+            );
         }
         for al in &already_locked {
             println!(
@@ -686,7 +690,10 @@ pub fn cmd_lock_check(json: bool, file: Option<String>) {
     match file {
         Some(f) => {
             let locks = flowctl_core::json_store::locks_read(&flow_dir).unwrap_or_default();
-            let holder = locks.iter().find(|l| l.file_path == f).map(|l| l.task_id.clone());
+            let holder = locks
+                .iter()
+                .find(|l| l.file_path == f)
+                .map(|l| l.task_id.clone());
             if let Some(task_id) = holder {
                 if json {
                     json_output(json!({
@@ -707,16 +714,19 @@ pub fn cmd_lock_check(json: bool, file: Option<String>) {
             }
         }
         None => {
-            let entries = flowctl_core::json_store::locks_read(&flow_dir)
-                .unwrap_or_else(|e| { error_exit(&format!("Query failed: {}", e)); });
+            let entries = flowctl_core::json_store::locks_read(&flow_dir).unwrap_or_else(|e| {
+                error_exit(&format!("Query failed: {}", e));
+            });
             let locks: Vec<serde_json::Value> = entries
                 .into_iter()
-                .map(|entry| json!({
-                    "file": entry.file_path,
-                    "task_id": entry.task_id,
-                    "locked_at": entry.locked_at,
-                    "mode": entry.mode,
-                }))
+                .map(|entry| {
+                    json!({
+                        "file": entry.file_path,
+                        "task_id": entry.task_id,
+                        "locked_at": entry.locked_at,
+                        "mode": entry.mode,
+                    })
+                })
                 .collect();
 
             if json {
@@ -753,6 +763,9 @@ pub fn cmd_heartbeat(json: bool, task: String) {
             "message": "Heartbeat acknowledged (file-based locks have no TTL)",
         }));
     } else {
-        println!("Heartbeat acknowledged for task {} (file-based locks have no TTL)", task);
+        println!(
+            "Heartbeat acknowledged for task {} (file-based locks have no TTL)",
+            task
+        );
     }
 }

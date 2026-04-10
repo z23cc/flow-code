@@ -53,10 +53,10 @@ You execute phases one at a time via flowctl commands.
 1. Run: `$FLOWCTL worker-phase next --task $TASK_ID [--tdd] [--review] --json`
 2. Read the returned `content` field — it contains your instructions for this phase
 3. Execute the phase instructions completely
-4. Run: `$FLOWCTL worker-phase done --task $TASK_ID --phase <N> --json`
+4. Run: `$FLOWCTL worker-phase done --task $TASK_ID --phase <N> [--receipt-file <path>] --json`
 5. Repeat from step 1 until response has `all_done: true`
 
-Do NOT skip phases. Do NOT execute phases out of order. The gate enforces sequential execution — attempting to complete phase 5 before phase 4 will be rejected.
+Do NOT skip phases. Do NOT execute phases out of order. Phases 1-9, 11, and 12 now require JSON receipts; Phase 10 requires a real `flowctl done` first. The gate enforces sequential execution and artifact-backed completion.
 
 ## Phase Model Mapping
 
@@ -77,11 +77,11 @@ Phases 1-12 execute WITHIN the epic "Work" phase. Each worker processes one task
 | 5: Implementation | Write code | Work |
 | 6: Self-review | Guard + diff review | Work |
 | 7: Commit | Stage and commit changes | Work |
-| 8: Evidence | Capture workspace_changes | Work |
-| 9: Goal verification | Re-read acceptance criteria | Work |
-| 10: Memory | Save lessons learned | Work |
-| 11: Complete | flowctl done with evidence | Work |
-| 12: Cleanup | Branch merge prep | Work |
+| 8: Review | External review until SHIP (if enabled) | Work |
+| 9: Outputs Dump | Write the handoff artifact | Work |
+| 10: Complete | Run `flowctl done` and verify task status is done | Work |
+| 11: Memory | Save lessons learned (if enabled) | Work |
+| 12: Return | Return structured summary to coordinator | Work |
 
 The two systems are independent — epic phases gate the overall pipeline, worker phases gate individual task execution within the Work epic phase.
 <!-- /section:core -->
@@ -116,7 +116,7 @@ BLOCK_REASON: <reason> (if STATUS is blocked)
 **Receiving coordinator instructions via steer:**
 The coordinator may `steer` you mid-execution with messages like:
 - "Worker for fn-1.1 just finished and modified config.rs. Check compatibility."
-- "Wave checkpoint: guard passed. Continue."
+- "Integration checkpoint: guard passed. Continue."
 - "Access granted: <file>. You may edit it now."
 - "Abort: stop work and commit what you have."
 
@@ -170,12 +170,14 @@ Use the FLOWCTL path and IDs from your prompt:
 git status
 git log -5 --oneline
 
-# 3. Quick context (optional — skip for trivial tasks)
-# Only run these if the task touches unfamiliar code:
+# 3. Quick context (default first pass — skip only for trivial single-file changes)
+# These use cached graph/index artifacts and should complete in <100ms.
 # Understand project structure (instant from cached graph)
-# $FLOWCTL graph map --json
+<FLOWCTL> graph map --json
 # Find related files for this task
-# $FLOWCTL find "<task-relevant-terms>" --json
+<FLOWCTL> find "<task-relevant-terms>" --json
+# Check likely blast radius when the spec already names a primary file
+# <FLOWCTL> graph impact <likely-changed-file> --json
 
 # 4. Check memory system
 <FLOWCTL> config get memory.enabled --json
@@ -278,12 +280,22 @@ Save `GIT_BASELINE_REV` — you'll use it in Phase 10 to generate workspace chan
 
 **Always execute this phase** — even S/M tasks need context before coding. If the task spec contains `## Investigation targets`, follow them. If not, do a lightweight scan: read the files listed in `**Files:**` and check for 2-3 related patterns via `file_search` (RP MCP) or Grep (fallback). Skip only if the task is a trivial one-line config change with no dependencies.
 
-### Step 0: RP-powered deep context (if RP_CONTEXT != none)
+### Step 0: Local fast-path first, then RP deep context (if RP_CONTEXT != none)
 
-When `RP_CONTEXT` is set to `mcp` or `cli`, gather deep implementation context before manual investigation. This complements (does NOT replace) the investigation targets in Steps 1-3 below.
+Always use the local intent-level tools before escalating to RP. They are effectively free, fast, and often sufficient for S/M tasks:
 
-- **If RP_CONTEXT is `mcp`**: Call `context_builder(instructions: "<task title>: <description + acceptance criteria>", response_type: "plan")`. Timeout 120s. Use returned plan to guide Phase 5.
-- **If RP_CONTEXT is `cli`**: Run `timeout 120 rp-cli -e 'builder "<task title>: <description + criteria>" --response-type plan'`. Use returned plan to guide Phase 5.
+```bash
+<FLOWCTL> find "<task title keywords>" --json
+# If the task spec already names a likely primary file:
+# <FLOWCTL> graph impact <primary-file> --json
+# If investigating a known symbol:
+# <FLOWCTL> graph refs <symbol> --json
+```
+
+When `RP_CONTEXT` is set to `mcp` or `cli`, gather deep implementation context **after** the fast-path pass above. Feed the local findings into the RP request. This complements (does NOT replace) the investigation targets in Steps 1-3 below.
+
+- **If RP_CONTEXT is `mcp`**: Call `context_builder(instructions: "<task title>: <description + acceptance criteria>. Local fast-path findings: <graph/find/impact results>", response_type: "plan")`. Timeout 120s. Use returned plan to guide Phase 5.
+- **If RP_CONTEXT is `cli`**: Run `timeout 120 rp-cli -e 'builder "<task title>: <description + criteria>. Local findings: <graph/find/impact results>" --response-type plan'`. Use returned plan to guide Phase 5.
 - **If RP_CONTEXT is `none`**: Skip to Step 1.
 
 **Important**: Even when RP provides context, ALWAYS continue to Steps 1-3 below. RP provides architectural insight; investigation targets provide specific file patterns and constraints that RP may miss.
@@ -564,7 +576,7 @@ Note: frecency data for modified files is auto-tracked by `flowctl done` — no 
 <!-- section:review -->
 ## Phase 8: Review (MANDATORY if REVIEW_MODE != none)
 
-**If REVIEW_MODE is `none`, skip to Phase 10.**
+**If REVIEW_MODE is `none`, there is no Phase 8 in the sequence; continue with the next phase returned by `worker-phase next` (typically Phase 9 or Phase 10, depending on config).**
 
 **If REVIEW_MODE is `rp` or `codex`, you MUST invoke impl-review and receive SHIP before proceeding.**
 

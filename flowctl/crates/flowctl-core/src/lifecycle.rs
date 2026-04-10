@@ -11,9 +11,7 @@ use chrono::Utc;
 
 use crate::id::{epic_id_from_task, is_task_id};
 use crate::state_machine::{Status, Transition};
-use crate::types::{
-    Epic, EpicStatus, Evidence, RuntimeState, Task, REVIEWS_DIR,
-};
+use crate::types::{Epic, EpicStatus, Evidence, REVIEWS_DIR, RuntimeState, Task};
 
 use crate::error::{ServiceError, ServiceResult};
 
@@ -133,10 +131,7 @@ fn get_runtime(flow_dir: &Path, task_id: &str) -> Option<RuntimeState> {
 }
 
 /// Load all tasks for an epic from JSON files.
-fn load_tasks_for_epic(
-    flow_dir: &Path,
-    epic_id: &str,
-) -> std::collections::HashMap<String, Task> {
+fn load_tasks_for_epic(flow_dir: &Path, epic_id: &str) -> std::collections::HashMap<String, Task> {
     use std::collections::HashMap;
 
     if let Ok(tasks) = crate::json_store::task_list_by_epic(flow_dir, epic_id) {
@@ -151,10 +146,7 @@ fn load_tasks_for_epic(
 }
 
 /// Find all downstream dependents of a task within the same epic.
-fn find_dependents(
-    flow_dir: &Path,
-    task_id: &str,
-) -> Vec<String> {
+fn find_dependents(flow_dir: &Path, task_id: &str) -> Vec<String> {
     let epic_id = match epic_id_from_task(task_id) {
         Ok(eid) => eid,
         Err(_) => return Vec::new(),
@@ -199,10 +191,7 @@ fn get_max_retries_from_config(config: Option<&serde_json::Value>) -> u32 {
 }
 
 /// Propagate upstream_failed to all transitive downstream tasks.
-fn propagate_upstream_failure(
-    flow_dir: &Path,
-    failed_id: &str,
-) -> Vec<String> {
+fn propagate_upstream_failure(flow_dir: &Path, failed_id: &str) -> Vec<String> {
     let epic_id = match epic_id_from_task(failed_id) {
         Ok(eid) => eid,
         Err(_) => return Vec::new(),
@@ -282,8 +271,9 @@ fn handle_task_failure(
             retry_count: new_retry_count,
             updated_at: Utc::now(),
         };
-        crate::json_store::state_write(flow_dir, task_id, &task_state)
-            .map_err(|e| std::io::Error::other(format!("failed to write retry state for {task_id}: {e}")))?;
+        crate::json_store::state_write(flow_dir, task_id, &task_state).map_err(|e| {
+            std::io::Error::other(format!("failed to write retry state for {task_id}: {e}"))
+        })?;
 
         log_audit_event(flow_dir, task_id, "task_failed");
 
@@ -293,8 +283,9 @@ fn handle_task_failure(
             status: Status::Failed,
             ..Default::default()
         };
-        crate::json_store::state_write(flow_dir, task_id, &task_state)
-            .map_err(|e| std::io::Error::other(format!("failed to write failed state for {task_id}: {e}")))?;
+        crate::json_store::state_write(flow_dir, task_id, &task_state).map_err(|e| {
+            std::io::Error::other(format!("failed to write failed state for {task_id}: {e}"))
+        })?;
 
         log_audit_event(flow_dir, task_id, "task_failed");
 
@@ -355,13 +346,11 @@ fn parse_evidence(req: &DoneTaskRequest) -> ServiceResult<serde_json::Value> {
                 ))
             })?
         };
-        serde_json::from_str(&raw).map_err(|e| {
-            ServiceError::ValidationError(format!("Evidence JSON invalid: {}", e))
-        })?
+        serde_json::from_str(&raw)
+            .map_err(|e| ServiceError::ValidationError(format!("Evidence JSON invalid: {}", e)))?
     } else if let Some(ref ev) = req.evidence_inline {
-        serde_json::from_str(ev).map_err(|e| {
-            ServiceError::ValidationError(format!("Evidence invalid JSON: {}", e))
-        })?
+        serde_json::from_str(ev)
+            .map_err(|e| ServiceError::ValidationError(format!("Evidence invalid JSON: {}", e)))?
     } else {
         serde_json::json!({"commits": [], "tests": [], "prs": []})
     };
@@ -377,21 +366,14 @@ fn parse_evidence(req: &DoneTaskRequest) -> ServiceResult<serde_json::Value> {
 
 /// Calculate duration in seconds from claimed_at to now.
 fn compute_duration(runtime: &Option<RuntimeState>) -> Option<u64> {
-    runtime
-        .as_ref()
-        .and_then(|rt| rt.claimed_at)
-        .map(|start| {
-            let dur = Utc::now() - start;
-            dur.num_seconds().max(0) as u64
-        })
+    runtime.as_ref().and_then(|rt| rt.claimed_at).map(|start| {
+        let dur = Utc::now() - start;
+        dur.num_seconds().max(0) as u64
+    })
 }
 
 /// Archive a review receipt from evidence to the reviews directory.
-fn archive_review_receipt(
-    flow_dir: &Path,
-    task_id: &str,
-    evidence_obj: &serde_json::Value,
-) {
+fn archive_review_receipt(flow_dir: &Path, task_id: &str, evidence_obj: &serde_json::Value) {
     if let Some(receipt) = evidence_obj.get("review_receipt") {
         if receipt.is_object() {
             let reviews_dir = flow_dir.join(REVIEWS_DIR);
@@ -415,11 +397,7 @@ fn archive_review_receipt(
 // ── Audit event helper ───────────────────────────────────────────
 
 /// Log an audit event to the JSONL event log. Failures are silently ignored.
-fn log_audit_event(
-    flow_dir: &Path,
-    task_id: &str,
-    event_type: &str,
-) {
+fn log_audit_event(flow_dir: &Path, task_id: &str, event_type: &str) {
     let epic_id = epic_id_from_task(task_id).unwrap_or_default();
     let event = serde_json::json!({
         "stream_id": format!("task:{task_id}"),
@@ -432,12 +410,7 @@ fn log_audit_event(
 }
 
 /// Emit a task event to the event store. Failures are silently ignored.
-fn emit_task_event(
-    flow_dir: &Path,
-    task_id: &str,
-    event_type: &str,
-    source_cmd: &str,
-) {
+fn emit_task_event(flow_dir: &Path, task_id: &str, event_type: &str, source_cmd: &str) {
     let stream_id = format!("task:{task_id}");
     let event = serde_json::json!({
         "stream_id": stream_id,
@@ -452,25 +425,20 @@ fn emit_task_event(
 // ── Service functions ──────────────────────────────────────────────
 
 /// Start a task: validate deps, state machine, actor, update state.
-pub fn start_task(
-    flow_dir: &Path,
-    req: StartTaskRequest,
-) -> ServiceResult<StartTaskResponse> {
+pub fn start_task(flow_dir: &Path, req: StartTaskRequest) -> ServiceResult<StartTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
-        ServiceError::TaskNotFound(req.task_id.clone())
-    })?;
+    let task = load_task(flow_dir, &req.task_id)
+        .ok_or_else(|| ServiceError::TaskNotFound(req.task_id.clone()))?;
 
     // Validate dependencies unless --force
     if !req.force {
         for dep in &task.depends_on {
-            let dep_task = load_task(flow_dir, dep).ok_or_else(|| {
-                ServiceError::DependencyUnsatisfied {
+            let dep_task =
+                load_task(flow_dir, dep).ok_or_else(|| ServiceError::DependencyUnsatisfied {
                     task: req.task_id.clone(),
                     dependency: format!("{} not found", dep),
-                }
-            })?;
+                })?;
             if !dep_task.status.is_satisfied() {
                 return Err(ServiceError::DependencyUnsatisfied {
                     task: req.task_id.clone(),
@@ -533,16 +501,15 @@ pub fn start_task(
             .unwrap_or_else(|| req.actor.clone())
     };
 
-    let claimed_at = if existing_rt
-        .as_ref()
-        .and_then(|rt| rt.claimed_at)
-        .is_some()
-        && !force_takeover
-    {
-        existing_rt.as_ref().expect("existing_rt verified as Some above").claimed_at
-    } else {
-        Some(now)
-    };
+    let claimed_at =
+        if existing_rt.as_ref().and_then(|rt| rt.claimed_at).is_some() && !force_takeover {
+            existing_rt
+                .as_ref()
+                .expect("existing_rt verified as Some above")
+                .claimed_at
+        } else {
+            Some(now)
+        };
 
     let task_state = crate::json_store::TaskState {
         status: Status::InProgress,
@@ -552,14 +519,9 @@ pub fn start_task(
         evidence: None,
         blocked_reason: None,
         duration_seconds: None,
-        baseline_rev: existing_rt
-            .as_ref()
-            .and_then(|rt| rt.baseline_rev.clone()),
+        baseline_rev: existing_rt.as_ref().and_then(|rt| rt.baseline_rev.clone()),
         final_rev: None,
-        retry_count: existing_rt
-            .as_ref()
-            .map(|rt| rt.retry_count)
-            .unwrap_or(0),
+        retry_count: existing_rt.as_ref().map(|rt| rt.retry_count).unwrap_or(0),
         updated_at: Utc::now(),
     };
 
@@ -576,15 +538,11 @@ pub fn start_task(
 }
 
 /// Complete a task: validate status/actor, collect evidence, update state.
-pub fn done_task(
-    flow_dir: &Path,
-    req: DoneTaskRequest,
-) -> ServiceResult<DoneTaskResponse> {
+pub fn done_task(flow_dir: &Path, req: DoneTaskRequest) -> ServiceResult<DoneTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
-        ServiceError::TaskNotFound(req.task_id.clone())
-    })?;
+    let task = load_task(flow_dir, &req.task_id)
+        .ok_or_else(|| ServiceError::TaskNotFound(req.task_id.clone()))?;
 
     let runtime = get_runtime(flow_dir, &req.task_id);
 
@@ -594,7 +552,10 @@ pub fn done_task(
     // 2. Validate summary file is readable
     if let Some(ref file) = req.summary_file {
         fs::read_to_string(file).map_err(|e| {
-            ServiceError::IoError(std::io::Error::new(e.kind(), format!("Cannot read summary file: {}", e)))
+            ServiceError::IoError(std::io::Error::new(
+                e.kind(),
+                format!("Cannot read summary file: {}", e),
+            ))
         })?;
     }
 
@@ -678,7 +639,11 @@ fn validate_workspace_changes(evidence_obj: &serde_json::Value) -> Option<String
     ];
     let missing: Vec<&str> = required
         .iter()
-        .filter(|k| !wc.as_object().expect("wc confirmed as object above").contains_key(**k))
+        .filter(|k| {
+            !wc.as_object()
+                .expect("wc confirmed as object above")
+                .contains_key(**k)
+        })
         .copied()
         .collect();
     if !missing.is_empty() {
@@ -692,15 +657,11 @@ fn validate_workspace_changes(evidence_obj: &serde_json::Value) -> Option<String
 }
 
 /// Block a task: validate status, read reason, update state.
-pub fn block_task(
-    flow_dir: &Path,
-    req: BlockTaskRequest,
-) -> ServiceResult<BlockTaskResponse> {
+pub fn block_task(flow_dir: &Path, req: BlockTaskRequest) -> ServiceResult<BlockTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
-        ServiceError::TaskNotFound(req.task_id.clone())
-    })?;
+    let task = load_task(flow_dir, &req.task_id)
+        .ok_or_else(|| ServiceError::TaskNotFound(req.task_id.clone()))?;
 
     if task.status == Status::Done {
         return Err(ServiceError::InvalidTransition(format!(
@@ -746,15 +707,11 @@ pub fn block_task(
 }
 
 /// Fail a task: check retries, propagate upstream failure, update state.
-pub fn fail_task(
-    flow_dir: &Path,
-    req: FailTaskRequest,
-) -> ServiceResult<FailTaskResponse> {
+pub fn fail_task(flow_dir: &Path, req: FailTaskRequest) -> ServiceResult<FailTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
-        ServiceError::TaskNotFound(req.task_id.clone())
-    })?;
+    let task = load_task(flow_dir, &req.task_id)
+        .ok_or_else(|| ServiceError::TaskNotFound(req.task_id.clone()))?;
 
     if !req.force && task.status != Status::InProgress {
         return Err(ServiceError::InvalidTransition(format!(
@@ -801,9 +758,8 @@ pub fn restart_task(
 ) -> ServiceResult<RestartTaskResponse> {
     validate_task_id(&req.task_id)?;
 
-    let _task = load_task(flow_dir, &req.task_id).ok_or_else(|| {
-        ServiceError::TaskNotFound(req.task_id.clone())
-    })?;
+    let _task = load_task(flow_dir, &req.task_id)
+        .ok_or_else(|| ServiceError::TaskNotFound(req.task_id.clone()))?;
 
     // Check epic not closed
     if let Ok(epic_id) = epic_id_from_task(&req.task_id) {

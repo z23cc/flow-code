@@ -78,11 +78,7 @@ pub fn fuzzy_replace(content: &str, old_text: &str, new_text: &str) -> Result<St
 /// Normalizes both the search needle and each candidate window in the content
 /// by collapsing all whitespace runs to single spaces. If a match is found,
 /// replaces the original (un-normalized) text span with `new_text`.
-fn whitespace_normalized_replace(
-    content: &str,
-    old_text: &str,
-    new_text: &str,
-) -> Option<String> {
+fn whitespace_normalized_replace(content: &str, old_text: &str, new_text: &str) -> Option<String> {
     let norm_old = normalize_whitespace(old_text);
     if norm_old.is_empty() {
         return None;
@@ -95,8 +91,11 @@ fn whitespace_normalized_replace(
 
     for start in 0..content_lines.len() {
         // Try windows of old_line_count and old_line_count ± 1 to tolerate blank-line drift.
-        for window_size in [old_line_count, old_line_count + 1, old_line_count.saturating_sub(1)]
-        {
+        for window_size in [
+            old_line_count,
+            old_line_count + 1,
+            old_line_count.saturating_sub(1),
+        ] {
             if window_size == 0 || start + window_size > content_lines.len() {
                 continue;
             }

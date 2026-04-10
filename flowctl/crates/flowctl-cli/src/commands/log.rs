@@ -7,8 +7,8 @@
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::output::{error_exit, json_output, pretty_output};
 use super::helpers::get_flow_dir;
+use crate::output::{error_exit, json_output, pretty_output};
 
 use flowctl_core::json_store;
 
@@ -51,7 +51,14 @@ pub fn dispatch(cmd: &LogCmd, json_mode: bool) {
             reason,
             epic,
             task,
-        } => cmd_log_decision(json_mode, key, value, reason, epic.as_deref(), task.as_deref()),
+        } => cmd_log_decision(
+            json_mode,
+            key,
+            value,
+            reason,
+            epic.as_deref(),
+            task.as_deref(),
+        ),
         LogCmd::Decisions { epic, limit } => cmd_log_decisions(json_mode, epic.as_deref(), *limit),
     }
 }
@@ -93,7 +100,10 @@ fn cmd_log_decision(
             "task_id": task_id,
         }));
     } else {
-        pretty_output("log", &format!("Decision logged: {key}={value} (reason: {reason})"));
+        pretty_output(
+            "log",
+            &format!("Decision logged: {key}={value} (reason: {reason})"),
+        );
     }
 }
 
@@ -157,7 +167,12 @@ fn cmd_log_decisions(json_mode: bool, epic_id: Option<&str>, limit: usize) {
                 "log",
                 &format!(
                     "  [{}] {}={} — {} (epic: {}, task: {})",
-                    &ts[..std::cmp::min(19, ts.len())], key, value, reason, epic, task,
+                    &ts[..std::cmp::min(19, ts.len())],
+                    key,
+                    value,
+                    reason,
+                    epic,
+                    task,
                 ),
             );
         }

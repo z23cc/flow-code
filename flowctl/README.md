@@ -1,8 +1,8 @@
 # flowctl
 
-A fast, native task and workflow engine for structured, plan-first development. Manages epics, tasks, dependencies, and state machines in a local `.flow/` directory backed by libSQL (async, native vector search).
+A fast, native task and workflow engine for structured, plan-first development. Manages epics, tasks, dependencies, and state machines in a local `.flow/` directory.
 
-flowctl is the Rust rewrite of the Python `flowctl` CLI from [flow-code](https://github.com/anthropics/flow-code), designed for speed, cross-platform support, and zero-dependency deployment.
+flowctl is the Rust CLI shipped by [flow-code](https://github.com/z23cc/flow-code), designed for speed, cross-platform support, and zero-dependency deployment.
 
 ## Installation
 
@@ -15,7 +15,7 @@ cargo install --path crates/flowctl-cli
 ### From GitHub releases
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/anthropics/flow-code/main/flowctl/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/z23cc/flow-code/main/flowctl/install.sh | sh
 ```
 
 Set `FLOWCTL_INSTALL_DIR` to change the install location (default: `/usr/local/bin`).
@@ -54,16 +54,14 @@ flowctl tasks -e ep-1
 
 ## Architecture
 
-flowctl is split into four crates:
+flowctl is split into two crates:
 
 ```
-flowctl-core        Core types, ID parsing, state machine, DAG, JSON I/O
-flowctl-db          libSQL storage layer (async, native vector search)
-flowctl-service     Business logic service layer — unifies CLI, daemon, and MCP execution paths
+flowctl-core        Core types, state machine, DAG, JSON I/O, indexing/search utilities
 flowctl-cli         CLI entry point (clap) — the `flowctl` binary
 ```
 
-**Data flow**: CLI parses commands via `clap`, calls into `flowctl-service` for business logic, which uses `flowctl-db` for storage and `flowctl-core` types. The DAG module computes task dependencies and execution order.
+**Data flow**: CLI parses commands via `clap`, executes command handlers in `flowctl-cli`, and delegates shared domain logic to `flowctl-core`.
 
 ## Release profile
 

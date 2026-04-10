@@ -1,13 +1,13 @@
 //! Fuzzy file search combining nucleo-matcher, ignore (`.gitignore`-aware walk),
 //! frecency boosting, and git status filtering.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
-use std::collections::HashMap;
 
+use ignore::WalkBuilder;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
-use ignore::WalkBuilder;
 use serde::Serialize;
 
 use crate::frecency::FrecencyStore;
@@ -85,9 +85,7 @@ pub fn search(
         let score = pattern.score(haystack, &mut matcher);
 
         if let Some(fuzzy_score) = score {
-            let frecency_score = frecency
-                .map(|f| f.get_score(path))
-                .unwrap_or(0.0);
+            let frecency_score = frecency.map(|f| f.get_score(path)).unwrap_or(0.0);
 
             let git_status = git_statuses.get(path).cloned();
 
@@ -111,7 +109,11 @@ pub fn search(
         }
     }
 
-    results.sort_by(|a, b| b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.final_score
+            .partial_cmp(&a.final_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(limit);
     results
 }

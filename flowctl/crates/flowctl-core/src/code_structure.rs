@@ -128,22 +128,53 @@ fn rust_patterns() -> LangPatterns {
 fn python_patterns() -> LangPatterns {
     LangPatterns {
         patterns: vec![
-            (SymbolKind::Function, Regex::new(r"(?m)^(?:\s*)(?:async\s+)?def\s+(\w+)\s*\([^)]*\)(?:\s*->\s*[^:]+)?").unwrap()),
-            (SymbolKind::Class, Regex::new(r"(?m)^class\s+(\w+)(?:\([^)]*\))?").unwrap()),
+            (
+                SymbolKind::Function,
+                Regex::new(r"(?m)^(?:\s*)(?:async\s+)?def\s+(\w+)\s*\([^)]*\)(?:\s*->\s*[^:]+)?")
+                    .unwrap(),
+            ),
+            (
+                SymbolKind::Class,
+                Regex::new(r"(?m)^class\s+(\w+)(?:\([^)]*\))?").unwrap(),
+            ),
         ],
     }
 }
 
 fn js_ts_patterns(is_typescript: bool) -> LangPatterns {
     let mut patterns = vec![
-        (SymbolKind::Function, Regex::new(r"(?m)^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(?:<[^>]*>)?\s*\([^)]*\)").unwrap()),
-        (SymbolKind::Class, Regex::new(r"(?m)^(?:export\s+)?class\s+(\w+)").unwrap()),
-        (SymbolKind::Const, Regex::new(r"(?m)^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>").unwrap()),
+        (
+            SymbolKind::Function,
+            Regex::new(
+                r"(?m)^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(?:<[^>]*>)?\s*\([^)]*\)",
+            )
+            .unwrap(),
+        ),
+        (
+            SymbolKind::Class,
+            Regex::new(r"(?m)^(?:export\s+)?class\s+(\w+)").unwrap(),
+        ),
+        (
+            SymbolKind::Const,
+            Regex::new(
+                r"(?m)^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>",
+            )
+            .unwrap(),
+        ),
     ];
     if is_typescript {
-        patterns.push((SymbolKind::Interface, Regex::new(r"(?m)^(?:export\s+)?interface\s+(\w+)(?:<[^>]*>)?").unwrap()));
-        patterns.push((SymbolKind::Type, Regex::new(r"(?m)^(?:export\s+)?type\s+(\w+)(?:<[^>]*>)?\s*=").unwrap()));
-        patterns.push((SymbolKind::Enum, Regex::new(r"(?m)^(?:export\s+)?enum\s+(\w+)").unwrap()));
+        patterns.push((
+            SymbolKind::Interface,
+            Regex::new(r"(?m)^(?:export\s+)?interface\s+(\w+)(?:<[^>]*>)?").unwrap(),
+        ));
+        patterns.push((
+            SymbolKind::Type,
+            Regex::new(r"(?m)^(?:export\s+)?type\s+(\w+)(?:<[^>]*>)?\s*=").unwrap(),
+        ));
+        patterns.push((
+            SymbolKind::Enum,
+            Regex::new(r"(?m)^(?:export\s+)?enum\s+(\w+)").unwrap(),
+        ));
     }
     LangPatterns { patterns }
 }
@@ -151,10 +182,22 @@ fn js_ts_patterns(is_typescript: bool) -> LangPatterns {
 fn go_patterns() -> LangPatterns {
     LangPatterns {
         patterns: vec![
-            (SymbolKind::Function, Regex::new(r"(?m)^func\s+(?:\([^)]+\)\s+)?(\w+)\s*\([^)]*\)").unwrap()),
-            (SymbolKind::Struct, Regex::new(r"(?m)^type\s+(\w+)\s+struct\s*\{").unwrap()),
-            (SymbolKind::Interface, Regex::new(r"(?m)^type\s+(\w+)\s+interface\s*\{").unwrap()),
-            (SymbolKind::Type, Regex::new(r"(?m)^type\s+(\w+)\s+(?!struct|interface)\w").unwrap()),
+            (
+                SymbolKind::Function,
+                Regex::new(r"(?m)^func\s+(?:\([^)]+\)\s+)?(\w+)\s*\([^)]*\)").unwrap(),
+            ),
+            (
+                SymbolKind::Struct,
+                Regex::new(r"(?m)^type\s+(\w+)\s+struct\s*\{").unwrap(),
+            ),
+            (
+                SymbolKind::Interface,
+                Regex::new(r"(?m)^type\s+(\w+)\s+interface\s*\{").unwrap(),
+            ),
+            (
+                SymbolKind::Type,
+                Regex::new(r"(?m)^type\s+(\w+)\s+(?!struct|interface)\w").unwrap(),
+            ),
         ],
     }
 }
@@ -172,12 +215,24 @@ fn java_patterns() -> LangPatterns {
 
 fn c_cpp_patterns(is_cpp: bool) -> LangPatterns {
     let mut patterns = vec![
-        (SymbolKind::Function, Regex::new(r"(?m)^(?:\w[\w\s\*]*?)\s+(\w+)\s*\([^)]*\)\s*\{").unwrap()),
-        (SymbolKind::Struct, Regex::new(r"(?m)^(?:typedef\s+)?struct\s+(\w+)").unwrap()),
-        (SymbolKind::Enum, Regex::new(r"(?m)^(?:typedef\s+)?enum\s+(\w+)").unwrap()),
+        (
+            SymbolKind::Function,
+            Regex::new(r"(?m)^(?:\w[\w\s\*]*?)\s+(\w+)\s*\([^)]*\)\s*\{").unwrap(),
+        ),
+        (
+            SymbolKind::Struct,
+            Regex::new(r"(?m)^(?:typedef\s+)?struct\s+(\w+)").unwrap(),
+        ),
+        (
+            SymbolKind::Enum,
+            Regex::new(r"(?m)^(?:typedef\s+)?enum\s+(\w+)").unwrap(),
+        ),
     ];
     if is_cpp {
-        patterns.push((SymbolKind::Class, Regex::new(r"(?m)^class\s+(\w+)").unwrap()));
+        patterns.push((
+            SymbolKind::Class,
+            Regex::new(r"(?m)^class\s+(\w+)").unwrap(),
+        ));
     }
     LangPatterns { patterns }
 }
@@ -185,9 +240,18 @@ fn c_cpp_patterns(is_cpp: bool) -> LangPatterns {
 fn ruby_patterns() -> LangPatterns {
     LangPatterns {
         patterns: vec![
-            (SymbolKind::Function, Regex::new(r"(?m)^\s*def\s+(?:self\.)?(\w+[?!]?)").unwrap()),
-            (SymbolKind::Class, Regex::new(r"(?m)^class\s+(\w+)").unwrap()),
-            (SymbolKind::Function, Regex::new(r"(?m)^module\s+(\w+)").unwrap()),
+            (
+                SymbolKind::Function,
+                Regex::new(r"(?m)^\s*def\s+(?:self\.)?(\w+[?!]?)").unwrap(),
+            ),
+            (
+                SymbolKind::Class,
+                Regex::new(r"(?m)^class\s+(\w+)").unwrap(),
+            ),
+            (
+                SymbolKind::Function,
+                Regex::new(r"(?m)^module\s+(\w+)").unwrap(),
+            ),
         ],
     }
 }
@@ -221,9 +285,8 @@ fn clean_signature(matched: &str) -> String {
 
 /// Extract all symbol definitions from a single file.
 pub fn extract_symbols(path: &Path) -> Result<Vec<Symbol>, StructureError> {
-    let lang = detect_language(path).ok_or_else(|| {
-        StructureError::UnsupportedLanguage(path.display().to_string())
-    })?;
+    let lang = detect_language(path)
+        .ok_or_else(|| StructureError::UnsupportedLanguage(path.display().to_string()))?;
     let content = std::fs::read_to_string(path)?;
     let file_str = path.display().to_string();
     let lang_patterns = patterns_for(lang);
@@ -305,8 +368,8 @@ pub fn extract_all_symbols(root: &Path) -> Result<Vec<Symbol>, StructureError> {
 /// Return the list of supported file extensions.
 pub fn supported_extensions() -> &'static [&'static str] {
     &[
-        "rs", "py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts",
-        "go", "java", "c", "h", "cpp", "hpp", "cc", "cxx", "hh", "hxx", "rb",
+        "rs", "py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts", "go", "java", "c", "h",
+        "cpp", "hpp", "cc", "cxx", "hh", "hxx", "rb",
     ]
 }
 
@@ -327,7 +390,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.rs");
         let mut f = std::fs::File::create(&file).unwrap();
-        write!(f, r#"
+        write!(
+            f,
+            r#"
 pub fn authenticate(token: &str) -> Result<User> {{
     todo!()
 }}
@@ -345,13 +410,31 @@ enum Role {{
 pub trait Auth {{
     fn check(&self) -> bool;
 }}
-"#).unwrap();
+"#
+        )
+        .unwrap();
 
         let symbols = extract_symbols(&file).unwrap();
-        assert!(symbols.iter().any(|s| s.name == "authenticate" && s.kind == SymbolKind::Function));
-        assert!(symbols.iter().any(|s| s.name == "User" && s.kind == SymbolKind::Struct));
-        assert!(symbols.iter().any(|s| s.name == "Role" && s.kind == SymbolKind::Enum));
-        assert!(symbols.iter().any(|s| s.name == "Auth" && s.kind == SymbolKind::Trait));
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "authenticate" && s.kind == SymbolKind::Function)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "User" && s.kind == SymbolKind::Struct)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "Role" && s.kind == SymbolKind::Enum)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "Auth" && s.kind == SymbolKind::Trait)
+        );
     }
 
     #[test]
@@ -359,7 +442,9 @@ pub trait Auth {{
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.py");
         let mut f = std::fs::File::create(&file).unwrap();
-        write!(f, r#"
+        write!(
+            f,
+            r#"
 def greet(name: str) -> str:
     return f"Hello, {{name}}"
 
@@ -369,12 +454,26 @@ class UserService:
 
 async def fetch_data(url: str) -> dict:
     pass
-"#).unwrap();
+"#
+        )
+        .unwrap();
 
         let symbols = extract_symbols(&file).unwrap();
-        assert!(symbols.iter().any(|s| s.name == "greet" && s.kind == SymbolKind::Function));
-        assert!(symbols.iter().any(|s| s.name == "UserService" && s.kind == SymbolKind::Class));
-        assert!(symbols.iter().any(|s| s.name == "fetch_data" && s.kind == SymbolKind::Function));
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "greet" && s.kind == SymbolKind::Function)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "UserService" && s.kind == SymbolKind::Class)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "fetch_data" && s.kind == SymbolKind::Function)
+        );
     }
 
     #[test]
@@ -382,7 +481,9 @@ async def fetch_data(url: str) -> dict:
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("test.ts");
         let mut f = std::fs::File::create(&file).unwrap();
-        write!(f, r#"
+        write!(
+            f,
+            r#"
 export function createUser(name: string): User {{
     return {{ name }};
 }}
@@ -400,14 +501,36 @@ export enum Status {{
     Active,
     Inactive,
 }}
-"#).unwrap();
+"#
+        )
+        .unwrap();
 
         let symbols = extract_symbols(&file).unwrap();
-        assert!(symbols.iter().any(|s| s.name == "createUser" && s.kind == SymbolKind::Function));
-        assert!(symbols.iter().any(|s| s.name == "UserConfig" && s.kind == SymbolKind::Interface));
-        assert!(symbols.iter().any(|s| s.name == "UserId" && s.kind == SymbolKind::Type));
-        assert!(symbols.iter().any(|s| s.name == "UserService" && s.kind == SymbolKind::Class));
-        assert!(symbols.iter().any(|s| s.name == "Status" && s.kind == SymbolKind::Enum));
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "createUser" && s.kind == SymbolKind::Function)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "UserConfig" && s.kind == SymbolKind::Interface)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "UserId" && s.kind == SymbolKind::Type)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "UserService" && s.kind == SymbolKind::Class)
+        );
+        assert!(
+            symbols
+                .iter()
+                .any(|s| s.name == "Status" && s.kind == SymbolKind::Enum)
+        );
     }
 
     #[test]
@@ -425,7 +548,10 @@ export enum Status {{
     fn test_detect_language() {
         assert_eq!(detect_language(Path::new("foo.rs")), Some(Language::Rust));
         assert_eq!(detect_language(Path::new("bar.py")), Some(Language::Python));
-        assert_eq!(detect_language(Path::new("baz.ts")), Some(Language::TypeScript));
+        assert_eq!(
+            detect_language(Path::new("baz.ts")),
+            Some(Language::TypeScript)
+        );
         assert_eq!(detect_language(Path::new("qux.go")), Some(Language::Go));
         assert_eq!(detect_language(Path::new("readme.md")), None);
     }

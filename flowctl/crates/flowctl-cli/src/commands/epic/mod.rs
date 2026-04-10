@@ -18,17 +18,16 @@ pub use types::EpicCmd;
 pub fn dispatch(cmd: &EpicCmd, json: bool, dry_run: bool) {
     match cmd {
         EpicCmd::Create { title, branch } => crud::cmd_create(title, branch, json, dry_run),
-        EpicCmd::Plan { id, file, spec } => crud::cmd_set_plan(id, file.as_deref(), spec.as_deref(), json),
+        EpicCmd::Plan { id, file, spec } => {
+            crud::cmd_set_plan(id, file.as_deref(), spec.as_deref(), json)
+        }
         EpicCmd::Review { id, status } => crud::cmd_set_plan_review_status(id, status, json),
         EpicCmd::Completion { id, status } => {
             crud::cmd_set_completion_review_status(id, status, json)
         }
         EpicCmd::Branch { id, name } => crud::cmd_set_branch(id, name, json),
         EpicCmd::Title { id, title } => crud::cmd_set_title(id, title, json),
-        EpicCmd::Close {
-            id,
-            skip_gap_check,
-        } => lifecycle::cmd_close(id, *skip_gap_check, json),
+        EpicCmd::Close { id, skip_gap_check } => lifecycle::cmd_close(id, *skip_gap_check, json),
         EpicCmd::Reopen { id } => lifecycle::cmd_reopen(id, json),
         EpicCmd::Archive { id, force } => lifecycle::cmd_archive(id, *force, json),
         EpicCmd::Clean => lifecycle::cmd_clean(json),
@@ -41,10 +40,8 @@ pub fn dispatch(cmd: &EpicCmd, json: bool, dry_run: bool) {
             review,
             sync,
         } => crud::cmd_set_backend(id, impl_spec, review, sync, json),
-        EpicCmd::AutoExec {
-            id,
-            pending,
-            done,
-        } => crud::cmd_set_auto_execute(id, *pending, *done, json),
+        EpicCmd::AutoExec { id, pending, done } => {
+            crud::cmd_set_auto_execute(id, *pending, *done, json)
+        }
     }
 }

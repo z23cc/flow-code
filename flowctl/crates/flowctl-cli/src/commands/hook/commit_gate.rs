@@ -86,9 +86,7 @@ pub fn cmd_commit_gate() {
         Some(f) => f,
         None => std::process::exit(0),
     };
-    let result = Command::new(&flowctl)
-        .args(["tasks", "--json"])
-        .output();
+    let result = Command::new(&flowctl).args(["tasks", "--json"]).output();
     let has_active = match result {
         Ok(o) if o.status.success() => {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -96,9 +94,9 @@ pub fn cmd_commit_gate() {
                 val.get("tasks")
                     .and_then(|v| v.as_array())
                     .map(|tasks| {
-                        tasks
-                            .iter()
-                            .any(|t| t.get("status").and_then(|s| s.as_str()) == Some("in_progress"))
+                        tasks.iter().any(|t| {
+                            t.get("status").and_then(|s| s.as_str()) == Some("in_progress")
+                        })
                     })
                     .unwrap_or(false)
             } else {
@@ -133,8 +131,7 @@ pub fn cmd_commit_gate() {
 }
 
 fn commit_gate_state_file(flow_dir: &Path) -> PathBuf {
-    let canonical = fs::canonicalize(flow_dir)
-        .unwrap_or_else(|_| flow_dir.to_path_buf());
+    let canonical = fs::canonicalize(flow_dir).unwrap_or_else(|_| flow_dir.to_path_buf());
     let hash = md5_hex(canonical.to_string_lossy().as_bytes());
     PathBuf::from(format!(
         "{}/flow-commit-gate-{hash}",
@@ -148,9 +145,7 @@ fn md5_hex(data: &[u8]) -> String {
     use std::io::Write;
     let input_str = String::from_utf8_lossy(data).to_string();
     // Try md5 -qs (macOS)
-    let result = Command::new("md5")
-        .args(["-qs", &input_str])
-        .output();
+    let result = Command::new("md5").args(["-qs", &input_str]).output();
     if let Ok(o) = result {
         if o.status.success() {
             return String::from_utf8_lossy(&o.stdout).trim().to_string();
@@ -171,7 +166,10 @@ fn md5_hex(data: &[u8]) -> String {
     match child.wait_with_output() {
         Ok(o) if o.status.success() => {
             let out = String::from_utf8_lossy(&o.stdout);
-            out.split_whitespace().next().unwrap_or("default").to_string()
+            out.split_whitespace()
+                .next()
+                .unwrap_or("default")
+                .to_string()
         }
         _ => "default".into(),
     }

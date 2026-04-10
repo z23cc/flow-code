@@ -21,12 +21,22 @@ Document the WHY, not the what. Code shows what it does — documentation explai
 - Onboarding documentation
 - Post-incident write-ups
 
+## Command Front Doors (Discovery)
+
+Use these first when you want command-led documentation workflows:
+
+- `/flow-code:spec "idea / change / refactor"` for artifact-first requirements docs feeding planning.
+- `/flow-code:adr "decision"` for durable architecture decision records.
+- `flow-code-deprecation` when the main documentation problem is replacement/removal guidance.
+
 ## Architecture Decision Records (ADR)
 
 Use ADRs for decisions that are:
 - Hard to reverse (database choice, auth strategy, framework)
 - Non-obvious (why X instead of the "standard" Y?)
 - Frequently questioned ("why did we do it this way?")
+
+For routing, see the Command Front Doors section above. Replacement/removal notes, deprecation notices, and changelog entries can still be written directly within this documentation workflow.
 
 ### ADR Template
 
@@ -153,7 +163,7 @@ Create a new order.
 - Login form not showing error on invalid credentials (#456)
 
 ### Removed
-- Deprecated v1 API endpoints (see migration guide)
+- Deprecated v1 API endpoints (see replacement/removal notes)
 ```
 
 **Rules:**

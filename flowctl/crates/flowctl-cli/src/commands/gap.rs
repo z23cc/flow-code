@@ -118,13 +118,7 @@ fn gap_flow_dir() -> std::path::PathBuf {
 
 // ── Commands ───────────────────────────────────────────────────────
 
-fn cmd_gap_add(
-    json_mode: bool,
-    epic_id: &str,
-    capability: &str,
-    priority: &str,
-    source: &str,
-) {
+fn cmd_gap_add(json_mode: bool, epic_id: &str, capability: &str, priority: &str, source: &str) {
     validate_epic(json_mode, epic_id);
     let flow_dir = gap_flow_dir();
 
@@ -132,8 +126,15 @@ fn cmd_gap_add(
 
     // Check for existing gap with same capability (idempotent)
     let cap_lower = capability.trim().to_lowercase();
-    if let Some(existing) = gaps.iter().find(|g| g.capability.trim().to_lowercase() == cap_lower) {
-        let status = if existing.resolved { "resolved" } else { "open" };
+    if let Some(existing) = gaps
+        .iter()
+        .find(|g| g.capability.trim().to_lowercase() == cap_lower)
+    {
+        let status = if existing.resolved {
+            "resolved"
+        } else {
+            "open"
+        };
         if json_mode {
             json_output(json!({
                 "id": existing.id,
@@ -183,7 +184,12 @@ fn cmd_gap_add(
             "message": format!("Gap {} added to {}", next_id, epic_id),
         }));
     } else {
-        println!("Gap {} added: [{}] {}", next_id, priority, capability.trim());
+        println!(
+            "Gap {} added: [{}] {}",
+            next_id,
+            priority,
+            capability.trim()
+        );
     }
 }
 
@@ -192,13 +198,14 @@ fn cmd_gap_list(json_mode: bool, epic_id: &str, status_filter: Option<&str>) {
     let flow_dir = gap_flow_dir();
     let gaps = json_store::gaps_read(&flow_dir, epic_id).unwrap_or_default();
 
-    let filtered: Vec<&GapEntry> = gaps.iter().filter(|g| {
-        match status_filter {
+    let filtered: Vec<&GapEntry> = gaps
+        .iter()
+        .filter(|g| match status_filter {
             Some("open") => !g.resolved,
             Some("resolved") => g.resolved,
             _ => true,
-        }
-    }).collect();
+        })
+        .collect();
 
     if json_mode {
         let gap_values: Vec<serde_json::Value> = filtered
@@ -229,7 +236,12 @@ fn cmd_gap_list(json_mode: bool, epic_id: &str, status_filter: Option<&str>) {
         let mut buf = String::new();
         for g in &filtered {
             let marker = if g.resolved { "\u{2713}" } else { "\u{2717}" };
-            writeln!(buf, "  {} {} [{}] {}", marker, g.id, g.priority, g.capability).ok();
+            writeln!(
+                buf,
+                "  {} {} [{}] {}",
+                marker, g.id, g.priority, g.capability
+            )
+            .ok();
         }
         pretty_output("gap", &buf);
     }
@@ -272,7 +284,9 @@ fn cmd_gap_resolve(
         }
     } else if let Some(cap) = capability {
         let cap_lower = cap.trim().to_lowercase();
-        let found = gaps.iter_mut().find(|g| g.capability.trim().to_lowercase() == cap_lower);
+        let found = gaps
+            .iter_mut()
+            .find(|g| g.capability.trim().to_lowercase() == cap_lower);
         if let Some(g) = found {
             g.resolved = true;
         } else {
@@ -312,10 +326,7 @@ fn cmd_gap_check(json_mode: bool, epic_id: &str) {
         .filter(|g| !g.resolved && !GAP_BLOCKING_PRIORITIES.contains(&g.priority.as_str()))
         .collect();
 
-    let resolved: Vec<&GapEntry> = all_gaps
-        .iter()
-        .filter(|g| g.resolved)
-        .collect();
+    let resolved: Vec<&GapEntry> = all_gaps.iter().filter(|g| g.resolved).collect();
 
     let gate = if open_blocking.is_empty() {
         "pass"

@@ -7,6 +7,12 @@ on:
       - "flowctl/**"
       - "scripts/**"
       - "hooks/**"
+      - ".claude-plugin/**"
+      - ".codex-plugin/**"
+      - ".agents/plugins/marketplace.json"
+      - "README.md"
+      - "README_CN.md"
+      - "CHANGELOG.md"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
@@ -14,6 +20,12 @@ on:
       - "flowctl/**"
       - "scripts/**"
       - "hooks/**"
+      - ".claude-plugin/**"
+      - ".codex-plugin/**"
+      - ".agents/plugins/marketplace.json"
+      - "README.md"
+      - "README_CN.md"
+      - "CHANGELOG.md"
       - ".github/workflows/ci.yml"
 
 env:
@@ -42,6 +54,13 @@ jobs:
         run: |
           python3 -c "import json; json.load(open('hooks/hooks.json'))"
           python3 -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+          python3 -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
+          python3 -c "import json; json.load(open('.codex-plugin/plugin.json'))"
+          python3 -c "import json; json.load(open('.agents/plugins/marketplace.json'))"
+
+      - name: Release surface preflight
+        working-directory: .
+        run: bash scripts/check-release-surface.sh
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

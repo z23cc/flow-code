@@ -11,8 +11,8 @@ use serde_json::json;
 
 use crate::output::{error_exit, json_output};
 
-use flowctl_core::id::is_epic_id;
 use super::helpers::get_flow_dir;
+use flowctl_core::id::is_epic_id;
 
 #[derive(Subcommand, Debug)]
 pub enum CheckpointCmd {
@@ -51,8 +51,7 @@ pub fn dispatch(cmd: &CheckpointCmd, json: bool) {
 fn checkpoint_path(epic_id: &str) -> Result<std::path::PathBuf, String> {
     let flow_dir = get_flow_dir();
     let state_dir = flow_dir.join(".state");
-    std::fs::create_dir_all(&state_dir)
-        .map_err(|e| format!("Cannot create state dir: {}", e))?;
+    std::fs::create_dir_all(&state_dir).map_err(|e| format!("Cannot create state dir: {}", e))?;
     Ok(state_dir.join(format!("checkpoint-{}.json", epic_id)))
 }
 
@@ -142,12 +141,18 @@ fn cmd_checkpoint_restore(json_mode: bool, epic_id: &str) {
     if let Some(tasks) = checkpoint.get("tasks").and_then(|t| t.as_array()) {
         for entry in tasks {
             if let (Some(task_id), Some(state)) = (
-                entry.get("task").and_then(|t| t.get("id")).and_then(|i| i.as_str()),
+                entry
+                    .get("task")
+                    .and_then(|t| t.get("id"))
+                    .and_then(|i| i.as_str()),
                 entry.get("state"),
             ) {
                 if !state.is_null() {
-                    if let Ok(task_state) = serde_json::from_value::<flowctl_core::json_store::TaskState>(state.clone()) {
-                        let _ = flowctl_core::json_store::state_write(&flow_dir, task_id, &task_state);
+                    if let Ok(task_state) =
+                        serde_json::from_value::<flowctl_core::json_store::TaskState>(state.clone())
+                    {
+                        let _ =
+                            flowctl_core::json_store::state_write(&flow_dir, task_id, &task_state);
                     }
                 }
             }
@@ -187,10 +192,7 @@ fn cmd_checkpoint_delete(json_mode: bool, epic_id: &str) {
     }
 
     if let Err(e) = fs::remove_file(&path) {
-        error_exit(&format!(
-            "Failed to delete checkpoint: {}",
-            e
-        ));
+        error_exit(&format!("Failed to delete checkpoint: {}", e));
     }
 
     if json_mode {

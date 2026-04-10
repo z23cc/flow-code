@@ -569,7 +569,7 @@ pub fn cmd_guard(json_mode: bool, layer: String) {
 
 // ── Worker-prompt command ──────────────────────────────────────────
 
-pub fn cmd_worker_prompt(json_mode: bool, task: String, tdd: bool, review: Option<String>) {
+pub fn cmd_worker_prompt(json_mode: bool, task: String, tdd: bool, review: Option<String>, inline_skills: bool) {
     // Determine epic from task ID
     let epic_id = if flowctl_core::id::is_task_id(&task) {
         flowctl_core::id::epic_id_from_task(&task).unwrap_or_else(|_| task.clone())
@@ -612,13 +612,31 @@ pub fn cmd_worker_prompt(json_mode: bool, task: String, tdd: bool, review: Optio
         })
         .collect();
 
+    let skills_section = if inline_skills {
+        // Inline core skill rules to reduce worker Phase 2 file reads
+        "\n\nCORE RULES (inlined from skills):\n\
+        - Incremental: vertical slices, Implement→Test→Verify→Commit per slice\n\
+        - Code review (5 axes): correctness, readability, architecture, security, performance\n\
+        - No commented-out code, no debug prints, no hardcoded values\n\
+        - Functions <40 lines, no dead code, reuse existing utilities\n\
+        - Input validated at boundaries, queries parameterized, no secrets in code\n\
+        - No N+1 queries, no unbounded fetches, no main-thread blocking\n\
+        - Use apply_edits (RP MCP) for edits, fall back to Edit, then flowctl edit --fuzzy\n\
+        - git add -A for staging (never list files explicitly)\n\
+        - Conventional commits: feat/fix/refactor(<scope>): <description>"
+            .to_string()
+    } else {
+        String::new()
+    };
+
     let prompt_text = format!(
-        "TASK_ID: {task}\nEPIC_ID: {epic_id}\n{tdd_line}\n{review_line}\nTEAM_MODE: true\n\nPhase sequence:\n{phases}\n\nExecute phases in order. Use flowctl worker-phase next/done to track progress.",
+        "TASK_ID: {task}\nEPIC_ID: {epic_id}\n{tdd_line}\n{review_line}\n\nPhase sequence:\n{phases}\n\nExecute phases in order. Use flowctl worker-phase next/done to track progress.{skills}",
         task = task,
         epic_id = epic_id,
         tdd_line = tdd_line,
         review_line = review_line,
         phases = phase_list.join("\n"),
+        skills = skills_section,
     );
 
     let estimated_tokens = prompt_text.len() / 4;

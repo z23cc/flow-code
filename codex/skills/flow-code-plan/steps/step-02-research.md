@@ -73,7 +73,36 @@ Feed results into scout prompts for targeted exploration.
   - **Tier 2** (rp-cli available, no MCP): `rp-cli -e 'builder "<request + repo-scout findings>" --response-type plan'` (timeout: 300s)
   - **Tier 3** (neither available): `context-scout` subagent (existing behavior, unchanged)
 - **Add when needed**: `practice-scout` for security/auth/payments/concurrency. `docs-scout` for external APIs/libraries. `github-scout` for novel patterns (requires scouts.github). `epic-scout` if 2+ open epics. `docs-gap-scout` if user-facing changes. `flow-gap-analyst` — maps user flows, edge cases, and missing requirements from the spec.
-- **Constraints**: min 1 (repo-scout required), max 7. Run ALL selected scouts in ONE parallel Agent/Task call. Deep context (Tier 1/2/3) runs AFTER repo-scout returns — it uses repo-scout findings as input.
+- **Constraints**: min 1 (repo-scout required), max 7. Run ALL selected scouts via RP agent_run in parallel. Deep context (Tier 1/2/3) runs AFTER repo-scout returns — it uses repo-scout findings as input.
+
+### Scout Spawning via RP agent_run
+
+All scouts are spawned via RP `agent_run` with `explore` role:
+
+```
+# For EACH selected scout:
+mcp__RepoPrompt__agent_run({
+  op: "start",
+  model_id: "explore",
+  session_name: "scout-<scout-name>-<epic-id>",
+  message: "<scout prompt from agents/<scout-name>.md with request context, file references, and output format>",
+  detach: true
+})
+```
+
+Save returned `session_id` for each scout. After all scouts are started, wait for completion:
+
+```
+mcp__RepoPrompt__agent_run({
+  op: "wait",
+  session_ids: [<all scout session IDs>],
+  timeout: 180
+})
+```
+
+Parse output as scout Markdown with `json:scout-summary` block.
+
+Save scout session IDs into `ALL_SESSION_IDS` for batch cleanup at Close phase (Step 5.5).
 
 ### Must Capture
 
@@ -100,22 +129,39 @@ gaps[]           -> feed to gap analyst, add to Open Questions
 
 If a scout returns no `json:scout-summary` block (legacy format), fall back to parsing Markdown sections manually (References, Reusable Code, Gaps).
 
-## Deep Context via RP (After Repo-Scout)
+## Deep Context via RP (PARALLEL with scouts)
 
-After repo-scout returns, gather deep codebase context. **Exactly one RP-powered call per plan run** — do not call both context_builder and context-scout.
+Launch `context_builder` **at the same time** as scouts — don't wait for scouts first. Both run concurrently:
 
 ```bash
-# Detect RP tier (pass --mcp-hint if mcp__RepoPrompt__context_builder is in your tool list)
 RP_TIER=$($FLOWCTL rp tier)  # or: $FLOWCTL rp tier --mcp-hint
 ```
 
-- **If RP_TIER is `mcp`**: Call `context_builder(instructions: "<request summary> + <repo-scout key findings>", response_type: "plan")`
-- **If RP_TIER is `cli`**: Run `rp-cli -e 'builder "..." --response-type plan'` (timeout 300s)
-- **If RP_TIER is `none`**: Run `context-scout` as a subagent (pre-existing fallback path)
+**If RP_TIER is `mcp`** — start context_builder concurrently with scouts:
+```
+# This runs WHILE scouts are still executing
+context_builder(
+  instructions: "<request summary + initial flowctl find results>",
+  response_type: "plan"
+)
+→ save chat_id for follow-up via oracle_send
+```
 
-**Skip condition:** If the request is trivial (clear bug fix, single-file change, S-size task), skip deep context — repo-scout alone is sufficient.
+**If RP_TIER is `cli`**: Run `rp-cli -e 'builder "..." --response-type plan'` (timeout 300s)
+**If RP_TIER is `none`**: Run `context-scout` as a subagent
 
-Feed RP/context-scout findings into the epic spec alongside repo-scout findings.
+**After scouts complete**, if context_builder already returned → merge both results. If context_builder is still running → wait for it, or use `oracle_send` to feed scout findings into the ongoing context:
+
+```
+oracle_send(
+  chat_id: "<from context_builder>",
+  message: "Scout findings to incorporate: <repo-scout key references and gaps>"
+)
+```
+
+**Skip condition:** If the request is trivial (clear bug fix, single-file change, S-size task), skip deep context — scouts alone are sufficient.
+
+Feed context_builder + scout findings into the epic spec together.
 
 ## Apply Memory Lessons (if memory.enabled)
 

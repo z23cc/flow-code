@@ -18,7 +18,7 @@ fn get_default_config() -> serde_json::Value {
         "outputs": {"enabled": true},
         "planSync": {"enabled": true, "crossEpic": true},
         "review": {"backend": "rp"},
-        "scouts": {"github": true},
+        "scouts": {"backend": "auto", "github": true},
         "stack": {},
     })
 }
@@ -63,7 +63,7 @@ mod exchange;
 
 // ── Re-exports (preserves public API) ──────────────────────────────
 
-pub use init::{cmd_init, cmd_detect};
+pub use init::{cmd_init, cmd_detect, cmd_startup};
 pub use status::{cmd_status, cmd_doctor, cmd_progress, cmd_validate};
 pub use review::{cmd_review_backend, cmd_parse_findings, dispatch_review, ReviewCmd};
 pub use config::{cmd_config, cmd_state_path, ConfigCmd};

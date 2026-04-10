@@ -75,6 +75,15 @@ pub enum ChecklistCmd {
         #[arg(long)]
         task: String,
     },
+    /// Check multiple items at once (batch mode — reduces CLI round-trips).
+    CheckAll {
+        /// Task ID.
+        #[arg(long)]
+        task: String,
+        /// Comma-separated item keys (e.g. "spec_read,lint_pass,all_ac_satisfied").
+        #[arg(long)]
+        items: String,
+    },
 }
 
 pub fn dispatch(cmd: &ChecklistCmd, json: bool) {
@@ -84,6 +93,7 @@ pub fn dispatch(cmd: &ChecklistCmd, json: bool) {
         ChecklistCmd::Uncheck { task, item } => cmd_uncheck(json, task, item),
         ChecklistCmd::Verify { task } => cmd_verify(json, task),
         ChecklistCmd::Show { task } => cmd_show(json, task),
+        ChecklistCmd::CheckAll { task, items } => cmd_check_all(json, task, items),
     }
 }
 
@@ -264,6 +274,41 @@ fn cmd_check(json_mode: bool, task_id: &str, item_key: &str) {
         }));
     } else {
         println!("\u{2713} {}", label);
+    }
+}
+
+fn cmd_check_all(json_mode: bool, task_id: &str, items_csv: &str) {
+    ensure_flow();
+    let mut cl = read_checklist(task_id);
+    let keys: Vec<&str> = items_csv.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let mut checked: Vec<serde_json::Value> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
+
+    for key in &keys {
+        if find_item(&cl, key).is_some() {
+            let label = set_item_checked(&mut cl, key, true);
+            checked.push(json!({"item": key, "label": label}));
+        } else {
+            missing.push(key.to_string());
+        }
+    }
+
+    write_checklist(&cl);
+
+    if json_mode {
+        json_output(json!({
+            "task_id": task_id,
+            "checked": checked,
+            "missing": missing,
+            "total_checked": checked.len(),
+        }));
+    } else {
+        for c in &checked {
+            println!("\u{2713} {}", c["label"].as_str().unwrap_or(""));
+        }
+        for m in &missing {
+            println!("? {} (not found)", m);
+        }
     }
 }
 

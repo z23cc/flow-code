@@ -55,36 +55,17 @@ $FLOWCTL phase done --epic $EPIC_ID --phase close --guard-ran --json
 
 ## MANDATORY Startup Sequence
 
-**YOU MUST RUN ALL 6 STEPS. DO NOT SKIP ANY.**
-
 ```bash
 FLOWCTL="$HOME/.flow/bin/flowctl"
 
-# Step 0: Version check — detect stale plugin cache
-FLOWCTL_VERSION=$($FLOWCTL --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-PLUGIN_VERSION=$(cat "${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/.claude-plugin/plugin.json" 2>/dev/null | grep -oE '"version":\s*"[^"]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-if [ -n "$PLUGIN_VERSION" ] && [ "$FLOWCTL_VERSION" != "$PLUGIN_VERSION" ]; then
-  echo "WARNING: flowctl $FLOWCTL_VERSION != plugin $PLUGIN_VERSION — skill cache may be stale. Run /flow-code:update"
-fi
+# Single startup call: detect + interrupted + review-backend + branch + epics
+$FLOWCTL startup --json
 
-# Step 1: Check .flow/ exists
-$FLOWCTL detect --json
-
-# Step 2: Check for interrupted work from previous sessions
-$FLOWCTL status --interrupted --json
-
-# Step 3: Load project memory (if enabled)
+# Memory inject (separate — may not be enabled)
 $FLOWCTL memory inject --json 2>/dev/null || true
-
-# Step 4: Verify review backend availability
-$FLOWCTL review-backend --json
-
-# Step 5: Session context
-git branch --show-current 2>/dev/null || echo "not a git repo"
-$FLOWCTL epics --json 2>/dev/null || true
 ```
 
-If Step 2 shows interrupted epics, report them and ask whether to resume or start fresh (in --interactive mode) or auto-resume (in default mode).
+If startup shows interrupted tasks, auto-resume (or ask in --interactive mode).
 
 ---
 
@@ -123,12 +104,20 @@ done
 **Otherwise EXECUTE ALL of the following:**
 
 ```bash
-# MANDATORY Step 1: Codebase context gathering
-$FLOWCTL find "<key terms from request>" --json
-git log --oneline -10 2>/dev/null || true
-ls .flow/specs/ 2>/dev/null || true
+# MANDATORY Step 1: Codebase context via context_builder (replaces manual flowctl find + git log)
 cat .flow/project-context.md 2>/dev/null || true
 ```
+
+```
+# Use context_builder for initial analysis — reused by Plan phase (no double-search)
+mcp__RepoPrompt__context_builder({
+  instructions: "<request summary>. Analyze: relevant files, existing patterns, potential approaches, complexity.",
+  response_type: "question"
+})
+→ save chat_id as BRAINSTORM_CHAT_ID (Plan phase will reuse this via oracle_send)
+```
+
+Use context_builder's response to inform the next steps. This replaces `flowctl find` + `git log` — context_builder does both more thoroughly.
 
 **MANDATORY Step 2: Classify complexity** — Output one of: Trivial / Medium / Large
 
@@ -160,23 +149,36 @@ $FLOWCTL phase done --epic $EPIC_ID --phase brainstorm --json
 
 ### Plan (plan)
 
-**MANDATORY Step 1: Research** — Read `steps/step-02-research.md`. Use intent-level tools:
+**MANDATORY Step 1: Research** — Check ADRs/invariants (skip `flowctl find` — Brainstorm already did deep search via context_builder):
 ```bash
-# MANDATORY: project overview
-$FLOWCTL graph map --json 2>/dev/null || true
-
-# MANDATORY: find related code
-$FLOWCTL find "<request key terms>" --json
-
-# MANDATORY: check ADRs and invariants
+# ADRs and invariants only — context_builder already covered codebase search
 ls docs/decisions/ADR-*.md 2>/dev/null
 $FLOWCTL invariants show --json 2>/dev/null || true
 ```
 
-**MANDATORY Step 2: Spawn research scouts** — Launch AT LEAST repo-scout in parallel:
+**MANDATORY Step 2: Parallel research — scouts + plan context via oracle_send**
+
+Launch scouts AND deepen brainstorm context in parallel:
+
 ```
-Agent(subagent_type="Explore", prompt="Research: <what to find>", run_in_background=true)
+# 1. Spawn scouts (RP agent_run)
+for each scout:
+  agent_run(start, explore, "scout-<name>-<epic-id>", detach: true)
+  → save session_ids
+
+# 2. Deepen brainstorm context via oracle_send (reuse BRAINSTORM_CHAT_ID — no rebuild)
+mcp__RepoPrompt__oracle_send({
+  chat_id: BRAINSTORM_CHAT_ID,
+  message: "Based on the chosen approach, create an implementation plan: file changes, task breakdown, dependencies, risk areas."
+})
 ```
+
+Wait for scouts. Feed scout findings into the ongoing chat if needed:
+```
+oracle_send(chat_id: BRAINSTORM_CHAT_ID, message: "Scout findings to incorporate: <key refs and gaps>")
+```
+
+See `step-02-research.md` for scout selection and output parsing.
 
 **MANDATORY Step 3: Write spec + create tasks**
 ```bash
@@ -190,11 +192,21 @@ $FLOWCTL phase done --epic $EPIC_ID --phase plan --json
 
 ---
 
-### Plan Review (plan_review)
+### Plan Review (plan_review) — SPECULATIVE EXECUTION
 
 **EXTERNAL REVIEW — DO NOT SELF-REVIEW. Send questions to RP.**
 
 AI self-review failed 5 consecutive audits (scores fabricated). All review questions MUST be answered by RP context_builder (external research model), NOT by the implementing agent.
+
+**Speculative execution**: Start Plan Review AND Work Wave 1 simultaneously. If review passes (>80% of the time) → worker results are valid. If review fails → cancel workers, fix plan, restart.
+
+```
+# Launch BOTH in parallel:
+# 1. Plan Review via context_builder
+# 2. Work Wave 1 workers via agent_run (for ready tasks with no plan-sensitive deps)
+```
+
+If `--no-speculative` flag is set, run Plan Review first, then Work (original behavior).
 
 **PR1: Send 10 forcing questions to RP**
 
@@ -226,17 +238,33 @@ Format each answer as: Q[N]([topic]):[score] [evidence]"
 response_type: "review"
 ```
 
+Save the returned `chat_id` — use it for follow-up via `oracle_send` if scores need clarification.
+
 If backend is "none": run self-review as fallback (answer questions yourself, but with the understanding that self-review is weaker).
 
 **PR2: Extract scores from RP response and pass to flowctl**
 
 Parse RP's response for Q1:N through Q10:N scores. Compute total.
 
+If any score is unclear or needs elaboration, use `oracle_send` to follow up without rebuilding context:
+```
+mcp__RepoPrompt__oracle_send({
+  chat_id: "<chat_id from context_builder>",
+  message: "Clarify Q5: what specific data paths are you concerned about?"
+})
+```
+
 ```bash
 $FLOWCTL phase done --epic $EPIC_ID --phase plan_review --score TOTAL_SCORE --evidence "<paste RP's full response here>" --json
 ```
 
 The evidence field contains RP's analysis, not your own. flowctl validates ≥200 chars + ≥5 question references.
+
+Save the `chat_id` as `PLAN_REVIEW_CHAT_ID` — Impl Review can reuse this context.
+
+**Speculative execution check**: If workers were speculatively started during Plan Review:
+- If score ≥ 25 (SHIP): workers are valid → proceed to Work phase (skip W1/W2, workers already running)
+- If score < 25 (NEEDS_WORK): cancel all speculative workers → fix plan → restart
 
 ---
 
@@ -258,34 +286,63 @@ $FLOWCTL start TASK_ID --json
 $FLOWCTL lock --task TASK_ID --files "file1,file2" --json
 ```
 
-**W2: Spawn workers — WORKTREE ISOLATION IS NON-NEGOTIABLE**
+**W2: Spawn workers (workers self-create worktrees)**
 
-When calling the Agent tool for each worker, you MUST include these parameters:
-- `isolation` parameter set to `"worktree"` — creates a separate git worktree copy
-- `mode` parameter set to `"auto"`
-- `run_in_background` parameter set to `true`
+For EACH ready task:
 
-The worker prompt MUST include:
-1. Task spec (from `$FLOWCTL cat TASK_ID`)
-2. Epic spec summary
-3. Content of `.flow/project-context.md`
-4. The task's `domain` field value
-5. FLOWCTL path: `FLOWCTL="$HOME/.flow/bin/flowctl"`
-
-If you spawn workers WITHOUT the `isolation: "worktree"` parameter, you are creating race conditions where two workers edit the same file simultaneously. This has caused real bugs in previous runs.
-
-**W3: After ALL workers in this wave complete**
 ```bash
-# Mark each task done
-$FLOWCTL done TASK_ID --summary "what was done" --json
+REPO_ROOT=$(pwd)
+WORKER_PROMPT=$($FLOWCTL worker-prompt --task $TASK_ID --bootstrap)
+```
 
-# MANDATORY: Run guard BETWEEN waves (not just at close)
+```
+mcp__RepoPrompt__agent_run({
+  op: "start",
+  model_id: "engineer",
+  session_name: "worker-$TASK_ID",
+  message: "$WORKER_PROMPT\n\nREPO_ROOT: $REPO_ROOT\nOWNED_FILES: $OWNED_FILES",
+  detach: true
+})
+→ save session_id into ACTIVE_SESSIONS[]
+```
+
+Workers self-manage: `git worktree add` → work → commit → output `COMMIT_HASH`.
+See `step-04-spawn-workers.md` for model selection and prompt template.
+
+**W3: Continuous streaming loop — merge + spawn in one loop**
+
+```
+while ACTIVE_SESSIONS is not empty:
+  result = agent_run(wait, session_ids: ACTIVE_SESSIONS, timeout: 1800)
+
+  # Handle Codex sandbox approval
+  if result.status == "waiting_for_input":
+    agent_run(respond, session_id, interaction_id, response: "accept_for_session")
+    continue
+
+  # Merge completed worker
+  COMMIT_HASH = <parse from output, or: git -C worktree rev-parse HEAD>
+  flowctl show $finished_task --json
+  git merge --no-ff $COMMIT_HASH -m "merge: $finished_task"
+  git worktree remove worktree --force
+  flowctl unlock --task $finished_task
+
+  # Steer remaining workers
+  for each remaining: agent_run(steer, "$finished_task merged, changed: $FILES")
+
+  ACTIVE_SESSIONS.remove(finished_session)
+
+  # CONTINUOUS SPAWN — immediately start newly unblocked tasks
+  NEWLY_READY = flowctl ready $EPIC_ID --json
+  for each new_task (not already spawned):
+    flowctl start + lock + spawn worker → add to ACTIVE_SESSIONS
+```
+
+After loop (all tasks done):
+```bash
+# Integration checkpoint — guard + invariants (runs ONCE, not per-wave)
 $FLOWCTL guard
-
-# Check for newly unblocked tasks
-$FLOWCTL ready $EPIC_ID --json
-# If more ready tasks: go back to W1
-# If no more: proceed to phase done
+$FLOWCTL invariants check
 ```
 
 **W4: Complete work phase**
@@ -299,11 +356,18 @@ $FLOWCTL phase done --epic $EPIC_ID --phase work --guard-ran --json
 
 **EXTERNAL REVIEW — DO NOT SELF-REVIEW. Send questions to RP after running guard.**
 
-**IR1: Run guard FIRST**
+**IR1: Run guard (skip if no new commits since work phase)**
 ```bash
-$FLOWCTL guard
+# Check if any commits were made after work phase guard
+LAST_GUARD_COMMIT=$(git log --oneline -1 --format=%H)
+WORK_PHASE_HEAD=$(git log --oneline -1 --format=%H)  # same if no fix commits
+
+if [ "$LAST_GUARD_COMMIT" != "$WORK_PHASE_HEAD" ] || true; then
+  # New commits since work phase guard — must re-run
+  $FLOWCTL guard
+fi
 ```
-If guard fails: fix the issues before proceeding.
+If guard fails: fix the issues before proceeding. If no new commits since the work phase's integration checkpoint guard, skip (already verified).
 
 **IR2: Generate diff**
 ```bash
@@ -316,10 +380,25 @@ git diff main...HEAD --stat 2>/dev/null || git diff HEAD~5...HEAD --stat
 REVIEW_BACKEND=$($FLOWCTL review-backend)
 ```
 
-If backend is "rp", call `mcp__RepoPrompt__context_builder` with:
-```
-instructions: "Review this diff against the spec. Answer each question with evidence. Score 1-3. Cite specific file:line.
+If backend is "rp", **reuse Plan Review context** via `oracle_send` if `PLAN_REVIEW_CHAT_ID` is available (saves 30s-5min of context rebuilding). Otherwise fall back to fresh `context_builder`:
 
+```
+# PREFERRED: reuse Plan Review chat (same epic, files auto-refreshed by RP)
+if PLAN_REVIEW_CHAT_ID is available:
+  mcp__RepoPrompt__oracle_send({
+    chat_id: PLAN_REVIEW_CHAT_ID,
+    message: "Implementation is complete. Review this diff against the spec...
+      <paste diff + questions below>",
+    mode: "review"
+  })
+
+# FALLBACK: fresh context_builder (if no chat_id from Plan Review)
+else:
+  context_builder(instructions: "...", response_type: "review")
+```
+
+Review questions (used in either path):
+```
 Diff: <paste git diff --stat output>
 Spec: <paste epic spec summary>
 Tasks completed: <paste task list>
@@ -343,15 +422,33 @@ Format: Q[N]([topic]):[score] [evidence]"
 response_type: "review"
 ```
 
+Save the returned `chat_id` for the fix loop.
+
 If backend is "none": run self-review as fallback.
 
-**IR4: Process RP response**
+**IR4: Process RP response + fix loop via oracle_send**
 
 Parse scores. If NEEDS_WORK (total <25):
+
 ```bash
 $FLOWCTL memory add --type pitfall --epic $EPIC_ID "Review: <RP finding summary>"
 ```
-Fix issues, re-run RP review (max 2 iterations).
+
+Fix the issues, then **re-review via `oracle_send`** (reuses existing context — no expensive rebuild):
+
+```
+mcp__RepoPrompt__oracle_send({
+  chat_id: "<chat_id from context_builder>",
+  message: "Issues fixed. Changes:
+    - <list what you fixed>
+    Re-review and re-score Q1-Q10. Format: Q[N]([topic]):[score] [evidence]",
+  mode: "review"
+})
+```
+
+Max 2 iterations. After max → proceed with warning.
+
+**Do NOT call `context_builder` again** — `oracle_send` continues in the same chat with all prior context intact. This saves 30s-5min of context rebuilding per re-review.
 
 ```bash
 $FLOWCTL phase done --epic $EPIC_ID --phase impl_review --score TOTAL_SCORE --evidence "<paste RP's full response>" --json
@@ -390,6 +487,31 @@ Then run deterministic checks:
 ```bash
 # ADR/invariant compliance
 $FLOWCTL invariants check --json 2>/dev/null || true
+```
+
+**MANDATORY Step 5.5: Unified RP Cleanup**
+
+All RP session cleanup happens HERE — not during the streaming loop. This is the single cleanup point for the entire epic.
+
+```
+# Batch cleanup ALL sessions from this epic (scouts + workers + plan-sync)
+mcp__RepoPrompt__agent_manage({
+  op: "cleanup_sessions",
+  session_ids: ALL_SESSION_IDS  # collected during plan + work phases
+})
+```
+
+If `ALL_SESSION_IDS` is not available (e.g., session crashed), fall back to listing:
+```
+mcp__RepoPrompt__agent_manage({ op: "list_sessions", state: "completed", limit: 50 })
+mcp__RepoPrompt__agent_manage({ op: "cleanup_sessions", session_ids: [<matched>] })
+```
+
+```bash
+# Remove any leftover worktrees
+git worktree list | grep "worker-" | awk '{print $1}' | while read wt; do
+  git worktree remove "$wt" --force 2>/dev/null || true
+done
 ```
 
 **MANDATORY Step 6: Documentation** — If user-facing changes exist, update README/CHANGELOG.

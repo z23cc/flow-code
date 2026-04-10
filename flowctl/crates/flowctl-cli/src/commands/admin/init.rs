@@ -630,3 +630,106 @@ pub fn cmd_detect(json: bool) {
         println!(".flow/ not found");
     }
 }
+
+/// Combined startup: detect + interrupted + review-backend + epics in one call.
+pub fn cmd_startup(json: bool) {
+    let flow_dir = get_flow_dir();
+    let exists = flow_dir.exists();
+    let mut issues: Vec<String> = Vec::new();
+
+    // Detect
+    if exists {
+        let meta_path = flow_dir.join(META_FILE);
+        if !meta_path.exists() {
+            issues.push("meta.json missing".to_string());
+        }
+        for subdir in &[EPICS_DIR, SPECS_DIR, TASKS_DIR] {
+            if !flow_dir.join(subdir).exists() {
+                issues.push(format!("{}/ missing", subdir));
+            }
+        }
+    }
+    let valid = exists && issues.is_empty();
+
+    // Interrupted epics
+    let mut interrupted: Vec<serde_json::Value> = Vec::new();
+    if valid {
+        let epics_dir = flow_dir.join(EPICS_DIR);
+        if let Ok(entries) = fs::read_dir(&epics_dir) {
+            for entry in entries.flatten() {
+                if let Ok(content) = fs::read_to_string(entry.path()) {
+                    if let Ok(epic) = serde_json::from_str::<serde_json::Value>(&content) {
+                        let status = epic.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                        if status == "open" {
+                            // Check if any tasks are in_progress
+                            let id = epic.get("id").and_then(|s| s.as_str()).unwrap_or("");
+                            let tasks_dir = flow_dir.join(TASKS_DIR);
+                            if let Ok(task_entries) = fs::read_dir(&tasks_dir) {
+                                for te in task_entries.flatten() {
+                                    if let Ok(tc) = fs::read_to_string(te.path()) {
+                                        if let Ok(task) = serde_json::from_str::<serde_json::Value>(&tc) {
+                                            let epic_id = task.get("epic").and_then(|s| s.as_str()).unwrap_or("");
+                                            let task_status = task.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                                            if epic_id == id && task_status == "in_progress" {
+                                                interrupted.push(json!({
+                                                    "epic": id,
+                                                    "task": task.get("id").and_then(|s| s.as_str()).unwrap_or(""),
+                                                    "title": task.get("title").and_then(|s| s.as_str()).unwrap_or(""),
+                                                }));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Review backend
+    let config_dir = flow_dir.parent().map(|p| p.join(".flow-config")).unwrap_or_default();
+    let config_path = config_dir.join("config.json");
+    let review_backend = if config_path.exists() {
+        fs::read_to_string(&config_path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+            .and_then(|v| v.get("review").and_then(|r| r.get("backend")).and_then(|b| b.as_str().map(String::from)))
+            .unwrap_or_else(|| "rp".to_string())
+    } else {
+        "rp".to_string()
+    };
+
+    // Epic count
+    let mut epic_count = 0u32;
+    if valid {
+        let epics_dir = flow_dir.join(EPICS_DIR);
+        if let Ok(entries) = fs::read_dir(&epics_dir) {
+            epic_count = entries.count() as u32;
+        }
+    }
+
+    // Git branch
+    let branch = std::process::Command::new("git")
+        .args(["branch", "--show-current"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    if json {
+        json_output(json!({
+            "detect": {"exists": exists, "valid": valid, "issues": issues},
+            "interrupted": interrupted,
+            "review_backend": review_backend,
+            "branch": branch,
+            "epic_count": epic_count,
+        }));
+    } else {
+        println!("Flow: {} | Branch: {} | Review: {} | Epics: {} | Interrupted: {}",
+            if valid { "ready" } else { "not initialized" },
+            branch, review_backend, epic_count, interrupted.len());
+    }
+}

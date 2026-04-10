@@ -12,7 +12,7 @@
 
 ## Wave Loop Overview
 
-**Default mode: Worktree + Teams** — each worker gets an isolated git worktree AND runs as a Team teammate. Worktree provides kernel-level file isolation; Teams provides coordination (TeamCreate + SendMessage + file locking).
+**Default mode: Worktree + RP agent_run** — each worker gets an isolated git worktree registered as an RP workspace, spawned via `agent_run`. Worktree provides kernel-level file isolation; RP provides coordination (`steer` for mid-run instructions, `wait`/`poll` for monitoring, `cancel` for timeout).
 
 **CRITICAL: When multiple tasks are ready, they MUST run in parallel. Do NOT execute them sequentially "for quality" or "one at a time." Parallel execution with isolation IS the quality mechanism.**
 

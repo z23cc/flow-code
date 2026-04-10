@@ -30,6 +30,9 @@ pub enum WorkerPhaseCmd {
         /// Task size: S (small/fast), M (medium/default), L (large/thorough).
         #[arg(long, value_parser = ["S", "M", "L"])]
         size: Option<String>,
+        /// Return ALL remaining phases at once (batch mode — reduces CLI round-trips).
+        #[arg(long)]
+        all: bool,
     },
     /// Mark a phase as completed.
     Done {
@@ -194,8 +197,12 @@ fn parse_size(size: Option<&str>) -> TaskSize {
 
 pub fn dispatch_worker_phase(cmd: &WorkerPhaseCmd, json_mode: bool) {
     match cmd {
-        WorkerPhaseCmd::Next { task, tdd, review, size } => {
-            cmd_worker_phase_next(json_mode, task, *tdd, review.as_deref(), parse_size(size.as_deref()));
+        WorkerPhaseCmd::Next { task, tdd, review, size, all } => {
+            if *all {
+                cmd_worker_phase_next_all(json_mode, task, *tdd, review.as_deref(), parse_size(size.as_deref()));
+            } else {
+                cmd_worker_phase_next(json_mode, task, *tdd, review.as_deref(), parse_size(size.as_deref()));
+            }
         }
         WorkerPhaseCmd::Done { task, phase, tdd, review, size } => {
             cmd_worker_phase_done(json_mode, task, phase, *tdd, review.as_deref(), parse_size(size.as_deref()));
@@ -262,6 +269,55 @@ fn cmd_worker_phase_next(json_mode: bool, task_id: &str, tdd: bool, review: Opti
                 if !sorted_completed.is_empty() {
                     println!("Completed: {}", sorted_completed.join(", "));
                 }
+            }
+        }
+    }
+}
+
+/// Return ALL remaining phases at once (batch mode — reduces 24 CLI calls to 1).
+fn cmd_worker_phase_next_all(json_mode: bool, task_id: &str, tdd: bool, review: Option<&str>, size: TaskSize) {
+    let flow_dir = ensure_flow_exists();
+
+    if !is_task_id(task_id) {
+        error_exit(&format!(
+            "Invalid task ID: {}. Expected format: fn-N.M or fn-N-slug.M",
+            task_id
+        ));
+    }
+
+    let seq = build_phase_sequence(tdd, review.is_some(), size);
+    let completed = load_completed_phases(&flow_dir, task_id);
+    let completed_set: HashSet<&str> =
+        completed.iter().map(std::string::String::as_str).collect();
+
+    let remaining: Vec<serde_json::Value> = seq.iter()
+        .filter(|p| !completed_set.contains(**p))
+        .map(|phase_id| {
+            let def = get_phase_def(phase_id);
+            json!({
+                "phase": phase_id,
+                "title": def.map(|d| d.title).unwrap_or("Unknown"),
+                "done_condition": def.map(|d| d.done_condition).unwrap_or(""),
+                "instructions": def.map(|d| d.instructions).unwrap_or(""),
+            })
+        })
+        .collect();
+
+    if json_mode {
+        json_output(json!({
+            "phases": remaining,
+            "total_remaining": remaining.len(),
+            "completed_phases": completed,
+            "sequence": seq,
+            "all_done": remaining.is_empty(),
+        }));
+    } else {
+        if remaining.is_empty() {
+            println!("All phases completed.");
+        } else {
+            println!("{} phases remaining:", remaining.len());
+            for p in &remaining {
+                println!("  {} - {}", p["phase"], p["title"]);
             }
         }
     }

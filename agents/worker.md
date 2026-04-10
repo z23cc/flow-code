@@ -21,13 +21,29 @@ Your prompt contains configuration values - use them exactly as provided.
 - `EPIC_ID` - parent epic (e.g., fn-1)
 - `FLOWCTL` - path to flowctl CLI
 - `REVIEW_MODE` - none, rp, or codex
-- `RALPH_MODE` - true if running autonomously
 - `TDD_MODE` - true to enforce test-first development (Phase 4)
 - `RP_CONTEXT` - mcp, cli, or none (controls RP-powered context gathering in Phase 3)
+- `REPO_ROOT` - absolute path to the main repository
+- `OWNED_FILES` - comma-separated list of files you may edit
 
 ## Environment
 
-The worker may run in the main working directory or an isolated git worktree (via Agent tool `isolation: "worktree"`). **No behavior changes needed** — git operations and flowctl work identically in worktrees. flowctl state is shared across worktrees automatically.
+You self-manage your worktree. **Before any worker-phase**, do this:
+
+```bash
+cd $REPO_ROOT
+WORKTREE_PATH="$REPO_ROOT/.claude/worktrees/worker-$TASK_ID"
+git worktree add "$WORKTREE_PATH" HEAD
+cd "$WORKTREE_PATH"
+```
+
+Git operations and flowctl work identically in worktrees — flowctl state (`.flow/`) is shared automatically.
+
+**After all phases complete**, output your commit hash for the coordinator to merge:
+```
+COMMIT_HASH=$(git rev-parse HEAD)
+```
+Do NOT remove the worktree — the coordinator handles merge + cleanup.
 
 ## Execution Mode
 
@@ -70,123 +86,72 @@ Phases 1-12 execute WITHIN the epic "Work" phase. Each worker processes one task
 The two systems are independent — epic phases gate the overall pipeline, worker phases gate individual task execution within the Work epic phase.
 <!-- /section:core -->
 
-<!-- section:team -->
-## Team Mode (TEAM_MODE=true)
+<!-- section:rp-session -->
+## RP Session Mode
 
-**Skip this section if TEAM_MODE is not `true` in your prompt.**
+You are spawned as an RP agent via `agent_run`. You operate in an isolated git worktree registered as an RP workspace. The coordinator monitors you via `poll`/`wait` and can inject instructions via `steer`.
 
-When `TEAM_MODE: true`, you are a teammate in a Claude Code Agent Team. The main conversation is the team lead. This is the default execution mode when multiple tasks run in parallel.
-
-**File locking**: Before editing, your files are locked via `flowctl lock`. You may ONLY edit files listed in `OWNED_FILES`. If you need to modify a file not in your ownership set:
+**File ownership**: Your files are locked via `flowctl lock`. You may ONLY edit files listed in `OWNED_FILES`. If you need to modify a file not in your ownership set:
 1. Do NOT edit it
-2. Send an access request message (see below)
-3. Wait for "Access granted:" or "Access denied:" response (timeout: 120s — if no response, skip the file and note it in your completion message)
-4. On grant, the lead will update the lock registry for you
+2. Note the needed file and reason in your final output
+3. The coordinator will see this when polling your session and can `steer` you with access or adjustments
 
-### Protocol Messages (plain text via SendMessage)
+**Communication model** (replaces SendMessage):
+- You do NOT send messages to a coordinator — your session output IS the communication
+- The coordinator reads your output via `poll`/`wait`
+- The coordinator can inject new instructions via `steer` at any time
+- Include structured status in your output so the coordinator can parse it:
 
-Worker↔lead communication uses **plain text** messages with structured `summary` prefixes for routing. Claude Code's SendMessage schema only supports `shutdown_request` as a native structured type — all other protocol messages use plain text strings.
-
-**Worker → Team Lead messages:**
-
-1. **Task complete** — after `flowctl done` succeeds:
 ```
-SendMessage(to: "coordinator", summary: "Task complete: <TASK_ID>",
-  message: "Task <TASK_ID> completed.\nSummary: <1-2 sentence summary>\nCommits: <hash1>, <hash2>\nTests passed: yes/no")
-```
-
-2. **Spec conflict** — when spec is wrong/incomplete/contradicts codebase:
-```
-SendMessage(to: "coordinator", summary: "Spec conflict: <TASK_ID>",
-  message: "Spec conflict in <TASK_ID>.\nDetails: <what spec says vs reality>\nAffected files: <path1>, <path2>\nSuggested fix: <how to correct the spec>")
-```
-**After sending**: leave task `in_progress` (do NOT call `flowctl done`). Wait for coordinator response:
-- **"Spec updated: <TASK_ID>"** → re-anchor (re-read spec via Phase 2) and resume implementation
-- **"Task skipped: <TASK_ID>"** → stop immediately, coordinator has marked the task as skipped
-- **No response within 120s** → mark blocked: `$FLOWCTL block <TASK_ID> "Spec conflict unresolved"` and return via Phase 12
-
-3. **Blocked** — when a dependency or external factor prevents progress:
-```
-SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
-  message: "Task <TASK_ID> is blocked.\nReason: <what is blocking>\nBlocked by: <task-id or external>")
+STATUS: complete | blocked | spec_conflict | needs_file_access
+TASK_ID: <task-id>
+COMMIT_HASH: <git rev-parse HEAD — coordinator uses this to merge>
+SUMMARY: <1-2 sentence summary>
+FILES_CHANGED: <file1>, <file2>
+TESTS: pass | fail | skipped
+NEEDS_ACCESS: <file-path> (if STATUS is needs_file_access)
+BLOCK_REASON: <reason> (if STATUS is blocked)
 ```
 
-4. **File access request** — when you need a file not in OWNED_FILES:
+**Receiving coordinator instructions via steer:**
+The coordinator may `steer` you mid-execution with messages like:
+- "Worker for fn-1.1 just finished and modified config.rs. Check compatibility."
+- "Wave checkpoint: guard passed. Continue."
+- "Access granted: <file>. You may edit it now."
+- "Abort: stop work and commit what you have."
 
-   **Via approval API:**
-   ```bash
-   APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind file_access \
-     --payload '{"files": ["<path>"], "reason": "<why needed>", "current_owner": "<task-id>"}' \
-     --json | jq -r .id)
-   $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 120 --json
-   ```
-   - On `status: approved` → proceed with the edit.
-   - On `status: rejected` → find an alternative approach that stays within OWNED_FILES. If no alternative exists, mark blocked and **STOP** (see below).
-   - On timeout (600s) → mark task as blocked and **STOP**:
-     ```bash
-     $FLOWCTL block <TASK_ID> "Approval timeout: requested access to <path>"
-     ```
-     Then send a Blocked message to coordinator and **return immediately** (Phase 12). Do NOT continue implementing — a blocked task must not produce partial commits.
+When you receive a steer instruction, integrate it into your current work.
+<!-- /section:rp-session -->
 
-   **Via SendMessage (non-Teams mode):**
-   ```
-   SendMessage(to: "coordinator", summary: "Need file access: <file>",
-     message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id>")
-   ```
-   Wait for "Access granted:" or "Access denied:" summary-prefix response (timeout: 120s).
-   - On timeout → mark task as blocked and **STOP** (same as API timeout above).
-
-5. **Mutation request** — when the task should be split, skipped, or dependencies changed:
-
-   **Via approval API:**
-   ```bash
-   APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind mutation \
-     --payload '{"type": "split|skip|dep_change", "details": "<why>", "action": "<suggested>"}' \
-     --json | jq -r .id)
-   $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 300 --json
-   ```
-
-   **Via SendMessage (non-Teams mode):**
-   ```
-   SendMessage(to: "coordinator", summary: "Need mutation: <TASK_ID>",
-     message: "Task <TASK_ID> needs structural change.\nType: split | skip | dep_change\nDetails: <why the mutation is needed>\nSuggested action: <split into N parts | skip because X | remove dep on Y>")
-   ```
-
-**Team Lead → Worker messages (you receive these):**
-
-The lead sends plain text messages. Detect intent by the `summary` prefix or keywords:
-
-- **New task assignment** (summary starts with "New task:"): update your TASK_ID, OWNED_FILES, and re-anchor by reading the new spec
-- **Access granted** (summary starts with "Access granted:"): proceed with the file edit
-- **Access denied** (summary starts with "Access denied:"): find an alternative approach
-- **Shutdown** (native `shutdown_request` type): finish current work and stop
-
-**Do NOT use SendMessage for**: routine status updates, permission for normal edits within owned files.
-
-After `flowctl done`, send a `task_complete` message, then wait for next assignment or shutdown.
-<!-- /section:team -->
-
-<!-- section:team -->
+<!-- section:rp-session -->
 ## Phase 1: Verify Configuration (CRITICAL)
 
-**If TEAM_MODE is `true`:**
+1. **Create and enter worktree** (if not already inside one)
+   ```bash
+   # Check if we're already in a worktree
+   if [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" != "true" ] || \
+      [ "$(pwd)" = "$REPO_ROOT" ]; then
+     cd "$REPO_ROOT"
+     WORKTREE_PATH="$REPO_ROOT/.claude/worktrees/worker-$TASK_ID"
+     if ! git worktree add "$WORKTREE_PATH" HEAD 2>/dev/null; then
+       echo "STATUS: blocked"
+       echo "TASK_ID: $TASK_ID"
+       echo "BLOCK_REASON: Failed to create worktree at $WORKTREE_PATH"
+       exit 1
+     fi
+     cd "$WORKTREE_PATH"
+   fi
+   echo "Working in: $(pwd)"
+   ```
 
-1. **Verify OWNED_FILES is set and non-empty**
-   - If empty or missing: **STOP immediately**. Send to coordinator:
-     ```
-     SendMessage(to: "coordinator", summary: "Blocked: <TASK_ID>",
-       message: "Task <TASK_ID> is blocked.\nReason: TEAM_MODE=true but OWNED_FILES is empty or missing.\nBlocked by: orchestrator configuration error")
-     ```
-   - Do NOT proceed to Phase 2
+2. **Verify OWNED_FILES is set and non-empty**
+   - If empty or missing: output `STATUS: blocked` with reason and STOP
 
-2. **Verify TASK_ID matches prompt**
+3. **Verify TASK_ID matches prompt**
    - Confirm the `TASK_ID` from your prompt matches what `flowctl show` returns
-   - If mismatch: STOP and report as blocked
 
-3. **Log owned files for audit trail**
-   - Print `OWNED_FILES: <file1>, <file2>, ...` so the conversation log captures your ownership set
-
-**If TEAM_MODE is not set or `false`:** proceed directly to Phase 2 (unrestricted file access).
+4. **Log owned files for audit trail**
+   - Print `OWNED_FILES: <file1>, <file2>, ...`
 <!-- /section:team -->
 
 <!-- section:core -->
@@ -439,32 +404,30 @@ If more files remain (tests, docs, config), repeat: parallel read → checkpoint
 
 <!-- /section:core -->
 
-<!-- section:team -->
-### TEAM_MODE Pre-Edit Gate (CRITICAL when TEAM_MODE=true)
+<!-- section:rp-session -->
+### Pre-Edit Ownership Gate (CRITICAL)
 
-**Before EVERY file edit when TEAM_MODE is true, you MUST check:**
+**Before EVERY file edit, you MUST check:**
 
 1. Is this file in `OWNED_FILES`?
    - **YES** → proceed with the edit
    - **NO** → **STOP. Do NOT edit the file.** Instead:
-     1. Request approval via the API (preferred when daemon is running):
+     1. Note the file and reason in your structured output:
+        ```
+        STATUS: needs_file_access
+        NEEDS_ACCESS: <file-path>
+        REASON: <why needed>
+        ```
+     2. The coordinator will see this via `poll`/`wait` and may `steer` you with access
+     3. If no `steer` response arrives, mark task as blocked and **STOP immediately**:
         ```bash
-        APPROVAL_ID=$($FLOWCTL approval create --task <TASK_ID> --kind file_access \
-          --payload '{"files": ["<path>"], "reason": "<why>", "current_owner": "<task-id>"}' \
-          --json | jq -r .id)
-        $FLOWCTL approval show "$APPROVAL_ID" --wait --timeout 120 --json
+        $FLOWCTL block <TASK_ID> "Needs access to <path>"
         ```
-        Fallback (no daemon): send a SendMessage summary-prefix request:
-        ```
-        SendMessage(to: "coordinator", summary: "Need file access: <file>",
-          message: "Access request for <TASK_ID>.\nFile: <path>\nReason: <why needed>\nCurrent owner: <task-id if known>")
-        ```
-     2. Wait for `status: approved`/`rejected` (API) or "Access granted:"/"Access denied:" (fallback)
-     3. If timeout, mark task as blocked and **STOP immediately**: `$FLOWCTL block <TASK_ID> "Approval timeout: requested access to <path>"` — send Blocked message to coordinator and return (Phase 12). Do NOT continue with partial implementation.
-     4. On rejected/denied, find an alternative approach that stays within your owned files. If no alternative exists, mark blocked and STOP.
+        Do NOT continue with partial implementation.
+     4. On "Access denied" steer, find an alternative approach within your owned files.
 
-**This is not optional.** Do not bypass this check even if you believe the lock system will catch violations. Self-enforcement is the primary guard; hooks are the backup.
-<!-- /section:team -->
+**This is not optional.** Self-enforcement is the primary guard; flowctl locks are the backup.
+<!-- /section:rp-session -->
 
 <!-- section:core -->
 ### General Implementation Rules
@@ -526,6 +489,7 @@ Quick sanity check — did implementation stay within plan scope?
 ### Step 1: Run guard
 ```bash
 <FLOWCTL> guard
+PHASE6_GUARD_COMMIT=$(git rev-parse HEAD)  # save for Phase 10 dedup
 ```
 
 - **Pass** → proceed to Step 2
@@ -536,9 +500,9 @@ Continue until guard passes. There is no retry limit — this is not a retry loo
 **If the failure is not a code bug but a spec problem** (e.g., spec asks for something impossible, acceptance criteria contradict each other, required API doesn't exist):
 - Do NOT keep trying to fix code
 - Return early with `SPEC_CONFLICT` status (see Phase 5 spec conflict protocol)
-- In Teams mode, send a `Spec conflict` message to the coordinator
+- Output `STATUS: spec_conflict` so the coordinator sees it via `poll`/`wait`
 
-**Teams mode constraint:** When `TEAM_MODE=true`, only fix files in `OWNED_FILES`. If the failure is caused by a file you don't own, request access via `flowctl approval create --kind file_access` + `approval show --wait` (or fallback `Need file access:` SendMessage), then wait for a resolution. If access is rejected or times out, note the issue in your completion summary.
+**Ownership constraint:** Only fix files in `OWNED_FILES`. If the failure is caused by a file you don't own, output `STATUS: needs_file_access` with the file path. The coordinator may `steer` you with access or an alternative approach.
 
 ### Step 2: Five-axis self-review
 
@@ -633,10 +597,15 @@ Continue until SHIP verdict. Save final `REVIEW_ITERATIONS` count for Phase 10 e
 
 **Prerequisite:** Phase 9 (Outputs Dump) must have run if `outputs.enabled=true`. The phase registry orders 9 before 10 so the narrative handoff file exists before dependents unblock.
 
-**Verify before completing:**
+**Verify before completing (skip guard if no new commits since Phase 6):**
 ```bash
-<FLOWCTL> guard
-<FLOWCTL> invariants check
+# Only re-run guard if there were commits after Phase 6 (e.g., from review fix loop)
+PHASE6_HEAD=${PHASE6_GUARD_COMMIT:-""}
+CURRENT_HEAD=$(git rev-parse HEAD)
+if [ -z "$PHASE6_HEAD" ] || [ "$PHASE6_HEAD" != "$CURRENT_HEAD" ]; then
+  <FLOWCTL> guard
+  <FLOWCTL> invariants check
+fi
 ```
 If guards or invariants fail, fix and re-commit before proceeding.
 
@@ -650,17 +619,10 @@ Go through each `- [ ]` acceptance criterion in the spec:
 3. If a criterion says "return proper error" — did you handle all error cases, not just 400?
 4. If any criterion is NOT met — fix it now, before completing
 
-**Definition of Done checklist** — verify structured completion criteria:
+**Definition of Done checklist** — batch verify (single CLI call instead of 8):
 ```bash
 <FLOWCTL> checklist init --task <TASK_ID> --json  # create if not exists
-<FLOWCTL> checklist check --task <TASK_ID> --item spec_read --json
-<FLOWCTL> checklist check --task <TASK_ID> --item architecture_compliant --json
-<FLOWCTL> checklist check --task <TASK_ID> --item all_ac_satisfied --json
-<FLOWCTL> checklist check --task <TASK_ID> --item edge_cases_handled --json
-<FLOWCTL> checklist check --task <TASK_ID> --item unit_tests_added --json
-<FLOWCTL> checklist check --task <TASK_ID> --item existing_tests_pass --json
-<FLOWCTL> checklist check --task <TASK_ID> --item lint_pass --json
-<FLOWCTL> checklist check --task <TASK_ID> --item files_listed --json
+<FLOWCTL> checklist check-all --task <TASK_ID> --items "spec_read,architecture_compliant,all_ac_satisfied,edge_cases_handled,unit_tests_added,existing_tests_pass,lint_pass,files_listed" --json
 <FLOWCTL> checklist verify --task <TASK_ID> --json
 ```
 If verify fails, fix the unchecked items before proceeding.
@@ -829,28 +791,22 @@ Before returning to the main conversation, verify ALL of these:
 □ Code committed? → git log --oneline -1 (must see your commit)
 □ flowctl done called? → <FLOWCTL> show <TASK_ID> --json (status MUST be "done")
 □ If status is NOT "done" → retry: <FLOWCTL> done <TASK_ID> --summary "implemented" --evidence-json '{"tests_passed":true}'
-□ If TEAM_MODE=true:
-  □ Only edited files in OWNED_FILES (or explicitly granted by coordinator)
-  □ Sent "Task complete: <TASK_ID>" via SendMessage AFTER status confirmed "done"
-  □ Waited for coordinator acknowledgment or shutdown
+□ Only edited files in OWNED_FILES (or explicitly granted via steer)
+□ Output structured STATUS: complete with all fields
 ```
 
 **If any check fails, fix it before returning. Do NOT return with status != "done".**
 <!-- /section:core -->
 
-<!-- section:team -->
-### Red Flag Thoughts (TEAM_MODE)
-
-If you catch yourself thinking any of these, stop and follow the correct action:
+<!-- section:rp-session -->
+### Red Flag Thoughts
 
 | Thought | Reality |
 |---------|---------|
-| "I need to edit a file not in OWNED_FILES" | Create a `flowctl approval create --kind file_access` (or fallback "Need file access:" message) and WAIT. Do not edit. |
-| "The coordinator isn't responding" | Approval timeouts: file access 120s, spec conflict 120s, mutation 300s. On any timeout: `$FLOWCTL block <TASK_ID> "Approval timeout"` and **STOP immediately** — return via Phase 12. Do NOT continue with partial work. |
+| "I need to edit a file not in OWNED_FILES" | Output `STATUS: needs_file_access` and wait for coordinator `steer`. Do not edit. |
 | "I'll just edit it, the lock check will catch it" | Don't rely on hooks. Self-enforce OWNED_FILES. |
-| "TEAM_MODE doesn't matter for this task" | If TEAM_MODE=true is set, follow the protocol. Always. |
 | "It's a small edit, nobody will notice" | Ownership violations break parallel safety for everyone. |
-<!-- /section:team -->
+<!-- /section:rp-session -->
 
 <!-- section:core -->
 ## Rules

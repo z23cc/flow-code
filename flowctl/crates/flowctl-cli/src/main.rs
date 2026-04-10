@@ -68,6 +68,8 @@ enum Commands {
     Init,
     /// Check if .flow/ exists.
     Detect,
+    /// Combined startup: detect + interrupted + memory + review-backend + epics (single call).
+    Startup,
     /// Show .flow state and active runs.
     Status {
         /// Detect interrupted epics with undone tasks.
@@ -152,6 +154,9 @@ enum Commands {
         /// Output minimal bootstrap prompt (~200 tokens).
         #[arg(long)]
         bootstrap: bool,
+        /// Inline core skill rules into the prompt (reduces worker Phase 2 file reads).
+        #[arg(long)]
+        inline_skills: bool,
     },
 
     /// Review commands (merge findings, etc.).
@@ -651,6 +656,7 @@ fn main() {
         Commands::Init => admin::cmd_init(json),
         Commands::Paths => commands::paths::cmd_paths(json),
         Commands::Detect => admin::cmd_detect(json),
+        Commands::Startup => admin::cmd_startup(json),
         Commands::Status { interrupted, dag, epic, progress } => {
             if dag {
                 commands::stats::cmd_dag(json, epic);
@@ -672,8 +678,8 @@ fn main() {
         } => admin::cmd_parse_findings(json, file, epic, register, source),
         Commands::Guard { layer } => admin::cmd_guard(json, layer),
         Commands::PreLaunch => commands::pre_launch::cmd_pre_launch(json),
-        Commands::WorkerPrompt { task, tdd, review, bootstrap: _ } => {
-            admin::cmd_worker_prompt(json, task, tdd, review)
+        Commands::WorkerPrompt { task, tdd, review, bootstrap: _, inline_skills } => {
+            admin::cmd_worker_prompt(json, task, tdd, review, inline_skills)
         }
 
         Commands::Review { cmd } => admin::dispatch_review(&cmd, json),

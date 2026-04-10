@@ -63,19 +63,20 @@ All three must pass (or be skipped via `flowctl config set review.backend none`)
 | `--quick` | go, run | Fast path for trivial changes (skip brainstorm, plan review, impl review) |
 | `--interactive` | go, run | Pause at key decisions for user confirmation |
 
-## Worker Protocol (Teams Mode)
+## Worker Protocol (RP Session Mode)
 
-Workers communicate with the coordinator via SendMessage with summary prefixes:
+Workers are spawned as RP agents via `agent_run` in isolated git worktrees registered as RP workspaces. The coordinator uses RP session operations for all communication:
 
-| Worker → Coordinator | Coordinator Response |
-|---------------------|---------------------|
-| `"Task complete: fn-N.M"` | Verify status=done, unlock files, advance wave |
-| `"Blocked: fn-N.M"` | Log reason, skip task in current wave |
-| `"Spec conflict: fn-N.M"` | Fix spec → `"Spec updated: fn-N.M"` or skip → `"Task skipped: fn-N.M"` |
-| `"Need file access: path"` | `"Access granted: path"` or `"Access denied: path"` |
-| `"Need mutation: fn-N.M"` | Execute split/skip/dep change, reply with result |
+| RP Operation | Purpose |
+|-------------|---------|
+| `agent_run(start, detach:true)` | Spawn worker in worktree |
+| `agent_run(wait, session_ids)` | Batch wait for completion |
+| `agent_run(poll, session_id)` | Check individual worker status |
+| `agent_run(steer, session_id)` | Inject instructions mid-execution |
+| `agent_run(cancel, session_id)` | Terminate timed-out worker |
+| `agent_manage(cleanup_sessions)` | Clean up after wave/epic |
 
-Approval timeouts: file access 120s, spec conflict 120s, mutation 300s. On timeout → worker self-blocks and stops.
+Workers output structured status (STATUS/TASK_ID/SUMMARY/FILES_CHANGED/TESTS) that the coordinator parses from session output. `steer` replaces SendMessage for spec conflict resolution, file access grants, and cross-worker coordination.
 
 ## Testing
 
@@ -132,8 +133,8 @@ Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills an
 - **Learning loop**: plan injects memory (Step 6), worker saves lessons (Phase 11, included in default sequence when memory.enabled is true), epic close prompts retro, retro verifies stale entries via `flowctl memory verify <id>`
 - **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
 - **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files <id>` shows ownership map + conflict detection
-- **File locking (Teams)**: `flowctl lock --task <id> --files <paths>` acquires runtime file locks; `flowctl unlock --task <id>` releases on completion; `flowctl lock-check --file <path>` inspects lock state; `flowctl unlock --all` clears all locks between waves
-- **Agent Teams mode**: `/flow-code:go` (or legacy `/flow-code:work`) spawns workers as Agent Team teammates with plain-text protocol messages (summary-prefix routing: "Task complete:", "Spec conflict:", "Blocked:", "Need file access:", "New task:", "Access granted/denied:", native `shutdown_request`) and file lock enforcement
+- **File locking**: `flowctl lock --task <id> --files <paths>` acquires runtime file locks; `flowctl unlock --task <id>` releases on completion; `flowctl lock-check --file <path>` inspects lock state; `flowctl unlock --all` clears all locks between waves
+- **RP agent_run mode**: `/flow-code:go` spawns workers as RP agents via `agent_run` in isolated git worktrees registered as RP workspaces. Coordinator uses `wait`/`poll` for monitoring, `steer` for mid-execution coordination, and `cancel` for timeouts. Workers output structured status fields (STATUS/TASK_ID/SUMMARY/FILES_CHANGED). File lock enforcement via flowctl remains unchanged
 - **Adversarial review**: `flowctl codex adversarial --base main [--focus "area"]` runs Codex in adversarial mode — tries to break the code, not validate it. Returns SHIP/NEEDS_WORK with grounded findings
 - **Three-layer quality system**: Layer 1: `flowctl guard` (deterministic lint/type/test — runs at Worker Phase 6, wave checkpoint, and close phase). Layer 2: RP plan-review (code-aware spec validation, invoked via `/flow-code:go` plan-review phase — RP sees full codebase via context_builder). Layer 3: `flowctl codex adversarial` (cross-model adversarial, epic completion — different model family catches blind spots). Spec conflicts and blockers forwarded to Codex for autonomous decision-making.
 - **Review circuit breaker**: Plan review max 2 iterations, impl review max 3, epic review max 2 — prevents infinite NEEDS_WORK cycles. After max iterations, pipeline proceeds with warning
@@ -141,9 +142,9 @@ Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills an
 - **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
 - **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`
 - **Worker self-review**: Phase 6 runs guard + structured diff review (correctness, quality, performance, testing) before commit
-- **Plan auto-execute**: `/flow-code:go` (or legacy `/flow-code:plan`) defaults to auto-execute work after planning (Teams mode handles any task count); `--plan-only` to opt out
+- **Plan auto-execute**: `/flow-code:go` (or legacy `/flow-code:plan`) defaults to auto-execute work after planning (RP agent_run handles any task count); `--plan-only` to opt out
 - **Goal-backward verification**: worker Phase 10 re-reads acceptance criteria and verifies each is actually satisfied before completing
-- **Full-auto by default**: `/flow-code:go` requires zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + Teams + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
+- **Full-auto by default**: `/flow-code:go` requires zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + RP agent_run + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
 - **Cross-platform**: flowctl is a single Rust binary (macOS/Linux). RP plan-review auto-degrades to Codex on platforms where rp-cli is unavailable. Bash hooks degrade gracefully on Windows (skip, don't block)
 - **Session start**: CLAUDE.md instruction (not an enforced hook) — if `.flow/` exists, run `flowctl status --interrupted` to check for unfinished work from a previous session and resume with the suggested `/flow-code:work <id>` command
 - **DAG cycle detection**: `flowctl dep add` validates that adding a dependency does not create a cycle in the task dependency graph. If a cycle would be created, the command fails with an error. The DAG is validated using topological sort via the `petgraph` crate

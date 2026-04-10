@@ -24,8 +24,8 @@ $FLOWCTL <command>
 - You MUST stage with `git add -A` (never list files). This ensures `.flow/` and `scripts/ralph/` (if present) are included.
 - Do NOT claim completion until `flowctl show <task>` reports `status: done`.
 - Do NOT invoke `/flow-code:impl-review` until tests/Quick commands are green.
-- Default parallel mode: Worktree isolation + Teams coordination (both always active).
-  Workers spawn in isolated worktrees with TeamCreate + team_name + coordination loop.
+- Default parallel mode: Worktree isolation + RP agent_run (both always active).
+  Workers spawn in manually-created worktrees bound as RP workspaces via agent_run.
 
 **Role**: execution lead, plan fidelity first.
 **Goal**: complete every task in order with tests.
@@ -102,39 +102,38 @@ If user chose review, pass the review mode to the worker. The worker invokes `/f
 
 **Completion review gate**: When all tasks in an epic are done, if `--require-completion-review` is configured (via `flowctl next`), the work skill invokes `/flow-code:epic-review` before allowing the epic to close. This verifies the combined implementation satisfies the spec. The epic-review skill handles the fix loop internally until SHIP.
 
-## Teams Mode: Approval Protocol
+## RP Session Coordination
 
-When TEAM_MODE=true, workers request permission for out-of-ownership edits or DAG
-mutations via a two-tier protocol:
+Workers are spawned as RP agents via `agent_run` in isolated worktrees. The coordinator monitors and coordinates via RP session operations:
 
-**Approval API path (Teams mode):**
-- Worker calls `flowctl approval create --task <id> --kind file_access|mutation --payload '{...}'`
-  to register a pending approval.
-- Worker blocks on `flowctl approval show <id> --wait --timeout 600`, which polls
-  until the approval resolves (or times out after ≤10 minutes).
-- Supervisor resolves via `flowctl approval approve|reject <id>`.
-- On `status: approved` the worker proceeds; on `status: rejected` the worker
-  emits a `Blocked:` summary and finds an alternative.
+| RP Operation | Purpose | Replaces |
+|-------------|---------|----------|
+| `agent_run(start, detach:true)` | Spawn worker | `Agent(isolation:"worktree")` |
+| `agent_run(wait, session_ids)` | Batch wait for completion | Waiting for Agent tool returns |
+| `agent_run(poll, session_id)` | Check individual status | N/A (new capability) |
+| `agent_run(steer, session_id)` | Inject instructions mid-run | `SendMessage` |
+| `agent_run(cancel, session_id)` | Terminate worker | N/A (new capability) |
+| `agent_manage(cleanup_sessions)` | Clean up after wave | N/A (automatic before) |
 
-**SendMessage path (non-Teams mode):**
-- Worker sends `SendMessage(summary: "Need file access: …")` or `"Need mutation: …"`.
-- Team lead responds with `"Access granted:"` / `"Access denied:"` summary-prefix reply.
+## Handling Worker Output
 
-See `agents/worker.md` for the full protocol.
+When workers complete, parse their session output for structured status:
 
-## Handling Worker Messages
+| Worker STATUS | Coordinator Action |
+|--------------|-------------------|
+| **complete** | Verify via `$FLOWCTL show <id> --json` (status=done). Unlock files. Merge worktree. |
+| **blocked** | Log BLOCK_REASON. Skip task in wave. Clean up worktree. |
+| **spec_conflict** | Read details. Fix spec and `steer` worker: "Spec updated, re-anchor." Or skip task. |
+| **needs_file_access** | Check lock registry. `steer` worker: "Access granted: <file>" or "Access denied." |
 
-When workers send messages via SendMessage, the coordinator (this skill) handles them by summary prefix:
-
-| Worker Summary Prefix | Coordinator Action |
-|----------------------|-------------------|
-| **"Task complete: fn-N.M"** | Verify via `$FLOWCTL show <id> --json` (status=done). Unlock files. Update wave progress. |
-| **"Blocked: fn-N.M"** | Log reason. Move to next wave. Task stays blocked for manual review. |
-| **"Spec conflict: fn-N.M"** | Read the conflict details. Then either: (a) fix the spec and reply `SendMessage(summary: "Spec updated: fn-N.M", message: "<what changed>")` — worker re-anchors and resumes; or (b) skip the task via `$FLOWCTL task skip <id> --reason "<why>"` and reply `SendMessage(summary: "Task skipped: fn-N.M")` — worker stops. |
-| **"Need file access: path"** | Check lock registry. Grant or deny via `SendMessage(summary: "Access granted: path")` or `SendMessage(summary: "Access denied: path")`. |
-| **"Need mutation: fn-N.M"** | Evaluate the mutation request. Execute via `$FLOWCTL task split/skip/dep rm` if appropriate, then reply with result. |
-
-**Spec conflict resolution is NOT optional.** If a worker reports a spec conflict, the coordinator must respond within 120s or the worker will self-block.
+**Spec conflict resolution via steer:**
+```
+mcp__RepoPrompt__agent_run({
+  op: "steer",
+  session_id: "<worker-session>",
+  message: "Spec updated: <TASK_ID>. Re-read spec via Phase 2 and resume."
+})
+```
 
 ## Recovery
 

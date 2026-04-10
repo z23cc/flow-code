@@ -7,6 +7,8 @@ user-invocable: false
 
 # Epic Completion Review Mode
 
+> **Shared protocol**: Backend detection and review loop are defined in `skills/_shared/rp-review-protocol.md`. This skill sets review-specific variables and follows that protocol.
+
 **Read [workflow.md](workflow.md) for detailed phases and anti-patterns.**
 
 Verify that the combined implementation of all epic tasks satisfies the spec requirements. This is NOT a code quality review (that's impl-review's job) — this confirms spec compliance only.

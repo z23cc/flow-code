@@ -7,6 +7,8 @@ user-invocable: false
 
 # Plan Review Mode
 
+> **Shared protocol**: Backend detection and review loop are defined in `skills/_shared/rp-review-protocol.md`. This skill sets review-specific variables and follows that protocol.
+
 **Read [workflow.md](workflow.md) for detailed phases and anti-patterns.**
 
 Conduct a John Carmack-level review of epic plans.

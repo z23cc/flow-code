@@ -310,11 +310,10 @@ Save the `chat_id` as `PLAN_REVIEW_CHAT_ID` — Impl Review can reuse this conte
 
 ### Work (work)
 
-**⚠️ AUDIT FAILURE HISTORY: This phase failed compliance audit TWICE (fn-5 and fn-6) on the SAME 3 issues. If you skip these again, you are knowingly producing unsafe output.**
-
-**Failure 1 (CRITICAL): Workers ran without worktree isolation — 6 parallel agents wrote to same directory, risking file corruption.**
-**Failure 2 (HIGH): No file locking — concurrent edits to settings.py and requirements.txt.**
-**Failure 3 (HIGH): No integration checkpoint guard — broken code passed silently.**
+**Safety invariants** (enforced since v0.1.48, verified in fn-13):
+- Workers MUST use worktree isolation (`git worktree add`)
+- Files MUST be locked before editing (`flowctl lock`)
+- Integration checkpoint (`flowctl guard`) MUST run after all workers complete
 
 ---
 
@@ -522,6 +521,23 @@ $FLOWCTL cat $EPIC_ID 2>/dev/null | grep -A20 "## Quick commands" || true
 # MANDATORY Step 4: Verify checklists
 # For each task: $FLOWCTL checklist verify --task <TASK_ID> --json
 ```
+
+**MANDATORY Step 4.5: Epic Review — Spec Compliance Verification**
+
+Verify that what was built actually matches what was planned. This catches spec drift that impl-review (code quality focused) may miss.
+
+```bash
+# Read the epic spec and all task completion summaries
+$FLOWCTL cat $EPIC_ID
+$FLOWCTL tasks --epic $EPIC_ID --json
+```
+
+For each acceptance criterion in the spec, verify it is MET by checking:
+1. The task completion summary mentions the criterion
+2. The relevant file exists and contains the expected change
+3. No requirement was silently dropped
+
+If any criterion is NOT MET: fix it or document why it was descoped before proceeding.
 
 **MANDATORY Step 5: Pre-launch + Ship-Readiness**
 

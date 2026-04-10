@@ -19,7 +19,11 @@ hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
 docs/                    → Architecture docs, CI examples
 ```
 
-**Skill directories**: Both `skills/` and `codex/skills/` are scanned. Core workflow skills (plan, work, reviews) live in `codex/skills/` for Codex sync compatibility. Both directories are authoritative.
+**Skill directories**: Two directories exist with different responsibilities:
+- `skills/` — **Primary for Claude Code**. Contains all skills including the pipeline engine (`flow-code-run`), domain skills, and standalone tools. This is the authoritative source when both directories have the same skill name.
+- `codex/skills/` — **Codex CLI sync subset**. Contains core workflow skills (plan, work, reviews) and step files that Codex CLI needs. When a skill exists in both directories, `skills/` has the more complete version (user-invocable flags, extended sections, Claude Code-specific paths). `codex/` has the Codex-compatible version (hardcoded `$HOME/.codex` paths, no user-invocable flag).
+
+21 skills currently exist in both directories. For Claude Code, `skills/` always wins on conflict.
 
 **Skills**: Use `skills/flow-code-guide/SKILL.md` as the discovery index and browse `skills/*/SKILL.md` + `codex/skills/*/SKILL.md` for full coverage. Core workflow: `flow-code-run` (unified phase loop via `flowctl phase next/done`).
 

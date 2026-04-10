@@ -4,6 +4,19 @@ All notable changes to Flow-Code are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Semantic Versioning](https://semver.org/).
 
+## [0.1.51] - 2026-04-10
+
+### Added
+- **Epic review step** (Step 4.5) in Close phase — verifies spec compliance before shipping
+- **Shared review protocol references** in plan-review, impl-review, and epic-review skills
+
+### Changed
+- `CLAUDE.md` now documents `skills/` vs `codex/skills/` directory responsibilities and priority rules
+- Work phase audit warnings replaced with clean safety invariants (issues verified fixed since v0.1.48)
+
+### Removed
+- Archived 13 stale/test epics from .flow/ state (5 completed, 1 abandoned, 7 test)
+
 ## [0.1.50] - 2026-04-10
 
 ### Added

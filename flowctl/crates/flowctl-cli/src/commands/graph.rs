@@ -1,4 +1,4 @@
-//! `flowctl graph` commands: build, update, status, refs, impact, map.
+//! `flowctl graph` commands: build, update, status, refs, impact, map, review-context.
 //!
 //! Manages a persistent code graph stored at `.flow/graph.bin`.
 
@@ -36,6 +36,18 @@ pub enum GraphCmd {
         #[arg(long, default_value = "0")]
         budget: usize,
     },
+    /// Generate blast-radius review context with risk scoring.
+    ReviewContext {
+        /// Git ref to diff against (default: HEAD~1).
+        #[arg(long, default_value = "HEAD~1")]
+        base: String,
+        /// Explicit file list (comma-separated). Overrides git diff.
+        #[arg(long)]
+        files: Option<String>,
+        /// BFS depth for impact analysis (default: 3).
+        #[arg(long, default_value = "3")]
+        depth: usize,
+    },
 }
 
 // ── Dispatch ───────────────────────────────────────────────────────
@@ -48,6 +60,11 @@ pub fn dispatch(cmd: &GraphCmd, json: bool) {
         GraphCmd::Refs { symbol } => cmd_refs(json, symbol),
         GraphCmd::Impact { path } => cmd_impact(json, path),
         GraphCmd::Map { budget } => cmd_map(json, *budget),
+        GraphCmd::ReviewContext {
+            base,
+            files,
+            depth,
+        } => cmd_review_context(json, base, files.as_deref(), *depth),
     }
 }
 
@@ -132,6 +149,11 @@ fn load_graph() -> CodeGraph {
     }
     match CodeGraph::load(&path) {
         Ok(g) => g,
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+            error_exit(&format!(
+                "Graph format outdated: {e}\nRun `flowctl graph build` to rebuild."
+            ));
+        }
         Err(e) => error_exit(&format!("Failed to load graph: {e}")),
     }
 }
@@ -296,18 +318,31 @@ fn cmd_status(json: bool) {
             "symbol_count": stats.symbol_count,
             "file_count": stats.file_count,
             "edge_count": stats.edge_count,
+            "typed_edge_counts": stats.typed_edge_counts,
             "disk_size_bytes": disk_size,
             "built_at_epoch_ms": stats.built_at_epoch_ms,
             "path": path.to_string_lossy(),
         }));
     } else {
+        let typed_summary: String = if stats.typed_edge_counts.is_empty() {
+            String::from("(none)")
+        } else {
+            let mut parts: Vec<String> = stats
+                .typed_edge_counts
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect();
+            parts.sort();
+            parts.join(", ")
+        };
         pretty_output(
             "graph",
             &format!(
-                "Graph: {} symbols, {} files, {} edges\nOn-disk: {} bytes\nBuilt at: {}\nPath: {}",
+                "Graph: {} symbols, {} files, {} edges\nTyped edges: {}\nOn-disk: {} bytes\nBuilt at: {}\nPath: {}",
                 stats.symbol_count,
                 stats.file_count,
                 stats.edge_count,
+                typed_summary,
                 disk_size,
                 stats.built_at_epoch_ms,
                 path.display()
@@ -404,5 +439,127 @@ fn cmd_map(json: bool, budget: usize) {
         }));
     } else {
         pretty_output("graph", &map);
+    }
+}
+
+// ── Review Context ────────────────────────────────────────────────
+
+fn cmd_review_context(json: bool, base: &str, files: Option<&str>, depth: usize) {
+    let graph = load_graph();
+    let root = project_root();
+
+    // Determine changed files: explicit list or git diff.
+    let changed_files: Vec<String> = if let Some(files_str) = files {
+        files_str
+            .split(',')
+            .map(|f| {
+                let trimmed = f.trim();
+                let p = if std::path::Path::new(trimmed).is_absolute() {
+                    trimmed.to_string()
+                } else {
+                    root.join(trimmed).display().to_string()
+                };
+                p
+            })
+            .collect()
+    } else {
+        // Use git diff to find changed files.
+        let output = std::process::Command::new("git")
+            .args(["diff", "--name-only", base])
+            .current_dir(&root)
+            .output();
+
+        match output {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|l| root.join(l).display().to_string())
+                .collect(),
+            _ => {
+                if json {
+                    json_output(json!({
+                        "changed_files": [],
+                        "impacted_files": [],
+                        "test_gaps": [],
+                        "total_risk_score": 0.0,
+                        "message": "No changes detected or git diff failed",
+                    }));
+                } else {
+                    pretty_output("graph", "No changes detected or git diff failed.");
+                }
+                return;
+            }
+        }
+    };
+
+    if changed_files.is_empty() {
+        if json {
+            json_output(json!({
+                "changed_files": [],
+                "impacted_files": [],
+                "test_gaps": [],
+                "total_risk_score": 0.0,
+            }));
+        } else {
+            pretty_output("graph", "No changed files detected.");
+        }
+        return;
+    }
+
+    let ctx = graph.review_context(&changed_files, depth);
+
+    if json {
+        let impacted: Vec<serde_json::Value> = ctx
+            .impacted_files
+            .iter()
+            .map(|r| {
+                json!({
+                    "file": r.file,
+                    "risk_score": (r.risk_score * 100.0).round() / 100.0,
+                    "pagerank": (r.pagerank * 10000.0).round() / 10000.0,
+                    "dependent_count": r.dependent_count,
+                    "is_test": r.is_test,
+                    "changed_symbols": r.changed_symbols,
+                })
+            })
+            .collect();
+
+        json_output(json!({
+            "changed_files": ctx.changed_files,
+            "impacted_files": impacted,
+            "test_gaps": ctx.test_gaps,
+            "total_risk_score": (ctx.total_risk_score * 100.0).round() / 100.0,
+            "impact_depth": depth,
+        }));
+    } else {
+        let mut out = format!(
+            "Review Context ({} changed, {} impacted, {} test gaps)\n",
+            ctx.changed_files.len(),
+            ctx.impacted_files.len(),
+            ctx.test_gaps.len()
+        );
+        out.push_str(&format!(
+            "Total risk score: {:.1}\n\n",
+            ctx.total_risk_score
+        ));
+
+        if !ctx.impacted_files.is_empty() {
+            out.push_str("Impacted files (by risk):\n");
+            for r in &ctx.impacted_files {
+                out.push_str(&format!(
+                    "  [{:.1}] {} (deps={}, test={})\n",
+                    r.risk_score, r.file, r.dependent_count, r.is_test
+                ));
+            }
+        }
+
+        if !ctx.test_gaps.is_empty() {
+            out.push_str("\nTest gaps (no test coverage):\n");
+            for f in &ctx.test_gaps {
+                out.push_str(&format!("  {f}\n"));
+            }
+        }
+
+        pretty_output("graph", &out);
     }
 }

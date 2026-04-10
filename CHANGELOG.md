@@ -4,6 +4,22 @@ All notable changes to Flow-Code are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Semantic Versioning](https://semver.org/).
 
+## [0.1.52] - 2026-04-10
+
+### Added
+- **Typed edges** in code graph — `EdgeKind{Calls, Imports, Inherits, References}` replaces untyped references
+- **`flowctl graph review-context`** command — blast-radius risk scoring + test gap detection from git diff
+- **Hash-based incremental update** — skips unchanged files via content hash, provenance-based targeted edge rebuild
+- **Edge provenance tracking** — records which file scan produced which edges for precise incremental updates
+- **Version-prefixed graph.bin** — 4-byte version header with clear error on format mismatch
+- **`find_impact_with_depth()`** — configurable BFS depth (was hardcoded 3)
+- **18 new tests** — edge classification, hash skip, version mismatch, review context, deleted file handling, provenance
+
+### Changed
+- `flowctl graph status` now shows `typed_edge_counts` breakdown (calls/imports/references)
+- `flowctl graph update` no longer rebuilds all edges from scratch — uses provenance for targeted rebuild
+- `CodeGraph` struct now derives `Debug`
+
 ## [0.1.51] - 2026-04-10
 
 ### Added

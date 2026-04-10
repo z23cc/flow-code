@@ -1,6 +1,6 @@
 {
   "name": "flow-code",
-  "version": "0.1.51",
+  "version": "0.1.52",
   "description": "Zero-dependency planning + execution with .flow/ task tracking and Ralph autonomous mode (multi-model review gates). Worker subagent per task with git worktree isolation for parallel execution. Three-layer quality system (guard + RP plan-review + Codex adversarial). Full-auto by default. Teams-default with file locking, DAG mutation, Codex-driven conflict resolution, auto draft-PR.",
   "author": {
     "name": "z23cc",

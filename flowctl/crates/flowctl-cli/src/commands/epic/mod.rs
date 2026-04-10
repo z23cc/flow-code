@@ -17,7 +17,24 @@ pub use types::EpicCmd;
 /// Dispatch an epic subcommand.
 pub fn dispatch(cmd: &EpicCmd, json: bool, dry_run: bool) {
     match cmd {
-        EpicCmd::Create { title, branch } => crud::cmd_create(title, branch, json, dry_run),
+        EpicCmd::Create {
+            title,
+            branch,
+            input_json,
+        } => {
+            let (resolved_title, resolved_branch) = if let Some(ij) = input_json {
+                use super::helpers::{json_str, parse_input_json, validate_json_fields};
+                let val = parse_input_json(ij);
+                validate_json_fields(&val, &["title", "branch"], &["title"]);
+                (
+                    json_str(&val, "title").unwrap_or_default(),
+                    json_str(&val, "branch").or(branch.clone()),
+                )
+            } else {
+                (title.clone().unwrap_or_default(), branch.clone())
+            };
+            crud::cmd_create(&resolved_title, &resolved_branch, json, dry_run)
+        }
         EpicCmd::Plan { id, file, spec } => {
             crud::cmd_set_plan(id, file.as_deref(), spec.as_deref(), json)
         }
@@ -27,7 +44,9 @@ pub fn dispatch(cmd: &EpicCmd, json: bool, dry_run: bool) {
         }
         EpicCmd::Branch { id, name } => crud::cmd_set_branch(id, name, json),
         EpicCmd::Title { id, title } => crud::cmd_set_title(id, title, json),
-        EpicCmd::Close { id, skip_gap_check } => lifecycle::cmd_close(id, *skip_gap_check, json),
+        EpicCmd::Close { id, skip_gap_check } => {
+            lifecycle::cmd_close(id, *skip_gap_check, json, dry_run)
+        }
         EpicCmd::Reopen { id } => lifecycle::cmd_reopen(id, json),
         EpicCmd::Archive { id, force } => lifecycle::cmd_archive(id, *force, json),
         EpicCmd::Clean => lifecycle::cmd_clean(json),

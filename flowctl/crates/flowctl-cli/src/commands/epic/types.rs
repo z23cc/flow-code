@@ -7,11 +7,15 @@ pub enum EpicCmd {
     /// Create a new epic.
     Create {
         /// Epic title.
-        #[arg(long)]
-        title: String,
+        #[arg(long, required_unless_present = "input_json")]
+        title: Option<String>,
         /// Branch name.
         #[arg(long)]
         branch: Option<String>,
+        /// JSON payload input (inline, @file, or - for stdin).
+        /// Fields: {"title": "...", "branch": "..."}
+        #[arg(long)]
+        input_json: Option<String>,
     },
     /// Set epic spec from file or inline text.
     Plan {

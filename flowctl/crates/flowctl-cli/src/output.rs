@@ -118,6 +118,9 @@ fn to_columnar(arr: &[Value]) -> Option<Value> {
     }))
 }
 
+/// Output stability contract version. Incremented on breaking changes to JSON field names.
+const API_VERSION: u32 = 1;
+
 /// Print a successful JSON response with additional data fields merged in.
 /// In compact mode, arrays of 10+ objects are auto-converted to columnar format.
 pub fn json_output(data: Value) {
@@ -141,6 +144,7 @@ pub fn json_output(data: Value) {
             m
         }
     };
+    obj.insert("api_version".to_string(), json!(API_VERSION));
     obj.insert("success".to_string(), json!(true));
     let mut val = Value::Object(obj);
     if COMPACT.load(Ordering::Relaxed) {
@@ -156,6 +160,7 @@ pub fn json_output(data: Value) {
 #[allow(dead_code)]
 pub fn error_exit(message: &str) -> ! {
     let out = json!({
+        "api_version": API_VERSION,
         "success": false,
         "error": message,
     });
@@ -164,4 +169,19 @@ pub fn error_exit(message: &str) -> ! {
         serde_json::to_string(&out).expect("JSON serialization of error output should not fail")
     );
     std::process::exit(1);
+}
+
+/// Print an error JSON response and exit with code 2 (blocked).
+#[allow(dead_code)]
+pub fn blocked_exit(message: &str) -> ! {
+    let out = json!({
+        "api_version": API_VERSION,
+        "success": false,
+        "error": message,
+    });
+    eprintln!(
+        "{}",
+        serde_json::to_string(&out).expect("JSON serialization of blocked output should not fail")
+    );
+    std::process::exit(2);
 }

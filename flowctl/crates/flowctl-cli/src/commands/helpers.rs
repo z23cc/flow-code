@@ -1,12 +1,14 @@
 //! Shared helpers used across multiple command modules.
 
 use std::env;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use flowctl_core::graph_store::CodeGraph;
 use flowctl_core::ngram_index::NgramIndex;
 use flowctl_core::types::FLOW_DIR;
+use serde_json::Value;
 
 /// Get the .flow/ directory path.
 ///
@@ -232,6 +234,166 @@ pub(crate) fn bootstrap_search_artifacts_from_root(
     result
 }
 
+// ── JSON payload input infrastructure (Agent-Primary input model) ────
+
+/// Parse a JSON payload from --input-json value.
+///
+/// Accepts:
+/// - Inline JSON string: `'{"title": "..."}'`
+/// - File reference: `@path/to/file.json`
+/// - Stdin: `-`
+///
+/// Returns the parsed `serde_json::Value` (must be an object).
+/// Calls `error_exit()` with agent-friendly messages on failure.
+pub fn parse_input_json(raw: &str) -> Value {
+    use crate::output::error_exit;
+
+    let content = if raw == "-" {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .unwrap_or_else(|e| error_exit(&format!("Failed to read stdin: {e}")));
+        if buf.trim().is_empty() {
+            error_exit("--input-json stdin (-) was empty. Provide a JSON object.");
+        }
+        buf
+    } else if let Some(path) = raw.strip_prefix('@') {
+        std::fs::read_to_string(path)
+            .unwrap_or_else(|e| error_exit(&format!("Cannot read file '{path}': {e}")))
+    } else {
+        raw.to_string()
+    };
+
+    // Detect double-encoded JSON (agent-specific failure mode)
+    let trimmed = content.trim();
+    if trimmed.starts_with('"') && trimmed.ends_with('"') {
+        if let Ok(inner) = serde_json::from_str::<String>(trimmed) {
+            if inner.starts_with('{') {
+                error_exit(
+                    "Double-encoded JSON detected: the input is a JSON string containing \
+                     JSON. Pass the inner object directly, not wrapped in quotes.",
+                );
+            }
+        }
+    }
+
+    let val: Value = serde_json::from_str(trimmed).unwrap_or_else(|e| {
+        error_exit(&format!("Invalid JSON in --input-json: {e}"));
+    });
+
+    if !val.is_object() {
+        error_exit("--input-json must be a JSON object ({{...}}), not an array or scalar.");
+    }
+
+    val
+}
+
+/// Validate that a JSON object only contains expected fields.
+/// Rejects unknown fields with fuzzy suggestions.
+///
+/// `known_fields`: list of valid field names for this command.
+/// `required_fields`: subset of known_fields that must be present.
+pub fn validate_json_fields(
+    val: &Value,
+    known_fields: &[&str],
+    required_fields: &[&str],
+) {
+    use crate::output::error_exit;
+
+    let obj = val.as_object().unwrap_or_else(|| {
+        error_exit("--input-json must be a JSON object");
+    });
+
+    // Check for unknown fields
+    for key in obj.keys() {
+        if !known_fields.contains(&key.as_str()) {
+            let suggestion = find_closest_match(key, known_fields);
+            let hint = match suggestion {
+                Some(s) => format!(", did you mean '{s}'?"),
+                None => String::new(),
+            };
+            error_exit(&format!(
+                "Unknown field '{key}' in --input-json{hint}. Valid fields: {}",
+                known_fields.join(", ")
+            ));
+        }
+    }
+
+    // Check for required fields
+    for &field in required_fields {
+        if !obj.contains_key(field) {
+            error_exit(&format!("Missing required field '{field}' in --input-json"));
+        }
+    }
+}
+
+/// Find the closest match for a string in a list (simple edit-distance).
+fn find_closest_match<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let input_lower = input.to_lowercase();
+    candidates
+        .iter()
+        .filter_map(|&candidate| {
+            let dist = edit_distance(&input_lower, &candidate.to_lowercase());
+            if dist <= 2 {
+                Some((candidate, dist))
+            } else {
+                None
+            }
+        })
+        .min_by_key(|(_, d)| *d)
+        .map(|(c, _)| c)
+}
+
+/// Simple Levenshtein edit distance for fuzzy matching.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let m = a_chars.len();
+    let n = b_chars.len();
+
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for i in 0..=m {
+        dp[i][0] = i;
+    }
+    for j in 0..=n {
+        dp[0][j] = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[m][n]
+}
+
+/// Extract a string field from a JSON object, or return None.
+pub fn json_str(val: &Value, key: &str) -> Option<String> {
+    val.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+}
+
+/// Extract a string array field from a JSON object (supports both ["a","b"] and "a,b" formats).
+pub fn json_str_vec(val: &Value, key: &str) -> Option<Vec<String>> {
+    match val.get(key) {
+        Some(Value::Array(arr)) => {
+            Some(arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        }
+        Some(Value::String(s)) => Some(s.split(',').map(|s| s.trim().to_string()).collect()),
+        _ => None,
+    }
+}
+
+/// Extract an integer field from a JSON object.
+pub fn json_i64(val: &Value, key: &str) -> Option<i64> {
+    val.get(key).and_then(|v| v.as_i64())
+}
+
 /// Apply a `Changes` batch via the service-layer `ChangesApplier`.
 ///
 /// Applies all mutations (JSON store writes + event logging) in order.
@@ -318,6 +480,89 @@ pub fn resolve_actor() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn edit_distance_exact_match() {
+        assert_eq!(edit_distance("title", "title"), 0);
+    }
+
+    #[test]
+    fn edit_distance_one_char_typo() {
+        assert_eq!(edit_distance("titl", "title"), 1);
+    }
+
+    #[test]
+    fn edit_distance_distant_strings() {
+        assert!(edit_distance("abcdef", "xyz") > 2);
+    }
+
+    #[test]
+    fn find_closest_match_finds_typo() {
+        let candidates = &["title", "branch", "domain"];
+        assert_eq!(find_closest_match("titl", candidates), Some("title"));
+        assert_eq!(find_closest_match("brach", candidates), Some("branch"));
+    }
+
+    #[test]
+    fn find_closest_match_no_match() {
+        let candidates = &["title", "branch"];
+        assert_eq!(find_closest_match("zzzzz", candidates), None);
+    }
+
+    #[test]
+    fn json_str_extracts_string() {
+        let val = json!({"name": "test"});
+        assert_eq!(json_str(&val, "name"), Some("test".to_string()));
+        assert_eq!(json_str(&val, "missing"), None);
+    }
+
+    #[test]
+    fn json_str_vec_from_array() {
+        let val = json!({"deps": ["a", "b", "c"]});
+        assert_eq!(
+            json_str_vec(&val, "deps"),
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+        );
+    }
+
+    #[test]
+    fn json_str_vec_from_csv_string() {
+        let val = json!({"deps": "a,b,c"});
+        assert_eq!(
+            json_str_vec(&val, "deps"),
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+        );
+    }
+
+    #[test]
+    fn json_i64_extracts_number() {
+        let val = json!({"priority": 5});
+        assert_eq!(json_i64(&val, "priority"), Some(5));
+        assert_eq!(json_i64(&val, "missing"), None);
+    }
+
+    #[test]
+    fn parse_input_json_inline() {
+        let val = parse_input_json(r#"{"title": "test"}"#);
+        assert_eq!(val.get("title").unwrap().as_str().unwrap(), "test");
+    }
+
+    #[test]
+    fn parse_input_json_from_file() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), r#"{"key": "val"}"#).unwrap();
+        let path = format!("@{}", tmp.path().display());
+        let val = parse_input_json(&path);
+        assert_eq!(val.get("key").unwrap().as_str().unwrap(), "val");
+    }
+
+    #[test]
+    fn validate_json_fields_accepts_valid() {
+        let val = json!({"title": "x", "branch": "y"});
+        // Should not panic
+        validate_json_fields(&val, &["title", "branch"], &["title"]);
+    }
 
     #[test]
     fn bootstrap_search_artifacts_fails_open_when_save_path_is_invalid() {

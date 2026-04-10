@@ -18,9 +18,14 @@ pub enum DepCmd {
     /// Add a dependency.
     Add {
         /// Task ID.
-        task: String,
+        #[arg(required_unless_present = "input_json")]
+        task: Option<String>,
         /// Dependency task ID.
-        depends_on: String,
+        #[arg(required_unless_present = "input_json")]
+        depends_on: Option<String>,
+        /// JSON payload input: {"task": "...", "depends_on": "..."}
+        #[arg(long)]
+        input_json: Option<String>,
     },
     /// Remove a dependency.
     Rm {
@@ -41,7 +46,27 @@ fn ensure_flow_exists() -> std::path::PathBuf {
 
 pub fn dispatch(cmd: &DepCmd, json: bool, dry_run: bool) {
     match cmd {
-        DepCmd::Add { task, depends_on } => cmd_dep_add(json, task, depends_on, dry_run),
+        DepCmd::Add {
+            task,
+            depends_on,
+            input_json,
+        } => {
+            let (r_task, r_dep) = if let Some(ij) = input_json {
+                use super::helpers::{json_str, parse_input_json, validate_json_fields};
+                let val = parse_input_json(ij);
+                validate_json_fields(&val, &["task", "depends_on"], &["task", "depends_on"]);
+                (
+                    json_str(&val, "task").unwrap_or_default(),
+                    json_str(&val, "depends_on").unwrap_or_default(),
+                )
+            } else {
+                (
+                    task.clone().unwrap_or_default(),
+                    depends_on.clone().unwrap_or_default(),
+                )
+            };
+            cmd_dep_add(json, &r_task, &r_dep, dry_run)
+        }
         DepCmd::Rm { task, depends_on } => cmd_dep_rm(json, task, depends_on, dry_run),
     }
 }

@@ -43,7 +43,29 @@ use output::OutputOpts;
 
 /// flowctl - development orchestration engine.
 #[derive(Parser, Debug)]
-#[command(name = "flowctl", version, about = "Development orchestration engine")]
+#[command(
+    name = "flowctl",
+    version,
+    about = "Development orchestration engine",
+    long_about = "Agent-Primary Workflow / Orchestration CLI.\n\n\
+        Primary surface: Workflow (epic/task/phase lifecycle, DAG scheduling)\n\
+        Secondary surfaces: Code Intelligence, Integration, Meta/Config, File Ops",
+    help_template = "\
+{about-with-newline}
+{usage-heading} {usage}
+
+{all-args}
+
+[Workflow]        epic, task, dep, phase, worker-phase, ready, next, start, done, restart, block, fail, queue, events
+[Query]           show, epics, tasks, list, cat, files, lock, unlock, lock-check, heartbeat
+[Admin]           init, detect, startup, status, doctor, validate, guard, pre-launch, worker-prompt, review, dag, estimate, replay, diff, recover
+[Code Intel]      graph, index, find, search, code-structure, repo-map, plan-depth
+[Integration]     rp, codex, hook
+[Meta / Config]   config, stack, invariants, project-context, skill, scout-cache, ralph, stats
+[Data / IO]       write-file, patch, export, import, checkpoint, outputs, log, memory, gap, approval, checklist
+[Introspection]   schema, describe, commands, completions
+"
+)]
 struct Cli {
     #[command(flatten)]
     output: OutputOpts,
@@ -63,7 +85,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    // ── Admin / top-level ────────────────────────────────────────────
+    // ── Admin ────────────────────────────────────────────────────────
     /// Initialize .flow/ directory.
     Init,
     /// Check if .flow/ exists.
@@ -605,6 +627,21 @@ enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
+
+    // ── Introspection (Agent-Primary discovery surface) ─────────────
+    /// List all commands with descriptions (machine-readable command catalog).
+    #[command(name = "commands")]
+    CommandsList,
+    /// Describe a command's accepted flags, types, defaults, and required status.
+    Describe {
+        /// Command name (e.g., "epic create", "task create", "unlock").
+        command: Vec<String>,
+    },
+    /// Show JSON schema for a command's output structure.
+    Schema {
+        /// Command name.
+        command: Vec<String>,
+    },
 }
 
 fn main() {
@@ -746,7 +783,7 @@ fn main() {
             query::cmd_files(json, epic);
         }
         Commands::Lock { task, files, mode } => query::cmd_lock(json, task, files, mode),
-        Commands::Unlock { task, files, all } => query::cmd_unlock(json, task, files, all),
+        Commands::Unlock { task, files, all } => query::cmd_unlock(json, task, files, all, dry_run),
         Commands::LockCheck { file } => query::cmd_lock_check(json, file),
         Commands::Heartbeat { task } => query::cmd_heartbeat(json, task),
 
@@ -851,6 +888,224 @@ fn main() {
             let mut cmd = Cli::command();
             generate(shell, &mut cmd, "flowctl", &mut std::io::stdout());
         }
+
+        // Introspection
+        Commands::CommandsList => cmd_commands_list(json),
+        Commands::Describe { command } => cmd_describe(json, &command),
+        Commands::Schema { command } => cmd_schema(json, &command),
+    }
+}
+
+/// List all commands with descriptions (machine-readable command catalog).
+fn cmd_commands_list(json_mode: bool) {
+    let cmd = Cli::command();
+    let mut entries = Vec::new();
+
+    for sub in cmd.get_subcommands() {
+        let name = sub.get_name().to_string();
+        let about = sub
+            .get_about()
+            .map(|a| a.to_string())
+            .unwrap_or_default();
+        let has_subcommands = sub.get_subcommands().next().is_some();
+
+        if has_subcommands {
+            for nested in sub.get_subcommands() {
+                let nested_name = format!("{} {}", name, nested.get_name());
+                let nested_about = nested
+                    .get_about()
+                    .map(|a| a.to_string())
+                    .unwrap_or_default();
+                entries.push(serde_json::json!({
+                    "command": nested_name,
+                    "description": nested_about,
+                    "group": classify_command(&name),
+                }));
+            }
+        } else {
+            entries.push(serde_json::json!({
+                "command": name,
+                "description": about,
+                "group": classify_command(&name),
+            }));
+        }
+    }
+
+    if json_mode {
+        output::json_output(serde_json::json!(entries));
+    } else {
+        for entry in &entries {
+            println!(
+                "{:<30} [{}] {}",
+                entry["command"].as_str().unwrap_or(""),
+                entry["group"].as_str().unwrap_or(""),
+                entry["description"].as_str().unwrap_or(""),
+            );
+        }
+    }
+}
+
+/// Describe a command's flags, types, defaults, and required status.
+fn cmd_describe(json_mode: bool, command_path: &[String]) {
+    let root = Cli::command();
+    let target = find_subcommand(&root, command_path);
+
+    match target {
+        Some(cmd) => {
+            let mut args = Vec::new();
+            for arg in cmd.get_arguments() {
+                if arg.get_id() == "help" || arg.get_id() == "version" {
+                    continue;
+                }
+                let long = arg.get_long().map(|s| format!("--{s}"));
+                let short = arg.get_short().map(|c| format!("-{c}"));
+                let required = arg.is_required_set();
+                let help = arg.get_help().map(|h| h.to_string()).unwrap_or_default();
+                let default = arg
+                    .get_default_values()
+                    .iter()
+                    .map(|v| v.to_string_lossy().to_string())
+                    .collect::<Vec<_>>();
+                let possible = arg
+                    .get_possible_values()
+                    .iter()
+                    .map(|v| v.get_name().to_string())
+                    .collect::<Vec<_>>();
+
+                args.push(serde_json::json!({
+                    "name": arg.get_id().as_str(),
+                    "long": long,
+                    "short": short,
+                    "required": required,
+                    "help": help,
+                    "default": if default.is_empty() { serde_json::Value::Null } else { serde_json::json!(default) },
+                    "possible_values": if possible.is_empty() { serde_json::Value::Null } else { serde_json::json!(possible) },
+                }));
+            }
+
+            if json_mode {
+                output::json_output(serde_json::json!({
+                    "command": command_path.join(" "),
+                    "description": cmd.get_about().map(|a| a.to_string()).unwrap_or_default(),
+                    "arguments": args,
+                }));
+            } else {
+                println!(
+                    "{}  — {}",
+                    command_path.join(" "),
+                    cmd.get_about().map(|a| a.to_string()).unwrap_or_default()
+                );
+                println!();
+                for a in &args {
+                    let flag = a["long"]
+                        .as_str()
+                        .unwrap_or(a["name"].as_str().unwrap_or(""));
+                    let req = if a["required"].as_bool().unwrap_or(false) {
+                        " (required)"
+                    } else {
+                        ""
+                    };
+                    println!("  {:<25} {}{}", flag, a["help"].as_str().unwrap_or(""), req);
+                }
+            }
+        }
+        None => {
+            output::error_exit(&format!(
+                "Unknown command '{}'. Run 'flowctl commands' to see all commands.",
+                command_path.join(" ")
+            ));
+        }
+    }
+}
+
+/// Show basic JSON schema for a command's output.
+fn cmd_schema(json_mode: bool, command_path: &[String]) {
+    let root = Cli::command();
+    let target = find_subcommand(&root, command_path);
+
+    match target {
+        Some(cmd) => {
+            // Output the standard envelope schema plus command-specific hints
+            let schema = serde_json::json!({
+                "command": command_path.join(" "),
+                "output_envelope": {
+                    "api_version": { "type": "integer", "description": "Output stability contract version" },
+                    "success": { "type": "boolean", "description": "Whether the command succeeded" },
+                },
+                "error_envelope": {
+                    "api_version": { "type": "integer" },
+                    "success": { "const": false },
+                    "error": { "type": "string" },
+                },
+                "exit_codes": {
+                    "0": "success",
+                    "1": "error",
+                    "2": "blocked",
+                },
+                "description": cmd.get_about().map(|a| a.to_string()).unwrap_or_default(),
+                "supports_json": true,
+                "supports_compact": true,
+                "supports_dry_run": cmd.get_arguments().any(|a| a.get_id() == "dry_run"),
+            });
+
+            if json_mode {
+                output::json_output(schema);
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&schema).unwrap()
+                );
+            }
+        }
+        None => {
+            output::error_exit(&format!(
+                "Unknown command '{}'. Run 'flowctl commands' to see all commands.",
+                command_path.join(" ")
+            ));
+        }
+    }
+}
+
+/// Find a subcommand by path (e.g., ["epic", "create"]).
+fn find_subcommand<'a>(
+    root: &'a clap::Command,
+    path: &[String],
+) -> Option<&'a clap::Command> {
+    let mut current = root;
+    for part in path {
+        current = current
+            .get_subcommands()
+            .find(|s| s.get_name() == part.as_str())?;
+    }
+    Some(current)
+}
+
+/// Classify a command into its surface group.
+fn classify_command(name: &str) -> &'static str {
+    match name {
+        "epic" | "task" | "dep" | "phase" | "worker-phase" | "ready" | "next" | "start"
+        | "done" | "restart" | "block" | "fail" | "queue" | "events" => "Workflow",
+
+        "show" | "epics" | "tasks" | "list" | "cat" | "files" | "lock" | "unlock"
+        | "lock-check" | "heartbeat" => "Query",
+
+        "init" | "detect" | "startup" | "status" | "doctor" | "validate" | "guard"
+        | "pre-launch" | "worker-prompt" | "review" | "dag" | "estimate" | "replay" | "diff"
+        | "recover" | "plan-depth" => "Admin",
+
+        "graph" | "index" | "find" | "search" | "code-structure" | "repo-map" => "Code Intel",
+
+        "rp" | "codex" | "hook" => "Integration",
+
+        "config" | "stack" | "invariants" | "project-context" | "skill" | "scout-cache"
+        | "ralph" | "stats" => "Meta / Config",
+
+        "write-file" | "patch" | "export" | "import" | "checkpoint" | "outputs" | "log"
+        | "memory" | "gap" | "approval" | "checklist" | "edit" => "Data / IO",
+
+        "schema" | "describe" | "commands" | "completions" => "Introspection",
+
+        _ => "Other",
     }
 }
 

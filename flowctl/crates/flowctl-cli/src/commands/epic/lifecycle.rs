@@ -16,11 +16,11 @@ use super::helpers::{
     validate_epic_id,
 };
 
-pub fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
+pub fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool, dry_run: bool) {
     ensure_flow_exists();
     validate_epic_id(id);
 
-    let mut doc = load_epic(id);
+    let doc = load_epic(id);
 
     // Check all tasks are done/skipped via JSON files
     let flow_dir = get_flow_dir();
@@ -35,13 +35,6 @@ pub fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
         .map(|t| format!("{} ({})", t.id, t.status))
         .collect();
 
-    if !incomplete.is_empty() {
-        error_exit(&format!(
-            "Cannot close epic: incomplete tasks - {}",
-            incomplete.join(", ")
-        ));
-    }
-
     // Gap registry gate — check JSON gaps
     let mut open_blocking_count = 0;
     let mut gap_list_parts: Vec<String> = Vec::new();
@@ -55,6 +48,42 @@ pub fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
         }
     }
 
+    // Dry-run: show what would happen without mutating state
+    if dry_run {
+        let would_pass = incomplete.is_empty()
+            && (open_blocking_count == 0 || skip_gap_check);
+        if json_mode {
+            json_output(json!({
+                "dry_run": true,
+                "id": id,
+                "current_status": doc.frontmatter.status.to_string(),
+                "would_close": would_pass,
+                "task_count": tasks.len(),
+                "incomplete_tasks": incomplete,
+                "blocking_gaps": open_blocking_count,
+                "gap_details": gap_list_parts,
+                "skip_gap_check": skip_gap_check,
+            }));
+        } else {
+            println!("Dry run — epic close {id}:");
+            println!("  Status: {}", doc.frontmatter.status);
+            println!("  Tasks: {} total, {} incomplete", tasks.len(), incomplete.len());
+            if !incomplete.is_empty() {
+                println!("  Incomplete: {}", incomplete.join(", "));
+            }
+            println!("  Blocking gaps: {open_blocking_count}");
+            println!("  Would close: {would_pass}");
+        }
+        return;
+    }
+
+    if !incomplete.is_empty() {
+        error_exit(&format!(
+            "Cannot close epic: incomplete tasks - {}",
+            incomplete.join(", ")
+        ));
+    }
+
     if open_blocking_count > 0 && !skip_gap_check {
         error_exit(&format!(
             "Cannot close epic: {open_blocking_count} unresolved blocking gap(s): {}. \
@@ -66,6 +95,7 @@ pub fn cmd_close(id: &str, skip_gap_check: bool, json_mode: bool) {
         eprintln!("WARNING: Bypassing {open_blocking_count} unresolved blocking gap(s)");
     }
 
+    let mut doc = doc;
     doc.frontmatter.status = EpicStatus::Done;
     doc.frontmatter.updated_at = Utc::now();
     save_epic(&doc);

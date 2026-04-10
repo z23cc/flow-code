@@ -2,10 +2,10 @@ bin.name = "flowctl"
 args = ["--help"]
 status.code = 0
 stdout = """
-Development orchestration engine
+Agent-Primary Workflow / Orchestration CLI.
 
-Usage: flowctl [OPTIONS] <COMMAND>
+Primary surface: Workflow (epic/task/phase lifecycle, DAG scheduling)
+Secondary surfaces: Code Intelligence, Integration, Meta/Config, File Ops
 
-Commands:
 ...
 """

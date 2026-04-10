@@ -21,11 +21,11 @@ pub enum TaskCmd {
     /// Create a new task.
     Create {
         /// Epic ID.
-        #[arg(long)]
-        epic: String,
+        #[arg(long, required_unless_present = "input_json")]
+        epic: Option<String>,
         /// Task title.
-        #[arg(long)]
-        title: String,
+        #[arg(long, required_unless_present = "input_json")]
+        title: Option<String>,
         /// Comma-separated dependency IDs.
         #[arg(long)]
         deps: Option<String>,
@@ -41,6 +41,10 @@ pub enum TaskCmd {
         /// Comma-separated owned file paths.
         #[arg(long)]
         files: Option<String>,
+        /// JSON payload input (inline, @file, or - for stdin).
+        /// Fields: {"epic": "...", "title": "...", "deps": [...], "priority": N, "domain": "...", "files": [...]}
+        #[arg(long)]
+        input_json: Option<String>,
     },
     /// Set task spec: full file or individual sections.
     Spec {
@@ -309,17 +313,49 @@ pub fn dispatch(cmd: &TaskCmd, json: bool, dry_run: bool) {
             priority,
             domain,
             files,
-        } => create::cmd_task_create(
-            json,
-            epic,
-            title,
-            deps.as_deref(),
-            acceptance_file.as_deref(),
-            *priority,
-            domain.as_deref(),
-            files.as_deref(),
-            dry_run,
-        ),
+            input_json,
+        } => {
+            let (r_epic, r_title, r_deps, r_priority, r_domain, r_files) =
+                if let Some(ij) = input_json {
+                    use crate::commands::helpers::{
+                        json_i64, json_str, json_str_vec, parse_input_json, validate_json_fields,
+                    };
+                    let val = parse_input_json(ij);
+                    validate_json_fields(
+                        &val,
+                        &["epic", "title", "deps", "priority", "domain", "files"],
+                        &["epic", "title"],
+                    );
+                    (
+                        json_str(&val, "epic").unwrap_or_default(),
+                        json_str(&val, "title").unwrap_or_default(),
+                        json_str_vec(&val, "deps").map(|v| v.join(",")),
+                        json_i64(&val, "priority").map(|n| n as i32).or(*priority),
+                        json_str(&val, "domain").or(domain.clone()),
+                        json_str_vec(&val, "files").map(|v| v.join(",")).or(files.clone()),
+                    )
+                } else {
+                    (
+                        epic.clone().unwrap_or_default(),
+                        title.clone().unwrap_or_default(),
+                        deps.clone(),
+                        *priority,
+                        domain.clone(),
+                        files.clone(),
+                    )
+                };
+            create::cmd_task_create(
+                json,
+                &r_epic,
+                &r_title,
+                r_deps.as_deref(),
+                acceptance_file.as_deref(),
+                r_priority,
+                r_domain.as_deref(),
+                r_files.as_deref(),
+                dry_run,
+            )
+        }
         TaskCmd::Spec {
             id,
             file,

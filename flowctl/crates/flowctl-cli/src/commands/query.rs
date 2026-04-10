@@ -643,9 +643,42 @@ pub fn cmd_lock(json: bool, task: String, files: String, mode: String) {
     }
 }
 
-pub fn cmd_unlock(json: bool, task: Option<String>, _files: Option<String>, all: bool) {
+pub fn cmd_unlock(
+    json: bool,
+    task: Option<String>,
+    _files: Option<String>,
+    all: bool,
+    dry_run: bool,
+) {
     let flow_dir = ensure_flow_exists();
     if all {
+        if dry_run {
+            // Impact preview: show what locks would be released
+            let locks = flowctl_core::json_store::locks_read(&flow_dir).unwrap_or_default();
+            if json {
+                let lock_details: Vec<serde_json::Value> = locks
+                    .iter()
+                    .map(|l| {
+                        json!({
+                            "file": l.file_path,
+                            "task": l.task_id,
+                            "mode": format!("{:?}", l.mode),
+                        })
+                    })
+                    .collect();
+                json_output(json!({
+                    "dry_run": true,
+                    "would_clear": locks.len(),
+                    "locks": lock_details,
+                }));
+            } else {
+                println!("Dry run — would clear {} file lock(s):", locks.len());
+                for l in &locks {
+                    println!("  {} (held by {}, mode: {:?})", l.file_path, l.task_id, l.mode);
+                }
+            }
+            return;
+        }
         match flowctl_core::json_store::locks_clear(&flow_dir) {
             Ok(count) => {
                 if json {

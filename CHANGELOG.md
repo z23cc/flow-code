@@ -4,6 +4,19 @@ All notable changes to Flow-Code are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions use [Semantic Versioning](https://semver.org/).
 
+## [0.1.50] - 2026-04-10
+
+### Added
+- **Parallel explore agents** in brainstorm phase — 3 concurrent agents (patterns, gaps, impact) scan codebase before context_builder call
+- **PLAN CONTRACT** in worker prompts — workers must read epic spec first, implement only their task
+- **CONCURRENT_WORKERS** in worker prompts — workers see other active tasks and their locked files
+- **Concurrency awareness** in worker Phase 2 — mandatory plan citation and conflict escalation protocol
+
+### Changed
+- `flowctl worker-prompt` now outputs plan-as-contract preamble and concurrent worker context
+- Worker agent (`worker.md`) Phase 2 restructured with plan-as-contract (2.0), concurrency awareness (2.1), and read specs (2.2) sub-phases
+- Codex worker steps (`step-03-find-ready.md`) updated with lock + worker-prompt generation guidance
+
 ## [0.1.49] - 2026-04-10
 
 ### Changed

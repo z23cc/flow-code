@@ -157,6 +157,32 @@ When you receive a steer instruction, integrate it into your current work.
 <!-- section:core -->
 ## Phase 2: Re-anchor (CRITICAL - DO NOT SKIP)
 
+### 2.0: Plan-as-Contract (MANDATORY)
+
+Your prompt begins with a `PLAN CONTRACT` line. You MUST honor it:
+1. Read the epic spec file referenced in the contract (`.flow/specs/<EPIC_ID>.md`)
+2. Find the section relevant to YOUR task and cite it (copy the relevant paragraph)
+3. Confirm your task's scope matches the spec — if it doesn't, output `STATUS: spec_conflict`
+
+This is not optional. The spec file is the binding contract between you and the coordinator.
+
+### 2.1: Concurrency Awareness
+
+If your prompt contains a `CONCURRENT_WORKERS` section:
+1. Parse each concurrent worker's ID, title, and locked files
+2. Do NOT modify any files listed as owned by other workers
+3. If you discover you need a file owned by another worker, output:
+   ```
+   STATUS: needs_file_access
+   NEEDS_ACCESS: <file-path>
+   CONFLICT_WITH: <other-task-id>
+   ```
+4. The coordinator will resolve the conflict via `steer`
+
+If no `CONCURRENT_WORKERS` section is present, you are the only active worker — no restrictions beyond your OWNED_FILES.
+
+### 2.2: Read Specs and Context
+
 Use the FLOWCTL path and IDs from your prompt:
 
 ```bash

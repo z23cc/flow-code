@@ -111,10 +111,31 @@ $FLOWCTL graph map --json
 $FLOWCTL find "<key terms from request>" --json
 ```
 
+**MANDATORY Step 1.5: Parallel explore agents** (RP Orchestrate pattern)
+
+Spawn 3 lightweight explore agents in parallel to scan different codebase dimensions. These run concurrently while you proceed to classify complexity. Their results feed into the context_builder call.
+
 ```
-# Then use context_builder for deeper analysis — reused by Plan phase
+# Launch ALL THREE in a single message (parallel execution):
+Agent(subagent_type="Explore", name="explore-patterns",
+  prompt="Scan the codebase for existing patterns and conventions relevant to: <request summary>. Report: key patterns found, naming conventions, architecture style, reusable utilities. Under 200 words.",
+  run_in_background=true)
+
+Agent(subagent_type="Explore", name="explore-gaps",
+  prompt="Analyze the codebase for gaps, technical debt, and missing pieces relevant to: <request summary>. Report: what's missing, what's inconsistent, what would break. Under 200 words.",
+  run_in_background=true)
+
+Agent(subagent_type="Explore", name="explore-impact",
+  prompt="Trace dependency chains and impact areas for: <request summary>. Report: which files depend on what, what changes would cascade, risk areas. Under 200 words.",
+  run_in_background=true)
+```
+
+Wait for all 3 to complete. Collect their findings into `EXPLORE_FINDINGS`.
+
+```
+# Then use context_builder for deeper analysis — enriched with explore findings
 mcp__RepoPrompt__context_builder({
-  instructions: "<request summary>. Local fast-path findings: <graph map + find results>. Analyze: relevant files, existing patterns, potential approaches, complexity.",
+  instructions: "<request summary>. Local fast-path findings: <graph map + find results>. Parallel explore findings: <EXPLORE_FINDINGS>. Analyze: relevant files, existing patterns, potential approaches, complexity.",
   response_type: "question"
 })
 → save chat_id as BRAINSTORM_CHAT_ID (Plan phase will reuse this via oracle_send)

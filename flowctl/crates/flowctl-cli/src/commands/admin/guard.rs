@@ -630,13 +630,65 @@ pub fn cmd_worker_prompt(
         String::new()
     };
 
+    // ── Plan-as-contract preamble (RP Orchestrate pattern) ──────────
+    let plan_contract = format!(
+        "PLAN CONTRACT: Read .flow/specs/{epic}.md FIRST. You implement ONLY task {task}: \"{title}\". Do NOT modify files outside your OWNED_FILES list.",
+        epic = epic_id,
+        task = task,
+        title = {
+            let flow_dir = get_flow_dir();
+            flowctl_core::json_store::task_read(&flow_dir, &task)
+                .map(|t| t.title.clone())
+                .unwrap_or_else(|_| "(unknown)".to_string())
+        },
+    );
+
+    // ── Concurrency context (RP Orchestrate pattern) ────────────────
+    let concurrent_section = {
+        let flow_dir = get_flow_dir();
+        let mut lines = Vec::new();
+        if let Ok(tasks) = flowctl_core::json_store::task_list_by_epic(&flow_dir, &epic_id) {
+            let locks = flowctl_core::json_store::locks_read(&flow_dir).unwrap_or_default();
+            for t in &tasks {
+                if t.id != task
+                    && t.status == flowctl_core::state_machine::Status::InProgress
+                {
+                    let task_locks: Vec<&str> = locks
+                        .iter()
+                        .filter(|l| l.task_id == t.id)
+                        .map(|l| l.file_path.as_str())
+                        .collect();
+                    let lock_str = if task_locks.is_empty() {
+                        "(no locked files)".to_string()
+                    } else {
+                        task_locks.join(", ")
+                    };
+                    lines.push(format!(
+                        "- {}: \"{}\" (files: {})",
+                        t.id, t.title, lock_str
+                    ));
+                }
+            }
+        }
+        if lines.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n\nCONCURRENT_WORKERS:\n{}\nDo NOT modify files owned by other workers. If you need a file another worker owns, output:\n  STATUS: needs_file_access\n  NEEDS_ACCESS: <file-path>",
+                lines.join("\n")
+            )
+        }
+    };
+
     let prompt_text = format!(
-        "TASK_ID: {task}\nEPIC_ID: {epic_id}\n{tdd_line}\n{review_line}\n\nPhase sequence:\n{phases}\n\nExecute phases in order. Every `flowctl worker-phase done` must include a JSON receipt (`--receipt` or `--receipt-file`). Phase 10 also requires `flowctl done` to have already marked the task done. Use flowctl worker-phase next/done to track progress.{skills}",
+        "{plan_contract}\n\nTASK_ID: {task}\nEPIC_ID: {epic_id}\n{tdd_line}\n{review_line}\n\nPhase sequence:\n{phases}\n\nExecute phases in order. Every `flowctl worker-phase done` must include a JSON receipt (`--receipt` or `--receipt-file`). Phase 10 also requires `flowctl done` to have already marked the task done. Use flowctl worker-phase next/done to track progress.{concurrent}{skills}",
+        plan_contract = plan_contract,
         task = task,
         epic_id = epic_id,
         tdd_line = tdd_line,
         review_line = review_line,
         phases = phase_list.join("\n"),
+        concurrent = concurrent_section,
         skills = skills_section,
     );
 

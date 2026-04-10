@@ -1,6 +1,6 @@
 [package]
 name = "flowctl-cli"
-version = "0.1.49"
+version = "0.1.50"
 description = "CLI entry point for flowctl"
 edition.workspace = true
 rust-version.workspace = true

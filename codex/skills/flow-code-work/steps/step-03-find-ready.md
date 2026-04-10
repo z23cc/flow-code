@@ -60,8 +60,25 @@ $FLOWCTL cat <task-id>
 # 1. Start each task
 $FLOWCTL start <task-id-1> --json
 $FLOWCTL start <task-id-2> --json
+
+# 2. Lock owned files
+$FLOWCTL lock --task <task-id-1> --files "<file1>,<file2>" --json
+$FLOWCTL lock --task <task-id-2> --files "<file3>,<file4>" --json
 ```
+
+## Worker Prompt Generation
+
+Use `flowctl worker-prompt` to generate the bootstrap prompt for each worker. The generated prompt automatically includes:
+
+- **PLAN CONTRACT**: Instructs the worker to read the epic spec first and implement only their task
+- **CONCURRENT_WORKERS**: Lists other in-progress tasks and their locked files so the worker avoids conflicts
+
+```bash
+$FLOWCTL worker-prompt --task <task-id> --bootstrap --inline-skills --json
+```
+
+The worker MUST honor the PLAN CONTRACT and CONCURRENT_WORKERS sections. See `agents/worker.md` Phase 2 for the worker's handling of these sections.
 
 ## Next Step
 
-Read `steps/step-04-spawn-workers.md` and execute.
+Spawn workers using `agent_run` with the generated prompts. Each worker runs in an isolated git worktree.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## What Is This
 
-Flow-Code is a Claude Code / Codex plugin that provides a **goal-driven adaptive development engine**. The entire interface is 3 MCP tools — the Rust engine handles all orchestration, the LLM focuses on actual work.
+Flow-Code is a Claude Code plugin that provides a **goal-driven adaptive development engine**. The entire interface is 3 MCP tools — the Rust engine handles all orchestration, the LLM focuses on actual work.
 
 ## Architecture
 
@@ -24,66 +24,142 @@ The engine exposes **3 MCP tools**. Claude Code calls them via the MCP server re
 
 ### `flow_drive(request)`
 
-Start or resume a goal. The engine:
-1. Creates/finds the goal
-2. Generates a plan if needed
-3. Assembles a self-contained **ActionSpec** with: objective, relevant file slices, knowledge patterns, constraints, and quality expectations
-
-```
-result = flow_drive("add OAuth login with Google")
-→ ActionSpec { type: "implement", objective: "...", context: { files, patterns, constraints }, ... }
-```
+Start or resume a goal. The engine auto-plans multi-step goals into a DAG with parallel execution where possible. Returns an ActionSpec with: objective, guard commands, progress.
 
 ### `flow_submit(action_id, status, summary, files_changed)`
 
-Submit work results. The engine automatically:
-- Records the attempt
-- Runs quality guard at risk-proportional depth
-- Releases file locks
-- Records learnings
-- Schedules the next node
-- Returns the next ActionSpec (or "complete" when done)
+Submit work results. The engine automatically: records the attempt, runs quality guard, releases file locks, records learnings, schedules the next node. Returns the next ActionSpec (or "complete" when done).
 
 ### `flow_query(question, goal_id?)`
 
-Ask about goal status, knowledge base, or codebase. Natural language queries.
+Ask about goal status (per-node detail), knowledge patterns, or read file content.
 
 ## The Workflow Loop
 
 ```
 action = flow_drive("add OAuth login")
 while action.type != "complete":
-    # Do the work described in action.objective using action.context
+    # Do the work described in action.objective
     action = flow_submit(action.action_id, "done", "summary", ["files..."])
 ```
 
 The LLM is stateless. The engine tracks everything.
+
+## flowctl × RepoPrompt — How to Use Both
+
+The `ccx` launcher loads both MCP servers. Built-in file tools (Read/Write/Edit/Glob/Grep) are disabled — use RepoPrompt tools instead.
+
+### When to Use What
+
+```
+Task Complexity      Tools to Use
+─────────────────    ──────────────────────────────
+Simple (1 file)      RP tools only, no flowctl needed
+Complex (multi-step) flowctl + RP tools
+Code audit/refactor  RP agent_run (explore + engineer)
+Maximum power        flowctl orchestration + RP agent execution
+```
+
+### Simple Tasks — RP Only
+
+For single-file fixes, small changes, or quick questions:
+
+```
+get_code_structure → read_file → apply_edits → git diff
+```
+
+No need for flow_drive/flow_submit — just use RP tools directly.
+
+### Complex Tasks — flowctl + RP
+
+For multi-step goals with dependencies:
+
+```
+flow_drive("add auth system: register, login, JWT, password reset")
+  → Engine creates 4 nodes (3 parallel + 1 dependent)
+  → For each node:
+      1. get_code_structure  ← understand current code
+      2. file_search         ← find related files
+      3. read_file           ← read specific sections
+      4. apply_edits         ← make changes
+      5. git diff            ← review changes
+      6. flow_submit         ← engine checks quality, gives next node
+  → Engine compounds knowledge on completion
+```
+
+### Code Audits — RP Multi-Agent
+
+For scanning and bulk optimization, use RP's agent_run:
+
+```
+agent_run(explore, "scan for dead code, duplication, long functions")
+  → Returns findings with file:line references
+
+agent_run(engineer, "refactor X based on findings")
+  → Makes changes directly, runs tests
+
+Main agent verifies + commits
+```
+
+RP agents have **full MCP tool access** (unlike Claude Code sub-agents which don't inherit MCP — known bug #37785).
+
+### Maximum Power — flowctl + RP Agents
+
+For large refactors or feature builds:
+
+```
+flow_drive("refactor storage layer")
+  → n-1: Analyze
+      → agent_run(explore, "scan storage/*.rs patterns")
+  → n-2: Implement
+      → agent_run(engineer, "extract JsonStore trait")
+  → n-3: Test
+      → agent_run(engineer, "write integration tests")
+  → flow_submit each result
+```
+
+flowctl manages the goal lifecycle. RP agents do the heavy lifting.
+
+### Tool Priority (always in this order)
+
+1. **get_code_structure** — FIRST. Always understand structure before anything else
+2. **file_search** — Find related files by content/path
+3. **get_file_tree** — Project structure overview
+4. **read_file** — Read specific line ranges
+5. **context_builder** — AI-powered deep analysis for complex tasks
+6. **apply_edits** — Make changes (multi-edit, rewrite, auto-repair)
+7. **git** — Review diffs, blame, log
+8. **manage_selection** — Pre-select files for context
+9. **agent_run** — Delegate to specialized agents (explore/engineer/pair)
+
+### What NOT to Do
+
+- Do NOT use `flow_query('read file ...')` when RP `read_file` is available
+- Do NOT spawn Claude Code sub-agents (Agent tool) for code work — they can't access MCP tools
+- Do NOT use Bash for grep/find/cat — use RP `file_search` / `read_file`
+- Do NOT use flow_drive for trivial single-file changes
 
 ## Engine Internals
 
 | Component | Purpose |
 |---|---|
 | **Orchestrator** | Central brain — drive/submit/query entry points |
-| **GoalEngine** | Goal lifecycle, PlanningMode x SuccessModel classification |
-| **Planner** | Generates PlanVersion with RiskProfile per node |
-| **Scheduler** | DAG scheduling, ready-node detection, status transitions |
+| **GoalEngine** | Goal lifecycle, PlanningMode × SuccessModel classification |
+| **Planner** | DAG plan generation with dependency detection |
+| **Scheduler** | Parallel node scheduling, status transitions |
 | **EscalationEngine** | Three-level escalation (retry → change strategy → replan) |
 | **ContextAssembler** | Assembles file slices + patterns + constraints per action |
-| **GuardRunner** | Internalized quality gates, auto-detects project type |
+| **GuardRunner** | Quality gates, auto-detects project type and subdirs |
 | **Learner** | Three-layer knowledge (Learning → Pattern → Methodology) |
-| **PolicyEngine** | MCP + Hook policy enforcement |
 | **CodeGraph** | Symbol-level code graph with refs/impact queries |
-| **NgramIndex** | Trigram search index with regex optimization |
 
 ## Storage
-
-All state lives in `.flow/` as JSON files:
 
 ```
 .flow/
 ├── goals/{id}/          Goal-scoped storage
 │   ├── goal.json        Goal definition
-│   ├── plans/           Immutable plan versions (0001.json, 0002.json...)
+│   ├── plans/           Immutable plan versions
 │   ├── attempts/        Per-node attempt history
 │   └── events.jsonl     Append-only event log
 ├── knowledge/
@@ -92,17 +168,7 @@ All state lives in `.flow/` as JSON files:
 │   └── rules/           Methodology rules
 ├── .state/
 │   └── locks.json       File locks for concurrent nodes
-├── graph.bin            Code graph (symbols + deps)
-├── index/ngram.bin      Trigram search index
-└── config.json          Project configuration
-```
-
-## CLI Commands
-
-```bash
-flowctl serve    # Start MCP server on stdio
-flowctl init     # Initialize .flow/ directory
-flowctl guard    # Run quality checks (auto-detects project type)
+└── graph.bin            Code graph (symbols + deps)
 ```
 
 ## Code Quality
@@ -111,54 +177,18 @@ flowctl guard    # Run quality checks (auto-detects project type)
 cd flowctl && cargo build --release && cargo test --all
 ```
 
-130 tests. Rust only — no TypeScript, no npm, no Python.
-
-## flowctl × RepoPrompt Collaboration Protocol
-
-When both MCP servers are available, use them together for maximum effectiveness:
-
-```
-┌─ flowctl (编排层) ─────────────┐   ┌─ RepoPrompt (代码理解层) ────────┐
-│ flow_drive  → 规划/调度/升级    │   │ get_code_structure → 函数签名     │
-│ flow_submit → 质量门禁/知识沉淀 │   │ file_search → 搜索文件/内容       │
-│ flow_query  → 状态/知识/文件    │   │ context_builder → AI 深度分析     │
-│                                │   │ apply_edits → 精确代码编辑        │
-│                                │   │ git → diff/blame/log             │
-│                                │   │ read_file → 按行读取              │
-└────────────────────────────────┘   └──────────────────────────────────┘
-```
-
-### Recommended Workflow (per ActionSpec node)
-
-1. **Understand** (RP): Follow `recommended_workflow` in ActionSpec
-   - `file_search` — find related files
-   - `get_code_structure` — understand APIs without reading full files
-   - `context_builder` — for complex tasks, AI-powered deep discovery
-2. **Implement** (RP):
-   - `apply_edits` — multi-edit transactions, auto-repair whitespace
-   - `read_file` — read specific line ranges when needed
-3. **Verify** (flowctl + RP):
-   - `git diff` — review changes before submitting
-   - `flow_submit` — engine runs guard, records learnings, advances to next node
-
-### What NOT to duplicate
-
-- Do NOT use flowctl's `flow_query('read file ...')` when RP `read_file` is available — RP supports line ranges
-- Do NOT manually search for files — use RP `file_search` instead of grep/glob
-- Do NOT read full files for context — use RP `get_code_structure` for signatures
+115 tests. Rust only — no TypeScript, no npm, no Python.
 
 ## Key Design Decisions
 
-- **Engine drives, LLM executes**: The Rust engine owns the state machine, scheduling, quality gates, and knowledge. The LLM focuses on coding and reviewing.
-- **3 MCP tools replace 97 CLI commands + 56 skills + 25 agents**: Token cost drops from ~41K to ~500 per goal for orchestration.
-- **ActionSpec protocol**: Self-contained work packages with everything the LLM needs — no file searching required.
-- **Goal-scoped storage**: Each goal has its own directory with plans, attempts, and events.
-- **Immutable plan versions**: Replan creates a new version, never mutates existing ones.
-- **Risk-proportional guard**: GuardDepth (Trivial/Standard/Thorough) based on node RiskProfile.
+- **Engine drives, LLM executes**: Rust engine owns state, scheduling, quality, knowledge. LLM focuses on coding.
+- **3 MCP tools**: Token cost ~500 per goal for orchestration.
+- **LLM decides tools autonomously**: Engine provides objectives, not tool prescriptions. With `ccx` (built-in tools disabled), LLM naturally uses RP tools.
+- **Parallel planning**: Independent criteria auto-detected, dependent tasks (test/deploy/docs) wait for impl.
+- **Structured errors (SERF)**: `{category, message, retry_safe, recovery}` for deterministic self-correction.
+- **Progressive disclosure**: ActionSpec has summaries; use RP `read_file` for full content.
 - **Three-level escalation**: WorkerRetry (1-2 fails) → StrategyChange (3-4) → Replan (5+).
 - **Knowledge pyramid**: Learnings (raw) → Patterns (distilled, with decay) → Methodology (rules).
-- **Concurrency-safe state**: File locks via `fs2` for concurrent access.
-- **Cross-platform**: Same 3-tool protocol works with Claude Code (MCP) and Codex (AGENTS.md).
 
 ## Files to Never Commit
 

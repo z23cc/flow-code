@@ -1,5 +1,5 @@
-//! Quality — PolicyEngine and risk-proportional guard.
+//! Quality — GuardRunner.
 
-pub mod policy;
+pub mod guard_runner;
 
-pub use policy::*;
+pub use guard_runner::GuardRunner;

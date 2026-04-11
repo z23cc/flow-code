@@ -16,7 +16,6 @@ fs2 = { workspace = true }
 ignore = { workspace = true }
 bincode = { workspace = true }
 memchr = { workspace = true }
-regex-syntax = { workspace = true }
 
 [lints]
 workspace = true

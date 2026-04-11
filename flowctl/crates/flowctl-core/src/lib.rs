@@ -9,10 +9,9 @@
 //! - `context` — ContextAssembler (rich work packages)
 //! - `knowledge` — Learner, Pattern, Methodology
 //! - `provider` — ProviderRegistry, traits
-//! - `quality` — PolicyEngine, GuardRunner
+//! - `quality` — GuardRunner
 //! - `locks` — File lock primitives
 //! - `graph_store` — Symbol-level code graph
-//! - `ngram_index` — Trigram search index
 
 #![forbid(unsafe_code)]
 
@@ -24,12 +23,11 @@ mod fs_utils;
 pub mod graph_store;
 pub mod knowledge;
 pub mod locks;
-pub mod ngram_index;
 pub mod provider;
 pub mod quality;
 pub mod storage;
 
 // Re-export key types at crate root.
-pub use domain::{ActionSpec, ActionType, SubmitInput, SubmitStatus};
+pub use domain::SubmitStatus;
+pub use domain::action_spec::SubmitInput;
 pub use engine::Orchestrator;
-pub use knowledge::LearningKind;

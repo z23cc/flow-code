@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::domain::node::Attempt;
+use crate::fs_utils::atomic_write;
 
 /// Store for Attempt records. One node can have multiple attempts (retries).
 pub struct AttemptStore {
@@ -32,9 +33,7 @@ impl AttemptStore {
 
         let json = serde_json::to_string_pretty(attempt).map_err(|e| format!("serialize: {e}"))?;
         let path = self.attempt_path(goal_id, &attempt.node_id, attempt.seq);
-        let tmp = path.with_extension("tmp");
-        fs::write(&tmp, &json).map_err(|e| format!("write: {e}"))?;
-        fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))
+        atomic_write(&path, json.as_bytes()).map_err(|e| format!("write attempt: {e}"))
     }
 
     /// Get a specific attempt.

@@ -129,79 +129,102 @@ impl Orchestrator {
 
     pub fn query(&self, question: &str, goal_id: Option<&str>) -> Result<serde_json::Value, String> {
         if let Some(gid) = goal_id {
-            let goal = self.goal_engine.status(gid)
-                .map_err(|_| format!("goal '{gid}' not found"))?;
-            let ready_nodes = self.scheduler.ready_nodes(gid).unwrap_or_default();
-            let is_complete = self.scheduler.is_complete(gid).unwrap_or(false);
-            let plan = self.planner.get_latest(gid).ok();
-            let plan_rev = plan.as_ref().map(|p| p.rev);
+            return self.query_goal_status(gid);
+        }
 
-            // Build node-level status summary
-            let nodes_detail: Vec<serde_json::Value> = plan.as_ref()
-                .map(|p| p.nodes.iter().map(|n| {
-                    let attempts = self.attempt_store.count_for_node(gid, &n.id).unwrap_or(0);
-                    serde_json::json!({
-                        "id": n.id,
-                        "objective": n.objective,
-                        "status": n.status,
-                        "attempts": attempts,
-                    })
-                }).collect())
-                .unwrap_or_default();
-
-            return Ok(serde_json::json!({
-                "goal": goal,
-                "nodes": nodes_detail,
-                "ready_nodes": ready_nodes.iter().map(|n| &n.id).collect::<Vec<_>>(),
-                "is_complete": is_complete,
-                "plan_rev": plan_rev,
-            }));
+        if let Some(file_path) = Self::parse_file_query_path(question) {
+            return self.query_file_read(&file_path);
         }
 
         let q = question.to_lowercase();
-
-        // File content query: "read file path/to/file.rs" or "show file path/to/file.rs"
-        if q.starts_with("read file ") || q.starts_with("show file ") || q.starts_with("cat ") {
-            let file_path = question.splitn(2, ' ').nth(1)
-                .and_then(|s| s.splitn(2, ' ').nth(1))
-                .unwrap_or("").trim();
-            let full_path = self.root.join(file_path);
-            return match std::fs::read_to_string(&full_path) {
-                Ok(content) => {
-                    let total_lines = content.lines().count();
-                    Ok(serde_json::json!({
-                        "file": file_path,
-                        "total_lines": total_lines,
-                        "content": content,
-                    }))
-                }
-                Err(_) => Err(format!("file '{}' not found", file_path)),
-            };
+        if Self::is_knowledge_query(&q) {
+            return self.query_knowledge_search(question);
         }
 
-        if q.contains("pattern") || q.contains("knowledge") || q.contains("learn") {
-            let result = self.learner.search(question, 10).map_err(|e| e.to_string())?;
-            return Ok(serde_json::to_value(&result).unwrap_or_default());
+        if let Some(code_graph_result) = self.query_code_graph(question)? {
+            return Ok(code_graph_result);
         }
 
-        let graph_path = self.root.join(".flow").join("graph.bin");
-        if graph_path.exists() {
-            if let Ok(graph) = crate::graph_store::CodeGraph::load(&graph_path) {
-                let refs = graph.find_refs(question);
-                if !refs.is_empty() {
-                    let impact: Vec<String> = refs.iter()
-                        .flat_map(|r| graph.find_impact(&r.file))
-                        .take(20)
-                        .collect();
-                    return Ok(serde_json::json!({
-                        "symbols_found": refs.len(),
-                        "files": refs.iter().map(|r| &r.file).collect::<Vec<_>>(),
-                        "impact": impact,
-                    }));
-                }
+        self.query_goal_list()
+    }
+
+    fn query_goal_status(&self, goal_id: &str) -> Result<serde_json::Value, String> {
+        let goal = self.goal_engine.status(goal_id)
+            .map_err(|_| format!("goal '{goal_id}' not found"))?;
+        let ready_nodes = self.scheduler.ready_nodes(goal_id).unwrap_or_default();
+        let is_complete = self.scheduler.is_complete(goal_id).unwrap_or(false);
+        let plan = self.planner.get_latest(goal_id).ok();
+        let plan_rev = plan.as_ref().map(|p| p.rev);
+
+        let nodes_detail: Vec<serde_json::Value> = plan.as_ref()
+            .map(|p| p.nodes.iter().map(|n| {
+                let attempts = self.attempt_store.count_for_node(goal_id, &n.id).unwrap_or(0);
+                serde_json::json!({
+                    "id": n.id,
+                    "objective": n.objective,
+                    "status": n.status,
+                    "attempts": attempts,
+                })
+            }).collect())
+            .unwrap_or_default();
+
+        Ok(serde_json::json!({
+            "goal": goal,
+            "nodes": nodes_detail,
+            "ready_nodes": ready_nodes.iter().map(|n| &n.id).collect::<Vec<_>>(),
+            "is_complete": is_complete,
+            "plan_rev": plan_rev,
+        }))
+    }
+
+    fn query_file_read(&self, file_path: &str) -> Result<serde_json::Value, String> {
+        let full_path = self.root.join(file_path);
+        match std::fs::read_to_string(&full_path) {
+            Ok(content) => {
+                let total_lines = content.lines().count();
+                Ok(serde_json::json!({
+                    "file": file_path,
+                    "total_lines": total_lines,
+                    "content": content,
+                }))
             }
+            Err(_) => Err(format!("file '{}' not found", file_path)),
+        }
+    }
+
+    fn query_knowledge_search(&self, question: &str) -> Result<serde_json::Value, String> {
+        let result = self.learner.search(question, 10).map_err(|e| e.to_string())?;
+        Ok(serde_json::to_value(&result).unwrap_or_default())
+    }
+
+    fn query_code_graph(&self, question: &str) -> Result<Option<serde_json::Value>, String> {
+        let graph_path = self.root.join(".flow").join("graph.bin");
+        if !graph_path.exists() {
+            return Ok(None);
         }
 
+        let Ok(graph) = crate::graph_store::CodeGraph::load(&graph_path) else {
+            return Ok(None);
+        };
+
+        let refs = graph.find_refs(question);
+        if refs.is_empty() {
+            return Ok(None);
+        }
+
+        let impact: Vec<String> = refs.iter()
+            .flat_map(|r| graph.find_impact(&r.file))
+            .take(20)
+            .collect();
+
+        Ok(Some(serde_json::json!({
+            "symbols_found": refs.len(),
+            "files": refs.iter().map(|r| &r.file).collect::<Vec<_>>(),
+            "impact": impact,
+        })))
+    }
+
+    fn query_goal_list(&self) -> Result<serde_json::Value, String> {
         let goal_ids = self.goal_engine.goal_store.list().unwrap_or_default();
         let goals_summary: Vec<serde_json::Value> = goal_ids.iter()
             .filter_map(|gid| {
@@ -214,7 +237,29 @@ impl Orchestrator {
                 })
             })
             .collect();
+
         Ok(serde_json::json!({ "goals": goals_summary, "hint": "Pass a goal_id to get detailed status." }))
+    }
+
+    fn parse_file_query_path(question: &str) -> Option<String> {
+        let q = question.trim();
+        let q_lower = q.to_lowercase();
+
+        if q_lower.starts_with("read file ") {
+            return Some(q["read file ".len()..].trim().to_string());
+        }
+        if q_lower.starts_with("show file ") {
+            return Some(q["show file ".len()..].trim().to_string());
+        }
+        if q_lower.starts_with("cat ") {
+            return Some(q["cat ".len()..].trim().to_string());
+        }
+
+        None
+    }
+
+    fn is_knowledge_query(q: &str) -> bool {
+        q.contains("pattern") || q.contains("knowledge") || q.contains("learn")
     }
 
     // ── Goal resolution ─────────────────────────────────────────

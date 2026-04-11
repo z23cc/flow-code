@@ -59,11 +59,13 @@ pub struct FileLock {
 }
 
 /// The PolicyEngine evaluates rules against context.
+#[cfg(test)]
 pub struct PolicyEngine {
     #[allow(dead_code)]
     rules: Vec<PolicyRule>,
 }
 
+#[cfg(test)]
 impl PolicyEngine {
     pub fn new() -> Self {
         Self {
@@ -144,6 +146,7 @@ impl PolicyEngine {
     }
 }
 
+#[cfg(test)]
 impl Default for PolicyEngine {
     fn default() -> Self {
         Self::new()

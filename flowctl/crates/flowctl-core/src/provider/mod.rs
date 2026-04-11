@@ -29,12 +29,6 @@ pub trait PlanningProvider: Send + Sync {
     fn name(&self) -> &str;
 }
 
-/// Ask provider trait — abstracts Q&A capabilities.
-pub trait AskProvider: Send + Sync {
-    fn ask(&self, question: &str, context: &str) -> ProviderResult<String>;
-    fn name(&self) -> &str;
-}
-
 /// Result from a review provider.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ReviewResult {
@@ -62,9 +56,6 @@ pub struct Assessment {
 pub struct ProviderRegistry {
     review: HashMap<String, Box<dyn ReviewProvider>>,
     planning: HashMap<String, Box<dyn PlanningProvider>>,
-    ask: HashMap<String, Box<dyn AskProvider>>,
-    pub default_review: Option<String>,
-    pub default_planning: Option<String>,
 }
 
 impl ProviderRegistry {
@@ -72,9 +63,6 @@ impl ProviderRegistry {
         let mut registry = Self {
             review: HashMap::new(),
             planning: HashMap::new(),
-            ask: HashMap::new(),
-            default_review: None,
-            default_planning: None,
         };
         // Register the built-in NoneProvider
         registry.register_review(Box::new(NoneReviewProvider));
@@ -89,11 +77,6 @@ impl ProviderRegistry {
     pub fn register_planning(&mut self, provider: Box<dyn PlanningProvider>) {
         let name = provider.name().to_string();
         self.planning.insert(name, provider);
-    }
-
-    pub fn register_ask(&mut self, provider: Box<dyn AskProvider>) {
-        let name = provider.name().to_string();
-        self.ask.insert(name, provider);
     }
 
     pub fn get_review(&self, name: &str) -> ProviderResult<&dyn ReviewProvider> {

@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::domain::goal::{Goal, GoalId};
+use crate::fs_utils::atomic_write;
 
 /// Store for Goal objects with goal-scoped directories.
 pub struct GoalStore {
@@ -31,7 +32,7 @@ impl GoalStore {
         fs::create_dir_all(&dir).map_err(|e| format!("create goal dir: {e}"))?;
 
         let json = serde_json::to_string_pretty(goal).map_err(|e| format!("serialize: {e}"))?;
-        atomic_write(&self.goal_path(&goal.id), &json)
+        atomic_write(&self.goal_path(&goal.id), json.as_bytes()).map_err(|e| format!("write goal: {e}"))
     }
 
     /// Read a goal by ID.
@@ -47,7 +48,7 @@ impl GoalStore {
             return Err(format!("goal {} does not exist", goal.id));
         }
         let json = serde_json::to_string_pretty(goal).map_err(|e| format!("serialize: {e}"))?;
-        atomic_write(&self.goal_path(&goal.id), &json)
+        atomic_write(&self.goal_path(&goal.id), json.as_bytes()).map_err(|e| format!("write goal: {e}"))
     }
 
     /// List all goal IDs.
@@ -76,13 +77,6 @@ impl GoalStore {
         }
         Ok(())
     }
-}
-
-/// Atomic write: write to temp file then rename.
-fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, content).map_err(|e| format!("write tmp: {e}"))?;
-    fs::rename(&tmp, path).map_err(|e| format!("rename: {e}"))
 }
 
 #[cfg(test)]

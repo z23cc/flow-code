@@ -179,45 +179,6 @@ impl Orchestrator {
             };
         }
 
-        // ── RP delegation: suggest better tools for code queries ──
-        if q.contains("structure") || q.contains("signature") || q.contains("function")
-            || q.contains("class") || q.contains("type") || q.contains("api") {
-            return Ok(serde_json::json!({
-                "use_tool": "mcp__RepoPrompt__get_code_structure",
-                "reason": "get_code_structure returns function/type signatures — much richer than flow_query for code understanding",
-                "suggested_params": {"paths": ["src/", "lib/"]},
-                "hint": "Pass specific file or directory paths for targeted results"
-            }));
-        }
-
-        if q.contains("search") || q.contains("find") || q.contains("grep") || q.contains("where") {
-            let search_term = question.split_whitespace()
-                .filter(|w| w.len() >= 4 && !["search", "find", "grep", "where", "what", "which", "file", "files"].contains(w))
-                .collect::<Vec<_>>()
-                .join("|");
-            return Ok(serde_json::json!({
-                "use_tool": "mcp__RepoPrompt__file_search",
-                "reason": "file_search combines path + content + regex search — faster and more powerful than flow_query",
-                "suggested_params": {"pattern": if search_term.is_empty() { question.to_string() } else { search_term }},
-            }));
-        }
-
-        if q.contains("tree") || q.contains("folder") || q.contains("directory") || q.contains("project structure") {
-            return Ok(serde_json::json!({
-                "use_tool": "mcp__RepoPrompt__get_file_tree",
-                "reason": "get_file_tree returns structured project overview with codemap markers",
-                "suggested_params": {"mode": "folders", "max_depth": 3},
-            }));
-        }
-
-        if q.contains("diff") || q.contains("change") || q.contains("modified") {
-            return Ok(serde_json::json!({
-                "use_tool": "mcp__RepoPrompt__git",
-                "reason": "RP git provides rich diff with patches, artifacts, and blame",
-                "suggested_params": {"op": "diff", "detail": "patches"},
-            }));
-        }
-
         if q.contains("pattern") || q.contains("knowledge") || q.contains("learn") {
             let result = self.learner.search(question, 10).map_err(|e| e.to_string())?;
             return Ok(serde_json::to_value(&result).unwrap_or_default());
@@ -391,7 +352,6 @@ impl Orchestrator {
             context: ActionContext::default(),
             guard: GuardSpec::default(),
             progress: Progress::default(),
-            recommended_workflow: vec![],
         })
     }
 
@@ -433,7 +393,6 @@ impl Orchestrator {
         }
 
         let context = self.context.assemble(goal, node);
-        let recommended_workflow = Self::build_workflow(&node.objective, &context.files, ActionType::Implement);
         let parallel_ready: Vec<String> = ready_nodes[1..].iter().map(|n| n.id.clone()).collect();
         let plan = self.planner.get_latest(&goal.id)?;
         let total = plan.nodes.len();
@@ -455,7 +414,6 @@ impl Orchestrator {
                 commands: self.guard.commands_for_depth(node.risk.guard_depth),
             },
             progress: Progress { total_nodes: total, completed, current_node: Some(node.id.clone()), parallel_ready },
-            recommended_workflow,
         })
     }
 
@@ -492,7 +450,6 @@ impl Orchestrator {
                 let completed = plan.nodes.iter().filter(|n| n.status == NodeStatus::Done).count();
                 Progress { total_nodes: total, completed, current_node: Some(node_id.to_string()), parallel_ready: vec![] }
             },
-            recommended_workflow: vec![],
         })
     }
 
@@ -514,7 +471,6 @@ impl Orchestrator {
             context: ActionContext { prior_attempts: attempt_summaries, ..Default::default() },
             guard: GuardSpec::default(),
             progress: Progress { total_nodes: plan.nodes.len(), completed: plan.nodes.len(), current_node: None, parallel_ready: vec![] },
-            recommended_workflow: vec![],
         })
     }
 
@@ -540,7 +496,6 @@ impl Orchestrator {
             action_type, objective, acceptance_criteria: vec![], context,
             guard: GuardSpec::default(),
             progress: Progress { total_nodes: total, completed, current_node: Some(node_id.to_string()), parallel_ready: vec![] },
-            recommended_workflow: vec![],
         })
     }
 
@@ -576,151 +531,7 @@ impl Orchestrator {
         }))
     }
 
-    // ── RepoPrompt integration ───────────────────────────────────
-
-    /// Build recommended workflow steps based on action type.
-    /// Maximizes RepoPrompt capabilities for each phase.
-    fn build_workflow(objective: &str, files: &[crate::domain::action_spec::FileSlice], action_type: ActionType) -> Vec<WorkflowStep> {
-        let mut steps = Vec::new();
-        let keywords: Vec<&str> = objective.split_whitespace()
-            .filter(|w| w.len() >= 4)
-            .take(4)
-            .collect();
-        let keyword_pattern = keywords.join("|");
-
-        // ── Step 0 (ALL types): Always start with code structure ──
-        // This is the foundation — understand the codebase before anything else.
-        let structure_params = if !files.is_empty() {
-            let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).take(5).collect();
-            format!("{{\"paths\":{:?}}}", paths)
-        } else {
-            // Scan the main source directories
-            "{\"paths\":[\"src/\",\"lib/\",\"flowctl/crates/\"]}".into()
-        };
-        steps.push(Self::ws("understand", "mcp__RepoPrompt__get_code_structure",
-            "FIRST: Get function/type signatures — understand the codebase structure before any action",
-            Some(&structure_params)));
-
-        match action_type {
-            ActionType::Implement => {
-                // ── Understand: tree + search + select + deep analysis ──
-                steps.push(Self::ws("understand", "mcp__RepoPrompt__get_file_tree",
-                    "Get project folder structure — know where to add new code",
-                    Some("{\"mode\":\"folders\",\"max_depth\":3}")));
-
-                if !keyword_pattern.is_empty() {
-                    steps.push(Self::ws("understand", "mcp__RepoPrompt__file_search",
-                        "Find all files related to this task by content and path",
-                        Some(&format!("{{\"pattern\":\"{keyword_pattern}\"}}"))));
-                }
-
-                if !files.is_empty() {
-                    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).take(5).collect();
-                    steps.push(Self::ws("understand", "mcp__RepoPrompt__manage_selection",
-                        "Pre-select files as codemap — enriches all subsequent RP tool calls",
-                        Some(&format!("{{\"op\":\"add\",\"paths\":{:?},\"mode\":\"codemap_only\"}}", paths))));
-                }
-
-                steps.push(Self::ws("understand", "mcp__RepoPrompt__context_builder",
-                    "AI-powered deep context — discovers dependencies and generates implementation plan",
-                    Some(&format!("{{\"instructions\":\"<task>{objective}</task>\",\"response_type\":\"plan\"}}"))));
-
-                // ── Implement: read precise ranges + edit ──
-                steps.push(Self::ws("implement", "mcp__RepoPrompt__read_file",
-                    "Read specific line ranges before editing (e.g. start_line=50, limit=30)",
-                    None));
-
-                steps.push(Self::ws("implement", "mcp__RepoPrompt__apply_edits",
-                    "Apply changes — multi-edit transactions, auto-repair whitespace, rewrite mode for new files",
-                    None));
-
-                // ── Verify: diff + risk check + submit ──
-                steps.push(Self::ws("verify", "mcp__RepoPrompt__git",
-                    "Review changes — check diff size: >200 lines or touching API/auth/migration = mention in submit for deeper guard",
-                    Some("{\"op\":\"diff\",\"detail\":\"files\"}")));
-
-                steps.push(Self::ws("verify", "mcp__RepoPrompt__git",
-                    "If diff looks large or risky, get full patches for careful review",
-                    Some("{\"op\":\"diff\",\"detail\":\"patches\"}")));
-
-                steps.push(Self::ws("verify", "flow_submit",
-                    "Submit results — engine runs quality guard and advances to next node",
-                    None));
-            }
-
-            ActionType::Review => {
-                // ── Understand: diff with artifacts ──
-                steps.push(Self::ws("understand", "mcp__RepoPrompt__git",
-                    "Get full diff with patch details and review artifacts",
-                    Some("{\"op\":\"diff\",\"detail\":\"patches\",\"artifacts\":true}")));
-
-                steps.push(Self::ws("understand", "mcp__RepoPrompt__manage_selection",
-                    "Select changed files for focused context",
-                    Some("{\"op\":\"get\",\"view\":\"files\"}")));
-
-                // ── Analyze: AI-powered review ──
-                steps.push(Self::ws("analyze", "mcp__RepoPrompt__context_builder",
-                    "AI-powered code review — catches issues across files, checks correctness",
-                    Some(&format!("{{\"instructions\":\"<task>Review: {objective}</task>\",\"response_type\":\"review\"}}"))));
-
-                // ── Verify ──
-                steps.push(Self::ws("verify", "flow_submit",
-                    "Submit review — 'done' if approved, 'failed' with error details if issues found",
-                    None));
-            }
-
-            ActionType::Fix => {
-                // ── Understand: search + analyze root cause ──
-                if !keyword_pattern.is_empty() {
-                    steps.push(Self::ws("understand", "mcp__RepoPrompt__file_search",
-                        "Search for error-related code and test files",
-                        Some(&format!("{{\"pattern\":\"{keyword_pattern}\"}}"))));
-                }
-
-                steps.push(Self::ws("understand", "mcp__RepoPrompt__context_builder",
-                    "AI root cause analysis — understand why it failed before fixing",
-                    Some(&format!("{{\"instructions\":\"<task>Debug: {objective}</task>\",\"response_type\":\"question\"}}"))));
-
-                // ── Implement: read + fix ──
-                steps.push(Self::ws("implement", "mcp__RepoPrompt__read_file",
-                    "Read the broken code precisely before fixing",
-                    None));
-
-                steps.push(Self::ws("implement", "mcp__RepoPrompt__apply_edits",
-                    "Apply the fix",
-                    None));
-
-                // ── Verify ──
-                steps.push(Self::ws("verify", "mcp__RepoPrompt__git",
-                    "Verify the fix is minimal and correct — large diffs indicate over-fixing",
-                    Some("{\"op\":\"diff\",\"detail\":\"patches\"}")));
-
-                steps.push(Self::ws("verify", "flow_submit",
-                    "Submit fix — engine re-runs quality guard to verify",
-                    None));
-            }
-
-            _ => {
-                steps.push(Self::ws("verify", "flow_submit",
-                    "Submit results to advance the goal",
-                    None));
-            }
-        }
-
-        steps
-    }
-
     // ── Helpers ──────────────────────────────────────────────────
-
-    /// Shorthand for creating a WorkflowStep.
-    fn ws(phase: &str, tool: &str, reason: &str, params: Option<&str>) -> WorkflowStep {
-        WorkflowStep {
-            phase: phase.into(),
-            tool: tool.into(),
-            reason: reason.into(),
-            params: params.map(String::from),
-        }
-    }
 
     fn record_attempt(&self, goal_id: &str, node_id: &str, input: &SubmitInput) -> Result<(), String> {
         let count = self.attempt_store.count_for_node(goal_id, node_id).unwrap_or(0);

@@ -16,10 +16,6 @@ pub struct ActionSpec {
     pub context: ActionContext,
     pub guard: GuardSpec,
     pub progress: Progress,
-    /// Recommended workflow steps. Each step has a phase, tool, and reason.
-    /// Guides the LLM through the optimal tool sequence for this action.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub recommended_workflow: Vec<WorkflowStep>,
 }
 
 /// The type of action the LLM should perform.
@@ -84,20 +80,6 @@ pub struct GuardFailure {
     pub command: String,
     pub output: String,
     pub severity: String,
-}
-
-/// A step in the recommended workflow for an action.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkflowStep {
-    /// Phase: "understand" (before coding), "implement" (during), "verify" (after).
-    pub phase: String,
-    /// The MCP tool to call.
-    pub tool: String,
-    /// Why this step matters.
-    pub reason: String,
-    /// Suggested parameters as a JSON-like hint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -174,23 +156,6 @@ impl ActionSpec {
                 current_node: None,
                 parallel_ready: vec![],
             },
-            recommended_workflow: vec![
-                WorkflowStep {
-                    phase: "post-complete".into(),
-                    tool: "mcp__RepoPrompt__git".into(),
-                    reason: "Review final diff of all changes made during this goal".into(),
-                    params: Some("{\"op\":\"diff\",\"compare\":\"main\",\"detail\":\"files\"}".into()),
-                },
-                WorkflowStep {
-                    phase: "post-complete".into(),
-                    tool: "mcp__RepoPrompt__context_builder".into(),
-                    reason: "Extract learnings — what patterns emerged, what worked, what to remember".into(),
-                    params: Some(format!(
-                        "{{\"instructions\":\"<task>Summarize key learnings from: {}</task>\",\"response_type\":\"question\"}}",
-                        report.summary.replace('"', "\\\"")
-                    )),
-                },
-            ],
         }
     }
 
@@ -204,7 +169,6 @@ impl ActionSpec {
             context: ActionContext::default(),
             guard: GuardSpec::default(),
             progress: Progress::default(),
-            recommended_workflow: vec![],
         }
     }
 }

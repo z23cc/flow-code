@@ -174,7 +174,23 @@ impl ActionSpec {
                 current_node: None,
                 parallel_ready: vec![],
             },
-            recommended_workflow: vec![],
+            recommended_workflow: vec![
+                WorkflowStep {
+                    phase: "post-complete".into(),
+                    tool: "mcp__RepoPrompt__git".into(),
+                    reason: "Review final diff of all changes made during this goal".into(),
+                    params: Some("{\"op\":\"diff\",\"compare\":\"main\",\"detail\":\"files\"}".into()),
+                },
+                WorkflowStep {
+                    phase: "post-complete".into(),
+                    tool: "mcp__RepoPrompt__context_builder".into(),
+                    reason: "Extract learnings — what patterns emerged, what worked, what to remember".into(),
+                    params: Some(format!(
+                        "{{\"instructions\":\"<task>Summarize key learnings from: {}</task>\",\"response_type\":\"question\"}}",
+                        report.summary.replace('"', "\\\"")
+                    )),
+                },
+            ],
         }
     }
 

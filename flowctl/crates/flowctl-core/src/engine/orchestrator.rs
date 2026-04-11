@@ -179,6 +179,45 @@ impl Orchestrator {
             };
         }
 
+        // ── RP delegation: suggest better tools for code queries ──
+        if q.contains("structure") || q.contains("signature") || q.contains("function")
+            || q.contains("class") || q.contains("type") || q.contains("api") {
+            return Ok(serde_json::json!({
+                "use_tool": "mcp__RepoPrompt__get_code_structure",
+                "reason": "get_code_structure returns function/type signatures — much richer than flow_query for code understanding",
+                "suggested_params": {"paths": ["src/", "lib/"]},
+                "hint": "Pass specific file or directory paths for targeted results"
+            }));
+        }
+
+        if q.contains("search") || q.contains("find") || q.contains("grep") || q.contains("where") {
+            let search_term = question.split_whitespace()
+                .filter(|w| w.len() >= 4 && !["search", "find", "grep", "where", "what", "which", "file", "files"].contains(w))
+                .collect::<Vec<_>>()
+                .join("|");
+            return Ok(serde_json::json!({
+                "use_tool": "mcp__RepoPrompt__file_search",
+                "reason": "file_search combines path + content + regex search — faster and more powerful than flow_query",
+                "suggested_params": {"pattern": if search_term.is_empty() { question.to_string() } else { search_term }},
+            }));
+        }
+
+        if q.contains("tree") || q.contains("folder") || q.contains("directory") || q.contains("project structure") {
+            return Ok(serde_json::json!({
+                "use_tool": "mcp__RepoPrompt__get_file_tree",
+                "reason": "get_file_tree returns structured project overview with codemap markers",
+                "suggested_params": {"mode": "folders", "max_depth": 3},
+            }));
+        }
+
+        if q.contains("diff") || q.contains("change") || q.contains("modified") {
+            return Ok(serde_json::json!({
+                "use_tool": "mcp__RepoPrompt__git",
+                "reason": "RP git provides rich diff with patches, artifacts, and blame",
+                "suggested_params": {"op": "diff", "detail": "patches"},
+            }));
+        }
+
         if q.contains("pattern") || q.contains("knowledge") || q.contains("learn") {
             let result = self.learner.search(question, 10).map_err(|e| e.to_string())?;
             return Ok(serde_json::to_value(&result).unwrap_or_default());
@@ -595,9 +634,13 @@ impl Orchestrator {
                     "Apply changes — multi-edit transactions, auto-repair whitespace, rewrite mode for new files",
                     None));
 
-                // ── Verify: diff + submit ──
+                // ── Verify: diff + risk check + submit ──
                 steps.push(Self::ws("verify", "mcp__RepoPrompt__git",
-                    "Review your changes before submitting",
+                    "Review changes — check diff size: >200 lines or touching API/auth/migration = mention in submit for deeper guard",
+                    Some("{\"op\":\"diff\",\"detail\":\"files\"}")));
+
+                steps.push(Self::ws("verify", "mcp__RepoPrompt__git",
+                    "If diff looks large or risky, get full patches for careful review",
                     Some("{\"op\":\"diff\",\"detail\":\"patches\"}")));
 
                 steps.push(Self::ws("verify", "flow_submit",
@@ -649,7 +692,7 @@ impl Orchestrator {
 
                 // ── Verify ──
                 steps.push(Self::ws("verify", "mcp__RepoPrompt__git",
-                    "Verify the fix diff is correct and minimal",
+                    "Verify the fix is minimal and correct — large diffs indicate over-fixing",
                     Some("{\"op\":\"diff\",\"detail\":\"patches\"}")));
 
                 steps.push(Self::ws("verify", "flow_submit",

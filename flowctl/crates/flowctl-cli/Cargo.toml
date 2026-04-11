@@ -1,7 +1,7 @@
 [package]
 name = "flowctl-cli"
-version = "0.2.1"
-description = "CLI entry point for flowctl"
+version = "0.4.0"
+description = "CLI entry point for flowctl V4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,23 +14,8 @@ path = "src/main.rs"
 flowctl-core = { workspace = true }
 flowctl-mcp = { workspace = true }
 tokio = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
-anyhow = { workspace = true }
-chrono = { workspace = true }
 clap = { workspace = true }
-clap_complete = { workspace = true }
-miette = { workspace = true }
-tracing = { workspace = true }
-regex = { workspace = true }
-sha2 = { workspace = true }
-which = { workspace = true }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-trycmd = { workspace = true }
-tempfile = "3"
-serde_json = { workspace = true }
-flowctl-core = { workspace = true }

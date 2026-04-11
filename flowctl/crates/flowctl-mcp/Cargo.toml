@@ -1,7 +1,7 @@
 [package]
 name = "flowctl-mcp"
-version = "0.2.1"
-description = "MCP server for flowctl — goal-driven adaptive engine"
+version = "0.4.0"
+description = "MCP server for flowctl V4 — 3-tool engine-driven protocol"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,11 +11,9 @@ flowctl-core = { workspace = true }
 rmcp = { version = "0.1", features = ["server", "transport-io", "macros"] }
 schemars = "0.8"
 tokio = { version = "1", features = ["full"] }
-chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
-tracing = { workspace = true }
 
 [lints]
 workspace = true

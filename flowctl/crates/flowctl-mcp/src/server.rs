@@ -21,6 +21,25 @@ impl FlowctlServer {
     }
 }
 
+async fn run_orchestrator<F, T>(root: PathBuf, f: F) -> String
+where
+    F: FnOnce(&Orchestrator) -> Result<T, String> + Send + 'static,
+    T: serde::Serialize + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let orchestrator = Orchestrator::new(&root);
+        match f(&orchestrator) {
+            Ok(result) => serde_json::to_string_pretty(&result)
+                .unwrap_or_else(|e| format_error("serialization", &e.to_string(), false, None)),
+            Err(e) => classify_error(&e),
+        }
+    })
+    .await
+    .unwrap_or_else(|e: tokio::task::JoinError| {
+        format_error("internal", &e.to_string(), true, Some("retry the request"))
+    })
+}
+
 // ── Tool parameters ─────────────────────────────────────────────────
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -67,16 +86,7 @@ impl FlowctlServer {
     async fn flow_drive(&self, #[tool(aggr)] params: DriveParams) -> String {
         let root = self.root.clone();
         let request = params.request;
-        tokio::task::spawn_blocking(move || {
-            let orchestrator = Orchestrator::new(&root);
-            match orchestrator.drive(&request) {
-                Ok(spec) => serde_json::to_string_pretty(&spec)
-                    .unwrap_or_else(|e| format_error("serialization", &e.to_string(), false, None)),
-                Err(e) => classify_error(&e),
-            }
-        })
-        .await
-        .unwrap_or_else(|e: tokio::task::JoinError| format_error("internal", &e.to_string(), true, Some("retry the request")))
+        run_orchestrator(root, move |orchestrator| orchestrator.drive(&request)).await
     }
 
     #[tool(description = "Submit work results after completing an action from flow_drive. \
@@ -89,29 +99,20 @@ impl FlowctlServer {
         retry_safe flag, and recovery suggestion.")]
     async fn flow_submit(&self, #[tool(aggr)] params: SubmitParams) -> String {
         let root = self.root.clone();
-        tokio::task::spawn_blocking(move || {
-            let orchestrator = Orchestrator::new(&root);
-            let status = match params.status.as_str() {
-                "failed" => flowctl_core::SubmitStatus::Failed,
-                "partial" => flowctl_core::SubmitStatus::Partial,
-                _ => flowctl_core::SubmitStatus::Done,
-            };
-            let input = SubmitInput {
-                action_id: params.action_id,
-                status,
-                summary: params.summary,
-                files_changed: params.files_changed.unwrap_or_default(),
-                test_output: params.test_output,
-                error: params.error,
-            };
-            match orchestrator.submit(&input) {
-                Ok(spec) => serde_json::to_string_pretty(&spec)
-                    .unwrap_or_else(|e| format_error("serialization", &e.to_string(), false, None)),
-                Err(e) => classify_error(&e),
-            }
-        })
-        .await
-        .unwrap_or_else(|e: tokio::task::JoinError| format_error("internal", &e.to_string(), true, Some("retry the request")))
+        let status = match params.status.as_str() {
+            "failed" => flowctl_core::SubmitStatus::Failed,
+            "partial" => flowctl_core::SubmitStatus::Partial,
+            _ => flowctl_core::SubmitStatus::Done,
+        };
+        let input = SubmitInput {
+            action_id: params.action_id,
+            status,
+            summary: params.summary,
+            files_changed: params.files_changed.unwrap_or_default(),
+            test_output: params.test_output,
+            error: params.error,
+        };
+        run_orchestrator(root, move |orchestrator| orchestrator.submit(&input)).await
     }
 
     #[tool(description = "Query goal state, knowledge, or files. Supports: \
@@ -123,16 +124,9 @@ impl FlowctlServer {
         Errors include category, retry_safe, and recovery suggestion.")]
     async fn flow_query(&self, #[tool(aggr)] params: QueryParams) -> String {
         let root = self.root.clone();
-        tokio::task::spawn_blocking(move || {
-            let orchestrator = Orchestrator::new(&root);
-            match orchestrator.query(&params.question, params.goal_id.as_deref()) {
-                Ok(result) => serde_json::to_string_pretty(&result)
-                    .unwrap_or_else(|e| format_error("serialization", &e.to_string(), false, None)),
-                Err(e) => classify_error(&e),
-            }
-        })
-        .await
-        .unwrap_or_else(|e: tokio::task::JoinError| format_error("internal", &e.to_string(), true, Some("retry the request")))
+        let question = params.question;
+        let goal_id = params.goal_id;
+        run_orchestrator(root, move |orchestrator| orchestrator.query(&question, goal_id.as_deref())).await
     }
 }
 

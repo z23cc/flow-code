@@ -33,21 +33,11 @@ regex = "1"
 # File locking
 fs2 = "0.4"
 
-# Hashing
-sha2 = "0.10"
-
 # Logging
 tracing = "0.1"
 
-# DAG
-petgraph = "0.7"
-
 # Fuzzy search
-nucleo-matcher = "0.3"
 ignore = "0.4"
-
-# Fuzzy diff/patch
-fudiff = "0.2"
 
 # Binary serialization (N-gram index)
 bincode = { version = "2", features = ["serde"] }
@@ -60,14 +50,6 @@ regex-syntax = "0.8"
 
 # CLI (cli crate)
 clap = { version = "4", features = ["derive"] }
-clap_complete = "4"
-miette = { version = "7", features = ["fancy"] }
-
-# Unix process management
-nix = { version = "0.30", features = ["signal", "process"] }
-
-# Path lookup
-which = "8"
 
 # Testing
 trycmd = "0.15"

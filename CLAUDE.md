@@ -1,197 +1,167 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with code in this repository.
 
 ## What Is This
 
-Flow-Code is a Claude Code plugin for structured, plan-first development. The primary execution entry point is `/flow-code:go` (full autopilot: brainstorm → plan → work → review → close), plus individual slash commands, skills, and agents that orchestrate task tracking via a `.flow/` directory. Core engine is a Rust binary (`flowctl`) with file-based JSON storage and MCP server support.
+Flow-Code is a Claude Code / Codex plugin that provides a **goal-driven adaptive development engine**. The entire interface is 3 MCP tools — the Rust engine handles all orchestration, the LLM focuses on actual work.
 
-## Core Architecture
+## Architecture
 
 ```
-commands/flow-code/*.md  → Slash command definitions (user-invocable entry points)
-skills/*/SKILL.md        → Utility & assessment skills (brainstorm, interview, debug, map, etc.)
-codex/skills/*/SKILL.md  → Core workflow skills (plan, work, plan-review, impl-review, epic-review)
-agents/*.md              → Subagent definitions (research scouts, worker, plan-sync, etc.)
-bin/flowctl               → Rust binary (built from flowctl/ workspace)
-flowctl/                  → Rust Cargo workspace (2 crates: core, cli)
-hooks/hooks.json         → Ralph workflow guards (active when FLOW_RALPH=1)
-docs/                    → Architecture docs, CI examples
+bin/flowctl              → Rust binary (3 commands: serve, init, guard)
+flowctl/                 → Rust Cargo workspace (3 crates: core, mcp, cli)
+  crates/flowctl-core/   → Domain, Engine, Storage, Knowledge, Quality
+  crates/flowctl-mcp/    → MCP server (3 tools)
+  crates/flowctl-cli/    → Minimal CLI entry point
+.mcp.json                → MCP server registration
+docs/                    → Architecture docs
 ```
 
-**Skill directories**: Two directories exist with different responsibilities:
-- `skills/` — **Primary for Claude Code**. Contains all skills including the pipeline engine (`flow-code-run`), domain skills, and standalone tools. This is the authoritative source when both directories have the same skill name.
-- `codex/skills/` — **Codex CLI sync subset**. Contains core workflow skills (plan, work, reviews) and step files that Codex CLI needs. When a skill exists in both directories, `skills/` has the more complete version (user-invocable flags, extended sections, Claude Code-specific paths). `codex/` has the Codex-compatible version (hardcoded `$HOME/.codex` paths, no user-invocable flag).
+## How It Works
 
-21 skills currently exist in both directories. For Claude Code, `skills/` always wins on conflict.
+The engine exposes **3 MCP tools**. Claude Code calls them via the MCP server registered in `.mcp.json`:
 
-**Skills**: Use `skills/flow-code-guide/SKILL.md` as the discovery index and browse `skills/*/SKILL.md` + `codex/skills/*/SKILL.md` for full coverage. Core workflow: `flow-code-run` (unified phase loop via `flowctl phase next/done`).
+### `flow_drive(request)`
 
-**Key invariant**: The `bin/flowctl` Rust binary is the single source of truth for `.flow/` state. Always invoke as:
-```bash
-FLOWCTL="${DROID_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/bin/flowctl"
-$FLOWCTL <command>
+Start or resume a goal. The engine:
+1. Creates/finds the goal
+2. Generates a plan if needed
+3. Assembles a self-contained **ActionSpec** with: objective, relevant file slices, knowledge patterns, constraints, and quality expectations
+
+```
+result = flow_drive("add OAuth login with Google")
+→ ActionSpec { type: "implement", objective: "...", context: { files, patterns, constraints }, ... }
 ```
 
-## Primary Workflow
+### `flow_submit(action_id, status, summary, files_changed)`
 
-`/flow-code:go "idea"` — the execution/autopilot front door from raw idea to PR. Runs brainstorm (AI self-interview) → plan → plan-review → work → impl-review → close via `flowctl phase next/done`. Zero human input. Also use `go` to resume existing epics (`fn-N-*`) or continue from spec files into plan/work. If execution is not wanted yet, prefer `/flow-code:plan`; if you are still shaping the problem, prefer `/flow-code:brainstorm`.
+Submit work results. The engine automatically:
+- Records the attempt
+- Runs quality guard at risk-proportional depth
+- Releases file locks
+- Records learnings
+- Schedules the next node
+- Returns the next ActionSpec (or "complete" when done)
 
-Ralph (`/flow-code:ralph-init`) is the autonomous harness that runs this loop unattended.
+### `flow_query(question, goal_id?)`
 
-## High-Traffic Discovery Entry Points
+Ask about goal status, knowledge base, or codebase. Natural language queries.
 
-Use these front doors intentionally:
+## The Workflow Loop
 
-- `/flow-code:go "idea"` or `/flow-code:go fn-N-*` — full autopilot / execution path, including resume.
-- `/flow-code:plan "idea"` — planning-only: research + DAG/task breakdown with no implementation yet. `go --plan-only` is for staying on the `go` path while stopping after plan.
-- `/flow-code:brainstorm "idea"` — open-ended exploration and pressure-test before committing to a spec or plan.
-- `/flow-code:spec "idea / change / refactor"` — artifact-first requirements capture that feeds later planning/work.
-- `/flow-code:adr "decision"` — durable architecture decision capture with alternatives and consequences.
-- `skills/flow-code-deprecation/SKILL.md` — skill surface (no slash command) for replacement/removal guidance when the main question is how to safely retire an old surface.
+```
+action = flow_drive("add OAuth login")
+while action.type != "complete":
+    # Do the work described in action.objective using action.context
+    action = flow_submit(action.action_id, "done", "summary", ["files..."])
+```
 
-## Quality Gates (Three Layers)
+The LLM is stateless. The engine tracks everything.
 
-Every epic passes through three independent, non-overlapping review gates:
+## Engine Internals
 
-| Layer | Tool | When | What it catches |
-|-------|------|------|-----------------|
-| **1. Guard** | `flowctl guard` | Worker Phase 6, integration checkpoint, close phase | Lint, type errors, test failures |
-| **2. RP Plan-Review** | RP context_builder or Codex | Plan phase | Spec-code misalignment, missing requirements |
-| **3. Codex Adversarial** | `flowctl codex adversarial` | Epic completion | Security, concurrency, edge cases (different model family) |
+| Component | Purpose |
+|---|---|
+| **Orchestrator** | Central brain — drive/submit/query entry points |
+| **GoalEngine** | Goal lifecycle, PlanningMode x SuccessModel classification |
+| **Planner** | Generates PlanVersion with RiskProfile per node |
+| **Scheduler** | DAG scheduling, ready-node detection, status transitions |
+| **EscalationEngine** | Three-level escalation (retry → change strategy → replan) |
+| **ContextAssembler** | Assembles file slices + patterns + constraints per action |
+| **GuardRunner** | Internalized quality gates, auto-detects project type |
+| **Learner** | Three-layer knowledge (Learning → Pattern → Methodology) |
+| **PolicyEngine** | MCP + Hook policy enforcement |
+| **CodeGraph** | Symbol-level code graph with refs/impact queries |
+| **NgramIndex** | Trigram search index with regex optimization |
 
-All three must pass (or be skipped via `flowctl config set review.backend none`). Layers are complementary — guard catches syntax, RP catches spec drift, Codex catches blind spots. **Zero-findings-halt rule**: review cycles stop immediately when no findings remain, eliminating unnecessary re-review iterations. Conversely, zero findings from an adversarial review triggers re-analysis (review may be insufficient).
+## Storage
 
-## Canonical RP/MCP Orchestration Guidance
+All state lives in `.flow/` as JSON files:
 
-For RepoPrompt / MCP workflow behavior, use `skills/_shared/rp-mcp-orchestration.md` as the canonical guidance layer.
+```
+.flow/
+├── goals/{id}/          Goal-scoped storage
+│   ├── goal.json        Goal definition
+│   ├── plans/           Immutable plan versions (0001.json, 0002.json...)
+│   ├── attempts/        Per-node attempt history
+│   └── events.jsonl     Append-only event log
+├── knowledge/
+│   ├── learnings/       Raw learnings from completed work
+│   ├── patterns/        Distilled patterns (auto-compounded)
+│   └── rules/           Methodology rules
+├── .state/
+│   └── locks.json       File locks for concurrent nodes
+├── graph.bin            Code graph (symbols + deps)
+├── index/ngram.bin      Trigram search index
+└── config.json          Project configuration
+```
 
-That shared guide is the source of truth for:
-- when to use `context_builder` versus direct repo tools;
-- how `ask_oracle` / `oracle_send` relates to the current selection;
-- when `manage_selection` is appropriate;
-- how `prompt` / `workspace_context` exports fit;
-- when `agent_run` should be used for delegated parallel work.
-
-If a skill or protocol doc restates RP/MCP behavior, treat this section plus the shared guide as authoritative unless the other doc is intentionally describing a narrower workflow-specific rule.
-
-## Command Flags
-
-| Flag | Accepted by | Effect |
-|------|-------------|--------|
-| `--auto` | brainstorm | AI self-interview, zero human input |
-| `--plan-only` | go, run | Stop the execution pipeline after plan |
-| `--no-pr` | go, run | Skip draft PR creation at close |
-| `--tdd` | work, run | Force test-first development (worker Phase 4) |
-| `--interactive` | plan | Opt-in interview before planning |
-| `--no-capability-scan` | plan | Skip capability-scout |
-| `--research=rp\|grep` | plan | Override research backend |
-| `--depth=short\|standard\|deep` | plan | Override plan depth |
-| `--review=rp\|codex\|none` | go, plan, run, epic-review | Override review backend |
-| `--review=rp\|codex\|export\|none` | work, plan-review, impl-review | Override or export review backend |
-| `--skip-gap-check` | epic-review | Bypass the capability-gap pre-check with a warning |
-| `--quick` | go, run | Fast path for trivial changes (skip brainstorm, plan review, impl review) |
-| `--interactive` | go, run | Pause at key decisions for user confirmation |
-
-## Worker Protocol (RP Session Mode)
-
-Workers are spawned as RP agents via `agent_run` in isolated git worktrees registered as RP workspaces. The coordinator uses RP session operations for all communication:
-
-| RP Operation | Purpose |
-|-------------|---------|
-| `agent_run(start, detach:true)` | Spawn worker in worktree |
-| `agent_run(wait, session_ids)` | Batch wait for completion |
-| `agent_run(poll, session_id)` | Check individual worker status |
-| `agent_run(steer, session_id)` | Inject instructions mid-execution |
-| `agent_run(cancel, session_id)` | Terminate timed-out worker |
-| `agent_manage(cleanup_sessions)` | Clean up after the integration checkpoint / epic |
-
-Workers output structured status (STATUS/TASK_ID/SUMMARY/FILES_CHANGED/TESTS) that the coordinator parses from session output. `steer` replaces SendMessage for spec conflict resolution, file access grants, and cross-worker coordination.
-
-## Testing
+## CLI Commands
 
 ```bash
-# Smoke tests (flowctl core)
-bash scripts/smoke_test.sh
-
-# Full CI tests (flowctl + ralph helpers + symbol extraction)
-bash scripts/ci_test.sh
-
-# Teams e2e tests (file locking, ownership, protocol)
-bash scripts/teams_e2e_test.sh
-
-# Integration checkpoint tests (legacy script name; lock lifecycle, dependency unblock, stale lock recovery)
-bash scripts/wave_checkpoint_test.sh
-
-# Ralph e2e tests
-bash scripts/ralph_e2e_test.sh
-bash scripts/ralph_e2e_rp_test.sh    # RepoPrompt backend
-bash scripts/ralph_e2e_short_rp_test.sh
+flowctl serve    # Start MCP server on stdio
+flowctl init     # Initialize .flow/ directory
+flowctl guard    # Run quality checks (auto-detects project type)
 ```
-
-All tests create temp directories and clean up after themselves. They must NOT be run from the plugin repo root (safety check enforced).
-
-**Storage runtime**: All state is JSON/JSONL files in `.flow/`, readable by any tool (MCP, Read, Grep). No database, no async runtime. The `json_store` module in `flowctl-core` handles all file I/O.
 
 ## Code Quality
 
 ```bash
-# Build and test Rust flowctl
 cd flowctl && cargo build --release && cargo test --all
-
-# Validate JSON
-python3 -c "import json; json.load(open('hooks/hooks.json'))"
 ```
 
-Rust: clippy for linting, cargo test for tests. No TypeScript, no npm. Skills and agents are Markdown files (no build step).
+130 tests. Rust only — no TypeScript, no npm, no Python.
+
+## flowctl × RepoPrompt Collaboration Protocol
+
+When both MCP servers are available, use them together for maximum effectiveness:
+
+```
+┌─ flowctl (编排层) ─────────────┐   ┌─ RepoPrompt (代码理解层) ────────┐
+│ flow_drive  → 规划/调度/升级    │   │ get_code_structure → 函数签名     │
+│ flow_submit → 质量门禁/知识沉淀 │   │ file_search → 搜索文件/内容       │
+│ flow_query  → 状态/知识/文件    │   │ context_builder → AI 深度分析     │
+│                                │   │ apply_edits → 精确代码编辑        │
+│                                │   │ git → diff/blame/log             │
+│                                │   │ read_file → 按行读取              │
+└────────────────────────────────┘   └──────────────────────────────────┘
+```
+
+### Recommended Workflow (per ActionSpec node)
+
+1. **Understand** (RP): Follow `recommended_workflow` in ActionSpec
+   - `file_search` — find related files
+   - `get_code_structure` — understand APIs without reading full files
+   - `context_builder` — for complex tasks, AI-powered deep discovery
+2. **Implement** (RP):
+   - `apply_edits` — multi-edit transactions, auto-repair whitespace
+   - `read_file` — read specific line ranges when needed
+3. **Verify** (flowctl + RP):
+   - `git diff` — review changes before submitting
+   - `flow_submit` — engine runs guard, records learnings, advances to next node
+
+### What NOT to duplicate
+
+- Do NOT use flowctl's `flow_query('read file ...')` when RP `read_file` is available — RP supports line ranges
+- Do NOT manually search for files — use RP `file_search` instead of grep/glob
+- Do NOT read full files for context — use RP `get_code_structure` for signatures
 
 ## Key Design Decisions
 
-- **flowctl outputs JSON** (`--json` flag) for machine consumption by skills/agents
-- **State machine**: tasks follow `todo → in_progress → done` (with `blocked` and `skipped` side-states)
-- **Evidence-based completion**: `flowctl done` requires `--summary-file` and `--evidence-json`
-- **Continuous scheduling + integration checkpoint**: workers execute ready tasks in parallel, merge as they finish, and pass a final integration checkpoint before leaving the Work phase
-- **Plan review gating**: `flowctl next --require-plan-review` blocks work until plan is reviewed
-- **Architecture invariants**: immutable rules registered via `flowctl invariant add` with verify commands
-- **Gap registry**: epics carry a `gaps` field managed via `flowctl gap`, enforced at epic close
-- **Task restart**: `flowctl restart <task-id>` resets a task and cascades to all downstream dependents (`--dry-run`, `--force`)
-- **Runtime DAG mutation**: `flowctl task split <id> --titles "A|B|C" --chain` splits task into sub-tasks; `flowctl task skip <id> --reason` marks task as skipped (downstream deps treat as satisfied); `flowctl dep rm <task> <dep>` removes a dependency. Workers request mutations via "Need mutation:" protocol message
-- **Git diff snapshots**: worker agent captures baseline rev before implementation and `workspace_changes` in evidence
-- **Review comparison**: `flowctl review-backend --compare <files>` or `--epic <id>` detects consensus/conflict across review receipts (auto-archived to `.flow/reviews/`)
-- **Domain tagging**: `flowctl task create --domain <domain>` tags tasks (frontend/backend/architecture/testing/docs/ops/general), filterable via `tasks --domain`
-- **Epic archival**: `flowctl epic archive <id>` moves closed epic + tasks + specs + reviews to `.flow/.archive/`; `flowctl epic clean` archives all closed epics at once
-- **Learning loop**: plan injects memory (Step 6), worker saves lessons (Phase 11, included in default sequence when memory.enabled is true), epic close prompts retro, retro verifies stale entries via `flowctl memory verify <id>`
-- **Task duration**: `flowctl done` auto-tracks `duration_seconds` from start to completion, rendered in evidence
-- **File ownership**: `flowctl task create --files <paths>` declares owned files; `flowctl files <id>` shows ownership map + conflict detection
-- **File locking**: `flowctl lock --task <id> --files <paths>` acquires runtime file locks; `flowctl unlock --task <id>` releases on completion; `flowctl lock-check --file <path>` inspects lock state; `flowctl unlock --all` clears all locks between waves
-- **RP agent_run mode**: `/flow-code:go` spawns workers as RP agents via `agent_run` in isolated git worktrees registered as RP workspaces. Coordinator uses `wait`/`poll` for monitoring, `steer` for mid-execution coordination, and `cancel` for timeouts. Workers output structured status fields (STATUS/TASK_ID/SUMMARY/FILES_CHANGED). File lock enforcement via flowctl remains unchanged
-- **Adversarial review**: `flowctl codex adversarial --base main [--focus "area"]` runs Codex in adversarial mode — tries to break the code, not validate it. Returns SHIP/NEEDS_WORK with grounded findings
-- **Three-layer quality system**: Layer 1: `flowctl guard` (deterministic lint/type/test — runs at Worker Phase 6, the work integration checkpoint, and close phase). Layer 2: RP plan-review (code-aware spec validation, invoked via `/flow-code:go` plan-review phase — RP sees full codebase via context_builder). Layer 3: `flowctl codex adversarial` (cross-model adversarial, epic completion — different model family catches blind spots). Spec conflicts and blockers forwarded to Codex for autonomous decision-making.
-- **Review circuit breaker**: Plan review max 2 iterations, impl review max 3, epic review max 2 — prevents infinite NEEDS_WORK cycles. After max iterations, pipeline proceeds with warning
-- **Review backend resolution**: All review phases use the same priority chain: `--review` flag > `FLOW_REVIEW_BACKEND` env > `.flow/config.json` > default `none`. The `--no-review` flag is equivalent to `--review=none` and always wins
-- **Auto-improve analysis-driven**: generates custom program.md from codebase analysis (hotspots, lint, coverage, memory) with Action Catalog ranked by impact — not static templates
-- **Auto-improve quantitative**: captures before/after metrics per experiment, commit messages include delta `[lint:23→21]`
-- **Worker self-review**: Phase 6 runs guard + structured diff review (correctness, quality, performance, testing) before commit
-- **Execution vs planning boundary**: `/flow-code:go` is the auto-executing path and resume surface. Use `/flow-code:plan` when you explicitly want planning-only; use `--plan-only` when you need the `go` pipeline to stop after planning.
-- **Goal-backward verification**: worker Phase 10 re-reads acceptance criteria and verifies each is actually satisfied before completing
-- **Full-auto by default**: `/flow-code:go` requires zero interactive questions — AI reads git state, `.flow/` config, and request context to make branch, review, and research decisions autonomously. Default mode is Worktree + RP agent_run + Phase-Gate (all three active). Work resumes from `.flow/` state on every startup (not a special "resume mode"). All tasks done → auto push + draft PR (`--no-pr` to skip)
-- **Cross-platform**: flowctl is a single Rust binary (macOS/Linux). RP plan-review auto-degrades to Codex on platforms where rp-cli is unavailable. Bash hooks degrade gracefully on Windows (skip, don't block)
-- **Session start**: CLAUDE.md instruction (not an enforced hook) — if `.flow/` exists, run `flowctl status --interrupted` to check for unfinished work from a previous session and resume with the suggested `/flow-code:work <id>` command
-- **DAG cycle detection**: `flowctl dep add` validates that adding a dependency does not create a cycle in the task dependency graph. If a cycle would be created, the command fails with an error. The DAG is validated using topological sort via the `petgraph` crate
-- **Concurrency-safe state**: All read-modify-write operations on shared JSON state files (pipeline, phases, locks) use advisory file locks via `fs2` to prevent lost updates under concurrent access (e.g., Ralph daemon)
-- **Worker timeout**: Workers have a 30-minute default timeout per task (configurable via `worker.timeout_minutes`). On timeout: task marked failed, file locks released, scheduler continues
-- **Stale lock recovery**: Runs at scheduler start and on worker completion — detects locks held by done/failed/blocked tasks and releases them to prevent deadlocks
-- **Worker phase mapping**: Workers execute 12 internal phases (via `flowctl worker-phase next/done`) within the epic "Work" phase. Epic phases and worker phases are independent systems operating at different levels
-- **Project context**: Optional `.flow/project-context.md` (template in `templates/project-context.md`) provides shared technical standards (stack, rules, architecture decisions, non-goals) that all worker agents read during Phase 2 re-anchoring. Keeps agents aligned on conventions code alone can't convey
-- **Code graph persistent index**: `flowctl graph build` constructs symbol-level + file-level reference graph with forward/reverse edges, persisted to `.flow/graph.bin` via bincode. `graph refs` finds all references (<16ms), `graph impact` traces transitive dependents (BFS depth 3). Incremental update via `git diff --name-only`
-- **Intent-level API**: `flowctl find` auto-routes queries (regex→index regex, symbol→graph refs, literal→trigram, fallback→fuzzy). `flowctl edit` tries exact str::replacen then fuzzy fudiff fallback. Reduces 7 raw tools to 4 intent commands for agent clarity
-- **N-gram bincode optimization**: Index serialized as bincode (6.2MB→502KB, 12x smaller). Candidate verification via memchr::memmem (2-5x faster). Regex→trigram extraction via regex-syntax for indexed regex search
-- **ADR enforcement**: 10 ADRs in docs/decisions/ with YAML frontmatter (verify + scope). 5 verify commands registered as .flow/invariants.md, checked by `flowctl invariants check` and `flowctl guard`
+- **Engine drives, LLM executes**: The Rust engine owns the state machine, scheduling, quality gates, and knowledge. The LLM focuses on coding and reviewing.
+- **3 MCP tools replace 97 CLI commands + 56 skills + 25 agents**: Token cost drops from ~41K to ~500 per goal for orchestration.
+- **ActionSpec protocol**: Self-contained work packages with everything the LLM needs — no file searching required.
+- **Goal-scoped storage**: Each goal has its own directory with plans, attempts, and events.
+- **Immutable plan versions**: Replan creates a new version, never mutates existing ones.
+- **Risk-proportional guard**: GuardDepth (Trivial/Standard/Thorough) based on node RiskProfile.
+- **Three-level escalation**: WorkerRetry (1-2 fails) → StrategyChange (3-4) → Replan (5+).
+- **Knowledge pyramid**: Learnings (raw) → Patterns (distilled, with decay) → Methodology (rules).
+- **Concurrency-safe state**: File locks via `fs2` for concurrent access.
+- **Cross-platform**: Same 3-tool protocol works with Claude Code (MCP) and Codex (AGENTS.md).
 
 ## Files to Never Commit
 
 - `ref/` — reference/backup repos
+- `.flow/` — per-project runtime state
 - `*.upstream` — upstream backup files
-- `.tasks/` — runtime state
-- `__pycache__/` — Python cache (hook scripts only)
-- `.flow/` — per-project task state (runtime, not part of plugin)

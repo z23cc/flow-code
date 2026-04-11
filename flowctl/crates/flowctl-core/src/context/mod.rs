@@ -85,109 +85,11 @@ impl ContextAssembler {
             }
         }
 
-        // 3. If no owned files, find relevant files by keyword matching
-        if node.owned_files.is_empty() {
-            let keywords = Self::extract_keywords(&node.objective);
-            if !keywords.is_empty() {
-                let found = self.find_files_by_keywords(&keywords, 3);
-                for (path, reason) in found {
-                    if slices.iter().any(|f| f.path == path) {
-                        continue;
-                    }
-                    let full_path = self.root.join(&path);
-                    if let Ok(content) = std::fs::read_to_string(&full_path) {
-                        slices.push(FileSlice {
-                            path,
-                            content: truncate_content(&content, 20),
-                            reason,
-                            lines: None,
-                            total_lines: Some(content.lines().count()),
-                        });
-                    }
-                }
-            }
-        }
+        // 3. No more keyword walking — delegate file discovery to RepoPrompt.
+        // The recommended_workflow in ActionSpec guides LLM to use RP file_search
+        // and get_code_structure for richer, more precise context.
 
         slices
-    }
-
-    /// Extract meaningful keywords from an objective string.
-    fn extract_keywords(objective: &str) -> Vec<String> {
-        let stop_words = [
-            "a", "an", "the", "to", "for", "and", "or", "in", "on", "of", "with",
-            "add", "create", "implement", "build", "write", "fix", "update", "refactor",
-            "make", "use", "that", "this", "from", "into", "is", "be", "it",
-            "when", "have", "has", "not", "are", "was", "were", "been", "being",
-            "does", "did", "doing", "will", "would", "could", "should", "may",
-            "can", "all", "each", "every", "both", "few", "more", "most", "some",
-            "such", "than", "too", "very", "just", "also", "how", "what", "which",
-            "who", "whom", "where", "why", "new", "old", "get", "set", "run",
-            "support", "improve", "ensure", "enable", "allow", "handle",
-            "task", "tasks", "node", "nodes", "file", "files", "test", "tests",
-        ];
-        objective
-            .to_lowercase()
-            .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .filter(|w| w.len() >= 4 && !stop_words.contains(w))
-            .map(String::from)
-            .collect()
-    }
-
-    /// Find source files whose path or content matches keywords.
-    fn find_files_by_keywords(&self, keywords: &[String], max: usize) -> Vec<(String, String)> {
-        let mut matches: Vec<(String, String, usize)> = Vec::new(); // (path, reason, score)
-
-        // Walk source directories, match keywords against filename (not full path)
-        self.walk_source_files(&self.root, &mut |rel_path: &str| {
-            // Match against filename stem only (e.g. "auth" in "src/api/auth.rs")
-            let filename = std::path::Path::new(rel_path)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            let mut score = 0usize;
-            let mut matched_kw = Vec::new();
-
-            for kw in keywords {
-                if filename.contains(kw.as_str()) {
-                    score += 3; // filename match is strong signal
-                    matched_kw.push(kw.as_str());
-                }
-            }
-
-            if score > 0 {
-                let reason = format!("path matches: {}", matched_kw.join(", "));
-                matches.push((rel_path.to_string(), reason, score));
-            }
-        });
-
-        matches.sort_by(|a, b| b.2.cmp(&a.2));
-        matches.into_iter().take(max).map(|(p, r, _)| (p, r)).collect()
-    }
-
-    /// Walk source files, skipping irrelevant directories.
-    fn walk_source_files(&self, dir: &Path, callback: &mut impl FnMut(&str)) {
-        let skip_dirs = [".git", ".flow", "target", "node_modules", ".build", "dist", "vendor", "ref", "backup", "tmp", "temp", ".cache"];
-        let source_exts = ["rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "rb", "swift", "kt"];
-
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-
-            if path.is_dir() {
-                if !name_str.starts_with('.') && !skip_dirs.contains(&name_str.as_ref()) {
-                    self.walk_source_files(&path, callback);
-                }
-            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if source_exts.contains(&ext) {
-                    if let Ok(rel) = path.strip_prefix(&self.root) {
-                        callback(&rel.to_string_lossy());
-                    }
-                }
-            }
-        }
     }
 
     /// Inject relevant patterns from knowledge layer.
@@ -333,38 +235,16 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_keywords() {
-        let kws = ContextAssembler::extract_keywords("add email verification handler");
-        assert!(kws.contains(&"email".to_string()));
-        assert!(kws.contains(&"verification".to_string()));
-        assert!(kws.contains(&"handler".to_string()));
-        // "add" is a stop word
-        assert!(!kws.contains(&"add".to_string()));
-        // Short words (< 4 chars) are filtered
-        let kws2 = ContextAssembler::extract_keywords("fix the API bug");
-        assert!(!kws2.contains(&"fix".to_string()));
-        assert!(!kws2.contains(&"the".to_string()));
-        assert!(!kws2.contains(&"bug".to_string()));
-    }
-
-    #[test]
-    fn test_keyword_file_discovery() {
+    fn test_no_owned_files_returns_empty() {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join(".flow/knowledge")).unwrap();
-        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
-        std::fs::write(tmp.path().join("src/auth.rs"), "fn login() {}").unwrap();
-        std::fs::write(tmp.path().join("src/email.rs"), "fn send() {}").unwrap();
-        std::fs::write(tmp.path().join("src/utils.rs"), "fn helper() {}").unwrap();
 
         let asm = ContextAssembler::new(tmp.path());
         let goal = make_goal();
-        // Node with no owned_files but relevant objective
         let node = Node::new("n-1".into(), "add email verification".into());
 
         let ctx = asm.assemble(&goal, &node);
-        // Should find email.rs by keyword match
-        assert!(ctx.files.iter().any(|f| f.path.contains("email")));
-        // Should NOT include utils.rs (no keyword match)
-        assert!(!ctx.files.iter().any(|f| f.path.contains("utils")));
+        // Without owned_files, context.files is empty — RP handles discovery
+        assert!(ctx.files.is_empty());
     }
 }

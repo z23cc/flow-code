@@ -16,10 +16,10 @@ pub struct ActionSpec {
     pub context: ActionContext,
     pub guard: GuardSpec,
     pub progress: Progress,
-    /// Hints for which MCP tools to use for richer context.
-    /// When RepoPrompt is available, these guide the LLM to use RP tools.
+    /// Recommended workflow steps. Each step has a phase, tool, and reason.
+    /// Guides the LLM through the optimal tool sequence for this action.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tool_hints: Vec<ToolHint>,
+    pub recommended_workflow: Vec<WorkflowStep>,
 }
 
 /// The type of action the LLM should perform.
@@ -86,15 +86,18 @@ pub struct GuardFailure {
     pub severity: String,
 }
 
-/// Hint for the LLM to use a specific MCP tool for better context.
+/// A step in the recommended workflow for an action.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolHint {
-    /// The MCP tool to call (e.g. "mcp__RepoPrompt__get_code_structure").
+pub struct WorkflowStep {
+    /// Phase: "understand" (before coding), "implement" (during), "verify" (after).
+    pub phase: String,
+    /// The MCP tool to call.
     pub tool: String,
-    /// Why this tool is useful for the current action.
+    /// Why this step matters.
     pub reason: String,
     /// Suggested parameters as a JSON-like hint.
-    pub suggested_params: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -171,7 +174,7 @@ impl ActionSpec {
                 current_node: None,
                 parallel_ready: vec![],
             },
-            tool_hints: vec![],
+            recommended_workflow: vec![],
         }
     }
 
@@ -185,7 +188,7 @@ impl ActionSpec {
             context: ActionContext::default(),
             guard: GuardSpec::default(),
             progress: Progress::default(),
-            tool_hints: vec![],
+            recommended_workflow: vec![],
         }
     }
 }

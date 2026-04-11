@@ -16,6 +16,10 @@ pub struct ActionSpec {
     pub context: ActionContext,
     pub guard: GuardSpec,
     pub progress: Progress,
+    /// Hints for which MCP tools to use for richer context.
+    /// When RepoPrompt is available, these guide the LLM to use RP tools.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_hints: Vec<ToolHint>,
 }
 
 /// The type of action the LLM should perform.
@@ -80,6 +84,17 @@ pub struct GuardFailure {
     pub command: String,
     pub output: String,
     pub severity: String,
+}
+
+/// Hint for the LLM to use a specific MCP tool for better context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolHint {
+    /// The MCP tool to call (e.g. "mcp__RepoPrompt__get_code_structure").
+    pub tool: String,
+    /// Why this tool is useful for the current action.
+    pub reason: String,
+    /// Suggested parameters as a JSON-like hint.
+    pub suggested_params: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -156,6 +171,7 @@ impl ActionSpec {
                 current_node: None,
                 parallel_ready: vec![],
             },
+            tool_hints: vec![],
         }
     }
 
@@ -169,6 +185,7 @@ impl ActionSpec {
             context: ActionContext::default(),
             guard: GuardSpec::default(),
             progress: Progress::default(),
+            tool_hints: vec![],
         }
     }
 }

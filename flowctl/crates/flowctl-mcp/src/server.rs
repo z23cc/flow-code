@@ -146,7 +146,9 @@ impl ServerHandler for FlowctlServer {
                  (2) Do the work described in the ActionSpec. \
                  (3) flow_submit(action_id, 'done', 'summary') → get next ActionSpec or 'complete'. \
                  Use flow_query to check status, read file contents, or search knowledge. \
-                 Context files are summaries — use flow_query('read file <path>') for full content. \
+                 Context files are summaries — use flow_query('read file <path>') for full content, \
+                 or use RepoPrompt tools (get_code_structure, file_search, read_file) for richer \
+                 context. ActionSpec.tool_hints suggests which RP tools to call. \
                  Errors are structured: {error: {category, message, retry_safe, recovery}}."
                     .into(),
             ),

@@ -352,6 +352,7 @@ impl Orchestrator {
             context: ActionContext::default(),
             guard: GuardSpec::default(),
             progress: Progress::default(),
+            tool_hints: vec![],
         })
     }
 
@@ -393,6 +394,7 @@ impl Orchestrator {
         }
 
         let context = self.context.assemble(goal, node);
+        let tool_hints = Self::rp_hints_for_action(&node.objective, &context.files);
         let parallel_ready: Vec<String> = ready_nodes[1..].iter().map(|n| n.id.clone()).collect();
         let plan = self.planner.get_latest(&goal.id)?;
         let total = plan.nodes.len();
@@ -414,6 +416,7 @@ impl Orchestrator {
                 commands: self.guard.commands_for_depth(node.risk.guard_depth),
             },
             progress: Progress { total_nodes: total, completed, current_node: Some(node.id.clone()), parallel_ready },
+            tool_hints,
         })
     }
 
@@ -450,6 +453,7 @@ impl Orchestrator {
                 let completed = plan.nodes.iter().filter(|n| n.status == NodeStatus::Done).count();
                 Progress { total_nodes: total, completed, current_node: Some(node_id.to_string()), parallel_ready: vec![] }
             },
+            tool_hints: vec![],
         })
     }
 
@@ -471,6 +475,7 @@ impl Orchestrator {
             context: ActionContext { prior_attempts: attempt_summaries, ..Default::default() },
             guard: GuardSpec::default(),
             progress: Progress { total_nodes: plan.nodes.len(), completed: plan.nodes.len(), current_node: None, parallel_ready: vec![] },
+            tool_hints: vec![],
         })
     }
 
@@ -496,6 +501,7 @@ impl Orchestrator {
             action_type, objective, acceptance_criteria: vec![], context,
             guard: GuardSpec::default(),
             progress: Progress { total_nodes: total, completed, current_node: Some(node_id.to_string()), parallel_ready: vec![] },
+            tool_hints: vec![],
         })
     }
 
@@ -529,6 +535,48 @@ impl Orchestrator {
             files_changed: vec![], guard_results: vec![],
             learnings_recorded: 0, patterns_created: 0, duration_seconds: 0,
         }))
+    }
+
+    // ── RepoPrompt integration ───────────────────────────────────
+
+    /// Generate RP tool hints based on the action's objective and discovered files.
+    fn rp_hints_for_action(objective: &str, files: &[crate::domain::action_spec::FileSlice]) -> Vec<crate::domain::action_spec::ToolHint> {
+        use crate::domain::action_spec::ToolHint;
+        let mut hints = Vec::new();
+
+        // If we have files, suggest get_code_structure for understanding them
+        if !files.is_empty() {
+            let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).take(3).collect();
+            hints.push(ToolHint {
+                tool: "mcp__RepoPrompt__get_code_structure".into(),
+                reason: "Get function/type signatures for context files — more precise than reading full content".into(),
+                suggested_params: format!("{{\"paths\":{:?}}}", paths),
+            });
+        }
+
+        // Always suggest file_search for discovery
+        let keywords: Vec<&str> = objective.split_whitespace()
+            .filter(|w| w.len() >= 4)
+            .take(3)
+            .collect();
+        if !keywords.is_empty() {
+            hints.push(ToolHint {
+                tool: "mcp__RepoPrompt__file_search".into(),
+                reason: "Find related files by content or path — better than keyword-based discovery".into(),
+                suggested_params: format!("{{\"pattern\":\"{}\"}}", keywords.join("|")),
+            });
+        }
+
+        // For complex objectives, suggest context_builder
+        if objective.split_whitespace().count() > 8 {
+            hints.push(ToolHint {
+                tool: "mcp__RepoPrompt__context_builder".into(),
+                reason: "AI-powered deep context discovery for complex tasks".into(),
+                suggested_params: format!("{{\"instructions\":\"<task>{objective}</task>\",\"response_type\":\"plan\"}}"),
+            });
+        }
+
+        hints
     }
 
     // ── Helpers ──────────────────────────────────────────────────

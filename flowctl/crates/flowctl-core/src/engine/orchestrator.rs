@@ -131,12 +131,28 @@ impl Orchestrator {
         if let Some(gid) = goal_id {
             let goal = self.goal_engine.status(gid)
                 .map_err(|_| format!("goal '{gid}' not found"))?;
-            let nodes = self.scheduler.ready_nodes(gid).unwrap_or_default();
+            let ready_nodes = self.scheduler.ready_nodes(gid).unwrap_or_default();
             let is_complete = self.scheduler.is_complete(gid).unwrap_or(false);
-            let plan_rev = self.planner.get_latest(gid).ok().map(|p| p.rev);
+            let plan = self.planner.get_latest(gid).ok();
+            let plan_rev = plan.as_ref().map(|p| p.rev);
+
+            // Build node-level status summary
+            let nodes_detail: Vec<serde_json::Value> = plan.as_ref()
+                .map(|p| p.nodes.iter().map(|n| {
+                    let attempts = self.attempt_store.count_for_node(gid, &n.id).unwrap_or(0);
+                    serde_json::json!({
+                        "id": n.id,
+                        "objective": n.objective,
+                        "status": n.status,
+                        "attempts": attempts,
+                    })
+                }).collect())
+                .unwrap_or_default();
+
             return Ok(serde_json::json!({
                 "goal": goal,
-                "ready_nodes": nodes.iter().map(|n| &n.id).collect::<Vec<_>>(),
+                "nodes": nodes_detail,
+                "ready_nodes": ready_nodes.iter().map(|n| &n.id).collect::<Vec<_>>(),
                 "is_complete": is_complete,
                 "plan_rev": plan_rev,
             }));

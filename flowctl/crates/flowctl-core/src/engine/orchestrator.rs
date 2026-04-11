@@ -539,79 +539,132 @@ impl Orchestrator {
 
     // ── RepoPrompt integration ───────────────────────────────────
 
-    /// Build recommended workflow steps based on action type and context.
-    /// Sequences: understand (RP) → implement (RP edits) → verify (flowctl submit).
-    fn build_workflow(objective: &str, files: &[crate::domain::action_spec::FileSlice], action_type: ActionType) -> Vec<crate::domain::action_spec::WorkflowStep> {
-        use crate::domain::action_spec::WorkflowStep;
+    /// Build recommended workflow steps based on action type.
+    /// Maximizes RepoPrompt capabilities for each phase.
+    fn build_workflow(objective: &str, files: &[crate::domain::action_spec::FileSlice], action_type: ActionType) -> Vec<WorkflowStep> {
         let mut steps = Vec::new();
-
-        // ── Phase 1: Understand ──────────────────────────────────
-        // Use RP to understand the codebase before coding
         let keywords: Vec<&str> = objective.split_whitespace()
             .filter(|w| w.len() >= 4)
             .take(4)
             .collect();
+        let keyword_pattern = keywords.join("|");
 
-        if !keywords.is_empty() {
-            steps.push(WorkflowStep {
-                phase: "understand".into(),
-                tool: "mcp__RepoPrompt__file_search".into(),
-                reason: "Find all related files before coding".into(),
-                params: Some(format!("{{\"pattern\":\"{}\"}}", keywords.join("|"))),
-            });
+        match action_type {
+            ActionType::Implement => {
+                // ── Understand: discover + structure + deep analysis ──
+                steps.push(Self::ws("understand", "mcp__RepoPrompt__get_file_tree",
+                    "Get project structure overview — understand where to add new code",
+                    Some("{\"mode\":\"folders\",\"max_depth\":3}")));
+
+                if !keyword_pattern.is_empty() {
+                    steps.push(Self::ws("understand", "mcp__RepoPrompt__file_search",
+                        "Find all files related to this task",
+                        Some(&format!("{{\"pattern\":\"{keyword_pattern}\"}}"))));
+                }
+
+                if !files.is_empty() {
+                    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).take(5).collect();
+                    steps.push(Self::ws("understand", "mcp__RepoPrompt__get_code_structure",
+                        "Get function/type signatures — understand APIs without reading full files",
+                        Some(&format!("{{\"paths\":{:?}}}", paths))));
+
+                    steps.push(Self::ws("understand", "mcp__RepoPrompt__manage_selection",
+                        "Pre-select relevant files as codemap — enriches all subsequent RP calls",
+                        Some(&format!("{{\"op\":\"add\",\"paths\":{:?},\"mode\":\"codemap_only\"}}", paths))));
+                }
+
+                steps.push(Self::ws("understand", "mcp__RepoPrompt__context_builder",
+                    "AI-powered deep context discovery — finds dependencies you might miss",
+                    Some(&format!("{{\"instructions\":\"<task>{objective}</task>\",\"response_type\":\"plan\"}}"))));
+
+                // ── Implement: read + edit ──
+                steps.push(Self::ws("implement", "mcp__RepoPrompt__read_file",
+                    "Read specific files/line ranges before editing",
+                    None));
+
+                steps.push(Self::ws("implement", "mcp__RepoPrompt__apply_edits",
+                    "Apply code changes — supports multi-edit transactions, auto-repair whitespace",
+                    None));
+
+                // ── Verify: diff + submit ──
+                steps.push(Self::ws("verify", "mcp__RepoPrompt__git",
+                    "Review your changes before submitting",
+                    Some("{\"op\":\"diff\",\"detail\":\"patches\"}")));
+
+                steps.push(Self::ws("verify", "flow_submit",
+                    "Submit results — engine runs quality guard and advances to next node",
+                    None));
+            }
+
+            ActionType::Review => {
+                // ── Understand: git diff + structure ──
+                steps.push(Self::ws("understand", "mcp__RepoPrompt__git",
+                    "Get the full diff with patch details for review",
+                    Some("{\"op\":\"diff\",\"detail\":\"patches\",\"artifacts\":true}")));
+
+                steps.push(Self::ws("understand", "mcp__RepoPrompt__get_code_structure",
+                    "Understand the structure of changed files",
+                    Some("{\"scope\":\"selected\"}")));
+
+                // ── Analyze: AI-powered review ──
+                steps.push(Self::ws("analyze", "mcp__RepoPrompt__context_builder",
+                    "AI-powered code review — catches issues across files",
+                    Some(&format!("{{\"instructions\":\"<task>Review: {objective}</task>\",\"response_type\":\"review\"}}"))));
+
+                // ── Verify: submit review result ──
+                steps.push(Self::ws("verify", "flow_submit",
+                    "Submit review — 'done' if approved, 'failed' with findings if issues found",
+                    None));
+            }
+
+            ActionType::Fix => {
+                // ── Understand: find the problem ──
+                if !keyword_pattern.is_empty() {
+                    steps.push(Self::ws("understand", "mcp__RepoPrompt__file_search",
+                        "Search for error-related code",
+                        Some(&format!("{{\"pattern\":\"{keyword_pattern}\"}}"))));
+                }
+
+                steps.push(Self::ws("understand", "mcp__RepoPrompt__context_builder",
+                    "AI analysis of the failure — understand root cause before fixing",
+                    Some(&format!("{{\"instructions\":\"<task>Debug and fix: {objective}</task>\",\"response_type\":\"question\"}}"))));
+
+                // ── Implement: fix ──
+                steps.push(Self::ws("implement", "mcp__RepoPrompt__apply_edits",
+                    "Apply the fix with search/replace",
+                    None));
+
+                // ── Verify ──
+                steps.push(Self::ws("verify", "mcp__RepoPrompt__git",
+                    "Verify the fix looks correct",
+                    Some("{\"op\":\"diff\",\"detail\":\"patches\"}")));
+
+                steps.push(Self::ws("verify", "flow_submit",
+                    "Submit fix — engine re-runs guard to verify",
+                    None));
+            }
+
+            _ => {
+                steps.push(Self::ws("verify", "flow_submit",
+                    "Submit results to advance the goal",
+                    None));
+            }
         }
-
-        if !files.is_empty() {
-            let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).take(5).collect();
-            steps.push(WorkflowStep {
-                phase: "understand".into(),
-                tool: "mcp__RepoPrompt__get_code_structure".into(),
-                reason: "Get function/type signatures — understand APIs without reading full files".into(),
-                params: Some(format!("{{\"paths\":{:?}}}", paths)),
-            });
-        }
-
-        // For complex tasks, use context_builder for deep analysis
-        if objective.split_whitespace().count() > 6 {
-            steps.push(WorkflowStep {
-                phase: "understand".into(),
-                tool: "mcp__RepoPrompt__context_builder".into(),
-                reason: "AI-powered deep context discovery — finds files you might miss".into(),
-                params: Some(format!("{{\"instructions\":\"<task>{}</task>\"}}", objective)),
-            });
-        }
-
-        // ── Phase 2: Implement ───────────────────────────────────
-        if action_type == ActionType::Implement || action_type == ActionType::Fix {
-            steps.push(WorkflowStep {
-                phase: "implement".into(),
-                tool: "mcp__RepoPrompt__apply_edits".into(),
-                reason: "Apply code changes with search/replace — supports multi-edit transactions".into(),
-                params: None,
-            });
-        }
-
-        // ── Phase 3: Verify ──────────────────────────────────────
-        if action_type == ActionType::Review {
-            steps.push(WorkflowStep {
-                phase: "verify".into(),
-                tool: "mcp__RepoPrompt__git".into(),
-                reason: "Review git diff to verify all changes are correct".into(),
-                params: Some("{\"op\":\"diff\",\"detail\":\"patches\"}".into()),
-            });
-        }
-
-        steps.push(WorkflowStep {
-            phase: "verify".into(),
-            tool: "flow_submit".into(),
-            reason: "Submit results — engine runs quality guard and advances to next node".into(),
-            params: None,
-        });
 
         steps
     }
 
     // ── Helpers ──────────────────────────────────────────────────
+
+    /// Shorthand for creating a WorkflowStep.
+    fn ws(phase: &str, tool: &str, reason: &str, params: Option<&str>) -> WorkflowStep {
+        WorkflowStep {
+            phase: phase.into(),
+            tool: tool.into(),
+            reason: reason.into(),
+            params: params.map(String::from),
+        }
+    }
 
     fn record_attempt(&self, goal_id: &str, node_id: &str, input: &SubmitInput) -> Result<(), String> {
         let count = self.attempt_store.count_for_node(goal_id, node_id).unwrap_or(0);

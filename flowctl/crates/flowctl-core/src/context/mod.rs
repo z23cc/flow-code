@@ -86,7 +86,7 @@ impl ContextAssembler {
         if node.owned_files.is_empty() {
             let keywords = Self::extract_keywords(&node.objective);
             if !keywords.is_empty() {
-                let found = self.find_files_by_keywords(&keywords, 5);
+                let found = self.find_files_by_keywords(&keywords, 3);
                 for (path, reason) in found {
                     if slices.iter().any(|f| f.path == path) {
                         continue;
@@ -95,7 +95,7 @@ impl ContextAssembler {
                     if let Ok(content) = std::fs::read_to_string(&full_path) {
                         slices.push(FileSlice {
                             path,
-                            content: truncate_content(&content, 100),
+                            content: truncate_content(&content, 30),
                             reason,
                             lines: None,
                         });
@@ -113,11 +113,18 @@ impl ContextAssembler {
             "a", "an", "the", "to", "for", "and", "or", "in", "on", "of", "with",
             "add", "create", "implement", "build", "write", "fix", "update", "refactor",
             "make", "use", "that", "this", "from", "into", "is", "be", "it",
+            "when", "have", "has", "not", "are", "was", "were", "been", "being",
+            "does", "did", "doing", "will", "would", "could", "should", "may",
+            "can", "all", "each", "every", "both", "few", "more", "most", "some",
+            "such", "than", "too", "very", "just", "also", "how", "what", "which",
+            "who", "whom", "where", "why", "new", "old", "get", "set", "run",
+            "support", "improve", "ensure", "enable", "allow", "handle",
+            "task", "tasks", "node", "nodes", "file", "files", "test", "tests",
         ];
         objective
             .to_lowercase()
             .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .filter(|w| w.len() >= 3 && !stop_words.contains(w))
+            .filter(|w| w.len() >= 4 && !stop_words.contains(w))
             .map(String::from)
             .collect()
     }
@@ -126,15 +133,20 @@ impl ContextAssembler {
     fn find_files_by_keywords(&self, keywords: &[String], max: usize) -> Vec<(String, String)> {
         let mut matches: Vec<(String, String, usize)> = Vec::new(); // (path, reason, score)
 
-        // Walk source directories (skip hidden, target, node_modules, .flow)
+        // Walk source directories, match keywords against filename (not full path)
         self.walk_source_files(&self.root, &mut |rel_path: &str| {
-            let path_lower = rel_path.to_lowercase();
+            // Match against filename stem only (e.g. "auth" in "src/api/auth.rs")
+            let filename = std::path::Path::new(rel_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_lowercase();
             let mut score = 0usize;
             let mut matched_kw = Vec::new();
 
             for kw in keywords {
-                if path_lower.contains(kw.as_str()) {
-                    score += 3; // path match is strong signal
+                if filename.contains(kw.as_str()) {
+                    score += 3; // filename match is strong signal
                     matched_kw.push(kw.as_str());
                 }
             }
@@ -151,7 +163,7 @@ impl ContextAssembler {
 
     /// Walk source files, skipping irrelevant directories.
     fn walk_source_files(&self, dir: &Path, callback: &mut impl FnMut(&str)) {
-        let skip_dirs = [".git", ".flow", "target", "node_modules", ".build", "dist", "vendor"];
+        let skip_dirs = [".git", ".flow", "target", "node_modules", ".build", "dist", "vendor", "ref", "backup", "tmp", "temp", ".cache"];
         let source_exts = ["rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "rb", "swift", "kt"];
 
         let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -324,6 +336,11 @@ mod tests {
         assert!(kws.contains(&"handler".to_string()));
         // "add" is a stop word
         assert!(!kws.contains(&"add".to_string()));
+        // Short words (< 4 chars) are filtered
+        let kws2 = ContextAssembler::extract_keywords("fix the API bug");
+        assert!(!kws2.contains(&"fix".to_string()));
+        assert!(!kws2.contains(&"the".to_string()));
+        assert!(!kws2.contains(&"bug".to_string()));
     }
 
     #[test]

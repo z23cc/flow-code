@@ -224,19 +224,52 @@ impl Orchestrator {
         let (nodes, edges) = if criteria.len() <= 1 {
             (vec![Node::new("n-1".into(), goal.request.clone())], vec![])
         } else {
-            let mut nodes = Vec::new();
-            let mut edges = Vec::new();
-            for (i, criterion) in criteria.iter().enumerate() {
-                let id = format!("n-{}", i + 1);
-                if i > 0 {
-                    edges.push(Edge { from: format!("n-{}", i), to: id.clone() });
-                }
-                nodes.push(Node::new(id, criterion.description.clone()));
-            }
+            let nodes: Vec<Node> = criteria.iter().enumerate()
+                .map(|(i, c)| Node::new(format!("n-{}", i + 1), c.description.clone()))
+                .collect();
+            let edges = Self::detect_dependencies(&nodes);
             (nodes, edges)
         };
         self.planner.build(&goal.id, nodes, edges, "auto-planned")?;
         Ok(())
+    }
+
+    /// Detect dependencies between nodes based on keyword overlap.
+    /// "add tests for X" depends on "add X". Independent criteria get no edges → parallel.
+    fn detect_dependencies(nodes: &[Node]) -> Vec<Edge> {
+        let dependency_signals = [
+            "test", "verify", "validate", "check", "review",  // testing depends on impl
+            "deploy", "release", "ship",                       // deploy depends on everything
+            "document", "docs",                                // docs depend on impl
+            "integrate", "wire", "connect",                    // integration depends on parts
+        ];
+
+        let mut edges = Vec::new();
+
+        for (i, node) in nodes.iter().enumerate() {
+            let obj_lower = node.objective.to_lowercase();
+
+            // Check if this node's objective references another node's subject
+            let is_dependent = dependency_signals.iter().any(|s| obj_lower.contains(s));
+
+            if is_dependent && i > 0 {
+                // Testing/deploy/docs depend on all prior implementation nodes
+                for j in 0..i {
+                    let prior_lower = nodes[j].objective.to_lowercase();
+                    let prior_is_dependent = dependency_signals.iter().any(|s| prior_lower.contains(s));
+                    if !prior_is_dependent {
+                        edges.push(Edge { from: nodes[j].id.clone(), to: node.id.clone() });
+                    }
+                }
+                // If no specific dependency found, depend on the previous node
+                if !edges.iter().any(|e| e.to == node.id) {
+                    edges.push(Edge { from: nodes[i - 1].id.clone(), to: node.id.clone() });
+                }
+            }
+            // Independent implementation nodes: no edges → parallel execution
+        }
+
+        edges
     }
 
     // ── Node submission ─────────────────────────────────────────
@@ -713,5 +746,44 @@ mod tests {
         let r = orch.query("status", Some("g-nonexistent"));
         assert!(r.is_err());
         assert!(r.unwrap_err().contains("not found"));
+    }
+
+    // ── Parallel planning tests ────────────────────────────────
+
+    #[test]
+    fn test_parallel_independent_criteria() {
+        let (_tmp, orch) = setup();
+        let r = orch.drive("add login page, add signup page, add profile page").unwrap();
+        // All three are independent impl tasks → should have parallel_ready
+        assert!(r.progress.total_nodes >= 2);
+        // At least one parallel node should be available
+        assert!(!r.progress.parallel_ready.is_empty(),
+            "independent criteria should create parallel nodes");
+    }
+
+    #[test]
+    fn test_serial_dependent_criteria() {
+        let (_tmp, orch) = setup();
+        let r = orch.drive("add auth module, write tests for auth").unwrap();
+        // "write tests" depends on "add auth" → serial
+        assert_eq!(r.progress.total_nodes, 2);
+        assert!(r.progress.parallel_ready.is_empty(),
+            "test node should depend on impl node");
+    }
+
+    #[test]
+    fn test_detect_dependencies_unit() {
+        let nodes = vec![
+            Node::new("n-1".into(), "add payment processing".into()),
+            Node::new("n-2".into(), "add email notifications".into()),
+            Node::new("n-3".into(), "write tests for all features".into()),
+        ];
+        let edges = Orchestrator::detect_dependencies(&nodes);
+        // n-1 and n-2 are independent (no edges between them)
+        assert!(!edges.iter().any(|e| e.from == "n-1" && e.to == "n-2"));
+        assert!(!edges.iter().any(|e| e.from == "n-2" && e.to == "n-1"));
+        // n-3 ("tests") depends on n-1 and n-2
+        assert!(edges.iter().any(|e| e.from == "n-1" && e.to == "n-3"));
+        assert!(edges.iter().any(|e| e.from == "n-2" && e.to == "n-3"));
     }
 }

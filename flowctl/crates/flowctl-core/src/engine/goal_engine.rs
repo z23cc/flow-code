@@ -62,8 +62,12 @@ impl GoalEngine {
 
     /// Open a new goal. Auto-populates fields based on mode selection.
     pub fn open(&self, request: &str, intent: GoalIntent) -> Result<Goal, String> {
-        let (planning_mode, success_model) = Self::assess_goal(request);
-        let slug = slugify(request);
+        let trimmed = request.trim();
+        if trimmed.is_empty() {
+            return Err("goal request cannot be empty".into());
+        }
+        let (planning_mode, success_model) = Self::assess_goal(trimmed);
+        let slug = slugify(trimmed);
         let id = format!("g-{slug}");
 
         let mut goal = Goal::new(id.clone(), request.to_string(), planning_mode, success_model);

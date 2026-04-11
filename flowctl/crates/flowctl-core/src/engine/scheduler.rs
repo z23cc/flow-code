@@ -79,6 +79,23 @@ impl Scheduler {
         let plan = self.plan_store.get_latest(goal_id)?;
         Ok(plan.nodes.iter().all(|n| n.status.is_terminal() || n.status == NodeStatus::Failed))
     }
+
+    /// Reset an InProgress node back to Ready (for session recovery).
+    pub fn reset_node(&self, goal_id: &str, node_id: &str) -> Result<PlanVersion, String> {
+        let mut plan = self.plan_store.get_latest(goal_id)?;
+        let node = plan.nodes.iter_mut().find(|n| n.id == node_id)
+            .ok_or_else(|| format!("node {node_id} not found"))?;
+
+        if node.status != NodeStatus::InProgress && node.status != NodeStatus::Failed {
+            return Err(format!("node {node_id} is {:?}, expected InProgress or Failed", node.status));
+        }
+        node.status = NodeStatus::Ready;
+
+        plan.rev = self.plan_store.next_rev(goal_id)?;
+        self.plan_store.create_version(&plan)?;
+        self.event_store.emit(goal_id, GoalEventKind::NodeStarted, &format!("{node_id}:reset"))?;
+        Ok(plan)
+    }
 }
 
 /// Find nodes that are Ready and have all dependencies satisfied.

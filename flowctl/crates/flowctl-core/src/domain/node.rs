@@ -46,7 +46,7 @@ pub enum Scope {
 }
 
 /// Guard depth — risk-proportional quality checks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum GuardDepth {
     /// Lint only.

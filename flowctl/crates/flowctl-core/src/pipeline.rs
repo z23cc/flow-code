@@ -1,3 +1,6 @@
+//! FROZEN — ADR-011: Bug fixes only. No new features.
+//! Superseded by V3 Goal-driven engine (see docs/v3-final-architecture.md).
+//!
 //! Pipeline phase state machine for epic-level workflow progression.
 //!
 //! Phases form a linear sequence:

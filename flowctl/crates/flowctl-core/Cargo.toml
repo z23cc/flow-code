@@ -1,6 +1,6 @@
 [package]
 name = "flowctl-core"
-version = "0.1.0"
+version = "0.2.1"
 description = "Core types, ID parsing, and state machine for flowctl (includes Apache 2.0 licensed code ported from rtk)"
 edition.workspace = true
 rust-version.workspace = true

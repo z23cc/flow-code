@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/flowctl-core",
     "crates/flowctl-cli",
+    "crates/flowctl-mcp",
 ]
 
 # ── Shared package metadata (nushell convention) ──────────────────────
@@ -71,8 +72,14 @@ which = "8"
 # Testing
 trycmd = "0.15"
 
+# MCP server (mcp crate only)
+rmcp = { version = "0.1", features = ["server", "transport-io", "macros"] }
+schemars = "0.8"
+tokio = { version = "1", features = ["full"] }
+
 # Internal crate references
 flowctl-core = { path = "crates/flowctl-core" }
+flowctl-mcp = { path = "crates/flowctl-mcp" }
 
 # ── Shared lint configuration ────────────────────────────────────────
 [workspace.lints.clippy]

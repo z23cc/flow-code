@@ -620,6 +620,61 @@ enum Commands {
         dry_run: bool,
     },
 
+    // ── V3 MCP Server ───────────────────────────────────────────────
+    /// Start the MCP server (stdio transport). Exposes 16 V3 tools.
+    Serve,
+
+    /// Migrate old .flow/ data (epics→goals, tasks→plan nodes, memory→learnings).
+    Migrate {
+        /// Target version (currently only "v3").
+        #[arg(default_value = "v3")]
+        target: String,
+        /// Dry-run: show what would be migrated without writing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// V3 PolicyEngine: check file access against lock state.
+    Policy {
+        #[command(subcommand)]
+        action: PolicyAction,
+    },
+
+    /// V3 session management.
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
+
+    // ── V3 Goal commands ───────────────────────────────────────────
+    /// V3 goal lifecycle (open/status/close).
+    Goal {
+        #[command(subcommand)]
+        action: GoalAction,
+    },
+
+    // ── V3 Plan commands ───────────────────────────────────────────
+    /// V3 plan management (build/next).
+    #[command(name = "plan-v3")]
+    PlanV3 {
+        #[command(subcommand)]
+        action: PlanV3Action,
+    },
+
+    // ── V3 Node commands ───────────────────────────────────────────
+    /// V3 node lifecycle (start/finish/fail).
+    Node {
+        #[command(subcommand)]
+        action: NodeAction,
+    },
+
+    // ── V3 Knowledge commands ──────────────────────────────────────
+    /// V3 knowledge management (search/record/compound/refresh).
+    Knowledge {
+        #[command(subcommand)]
+        action: KnowledgeAction,
+    },
+
     // ── Shell completions ────────────────────────────────────────────
     /// Generate shell completions.
     Completions {
@@ -642,6 +697,128 @@ enum Commands {
         /// Command name.
         command: Vec<String>,
     },
+}
+
+// ── V3 subcommand enums ─────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+enum GoalAction {
+    /// Open a new goal from a request.
+    Open {
+        /// User request describing the goal.
+        request: String,
+        /// Intent: execute, plan, or brainstorm.
+        #[arg(long, default_value = "execute")]
+        intent: String,
+    },
+    /// Get goal status.
+    Status {
+        /// Goal ID.
+        goal_id: String,
+    },
+    /// Close a goal (mark done, trigger knowledge compounding).
+    Close {
+        /// Goal ID.
+        goal_id: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum PlanV3Action {
+    /// Build an execution graph for a goal.
+    Build {
+        /// Goal ID.
+        goal_id: String,
+    },
+    /// Get currently ready nodes.
+    Next {
+        /// Goal ID.
+        goal_id: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum NodeAction {
+    /// Start working on a node.
+    Start {
+        /// Goal ID.
+        goal_id: String,
+        /// Node ID.
+        node_id: String,
+    },
+    /// Mark a node as done.
+    Finish {
+        /// Goal ID.
+        goal_id: String,
+        /// Node ID.
+        node_id: String,
+        /// Summary of work done.
+        #[arg(long)]
+        summary: String,
+    },
+    /// Report a node failure.
+    Fail {
+        /// Goal ID.
+        goal_id: String,
+        /// Node ID.
+        node_id: String,
+        /// Error description.
+        #[arg(long)]
+        error: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum KnowledgeAction {
+    /// Search across all knowledge layers.
+    Search {
+        /// Search query.
+        query: String,
+        /// Max results.
+        #[arg(long, default_value = "5")]
+        limit: usize,
+    },
+    /// Record a learning.
+    Record {
+        /// Goal ID.
+        goal_id: String,
+        /// Content.
+        content: String,
+        /// Kind: success, failure, discovery, pitfall.
+        #[arg(long, default_value = "discovery")]
+        kind: String,
+    },
+    /// Compound learnings into patterns.
+    Compound {
+        /// Goal ID.
+        goal_id: String,
+    },
+    /// Refresh stale patterns.
+    Refresh,
+}
+
+#[derive(Subcommand, Debug)]
+enum PolicyAction {
+    /// Check if a tool call is allowed by policy (used by PreToolUse hook).
+    CheckHook {
+        /// Tool name (Edit, Write, Bash).
+        #[arg(long)]
+        tool: String,
+        /// File path being accessed.
+        #[arg(long)]
+        file: Option<String>,
+        /// Current node ID (if in worker context).
+        #[arg(long)]
+        node: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum SessionAction {
+    /// Save a session snapshot (active goals, nodes, locks).
+    Snapshot,
+    /// List active sessions.
+    List,
 }
 
 fn main() {
@@ -893,6 +1070,16 @@ fn main() {
         Commands::CommandsList => cmd_commands_list(json),
         Commands::Describe { command } => cmd_describe(json, &command),
         Commands::Schema { command } => cmd_schema(json, &command),
+
+        // ── V3 Commands ─────────────────────────────────────────────
+        Commands::Serve => cmd_serve(),
+        Commands::Migrate { target, dry_run } => cmd_migrate(&target, dry_run),
+        Commands::Goal { action } => cmd_goal(json, action),
+        Commands::PlanV3 { action } => cmd_plan_v3(json, action),
+        Commands::Node { action } => cmd_node(json, action),
+        Commands::Knowledge { action } => cmd_knowledge(json, action),
+        Commands::Policy { action } => cmd_policy(action),
+        Commands::Session { action } => cmd_session(action),
     }
 }
 
@@ -1106,6 +1293,442 @@ fn classify_command(name: &str) -> &'static str {
         "schema" | "describe" | "commands" | "completions" => "Introspection",
 
         _ => "Other",
+    }
+}
+
+// ── V3 command handlers ────────────────────────────────────────────
+
+fn cmd_serve() {
+    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    rt.block_on(async {
+        if let Err(e) = flowctl_mcp::run_server(root).await {
+            eprintln!("MCP server error: {e}");
+            std::process::exit(1);
+        }
+    });
+}
+
+fn cmd_migrate(target: &str, dry_run: bool) {
+    if target != "v3" {
+        output::error_exit(&format!("Unknown migration target: {target}. Only 'v3' is supported."));
+    }
+
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let flow_dir = root.join(".flow");
+    if !flow_dir.exists() {
+        output::error_exit(".flow/ directory not found. Nothing to migrate.");
+    }
+
+    let epics_dir = flow_dir.join("epics");
+    let goals_dir = flow_dir.join("goals");
+    let knowledge_dir = flow_dir.join("knowledge");
+
+    let mut migrated_goals = 0u32;
+    let mut migrated_learnings = 0u32;
+
+    // Migrate epics → goals
+    if epics_dir.exists() {
+        for entry in std::fs::read_dir(&epics_dir).unwrap_or_else(|e| {
+            output::error_exit(&format!("Failed to read epics dir: {e}"));
+        }) {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "json") {
+                if let Ok(data) = std::fs::read_to_string(&path) {
+                    if let Ok(epic) = serde_json::from_str::<serde_json::Value>(&data) {
+                        let epic_id = epic.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let title = epic.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                        let goal_id = format!("g-{epic_id}");
+
+                        if dry_run {
+                            println!("[dry-run] Would migrate epic {epic_id} → goal {goal_id}");
+                        } else {
+                            let goal_dir = goals_dir.join(&goal_id);
+                            std::fs::create_dir_all(&goal_dir).ok();
+                            let goal = serde_json::json!({
+                                "id": goal_id,
+                                "request": title,
+                                "intent": "execute",
+                                "planning_mode": "graph",
+                                "success_model": "criteria",
+                                "status": epic.get("status").and_then(|v| v.as_str()).unwrap_or("open"),
+                                "current_plan_rev": 0,
+                                "acceptance_criteria": [],
+                                "constraints": [],
+                                "known_facts": [],
+                                "open_questions": [],
+                                "created_at": epic.get("created_at").unwrap_or(&serde_json::json!("")),
+                                "updated_at": epic.get("updated_at").unwrap_or(&serde_json::json!("")),
+                            });
+                            let json = serde_json::to_string_pretty(&goal).unwrap();
+                            std::fs::write(goal_dir.join("goal.json"), &json).ok();
+                        }
+                        migrated_goals += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Migrate tasks → plan nodes within each goal directory
+    let tasks_dir = flow_dir.join("tasks");
+    let mut migrated_tasks = 0u32;
+    if tasks_dir.exists() {
+        for entry in std::fs::read_dir(&tasks_dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "json") {
+                if let Ok(data) = std::fs::read_to_string(&path) {
+                    if let Ok(task) = serde_json::from_str::<serde_json::Value>(&data) {
+                        let epic_id = task.get("epic").and_then(|v| v.as_str()).unwrap_or("");
+                        let task_id = task.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let title = task.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                        let goal_id = format!("g-{epic_id}");
+
+                        if dry_run {
+                            println!("[dry-run] Would migrate task {task_id} → node in goal {goal_id}");
+                        } else {
+                            // Create plan node inside goal's plans directory
+                            let plans_dir = goals_dir.join(&goal_id).join("plans");
+                            if plans_dir.parent().is_some_and(|p| p.exists()) {
+                                std::fs::create_dir_all(&plans_dir).ok();
+                                let plan_path = plans_dir.join("0001.json");
+                                if !plan_path.exists() {
+                                    let plan = serde_json::json!({
+                                        "goal_id": goal_id,
+                                        "rev": 1,
+                                        "nodes": [{
+                                            "id": task_id,
+                                            "objective": title,
+                                            "constraints": [],
+                                            "owned_files": task.get("files").unwrap_or(&serde_json::json!([])),
+                                            "risk": {"estimated_scope":"small","needs_deeper_qa":false,"touches_interfaces":false,"risk_rationale":"migrated","guard_depth":"standard"},
+                                            "status": task.get("status").and_then(|v| v.as_str()).unwrap_or("ready"),
+                                            "injected_patterns": [],
+                                        }],
+                                        "edges": [],
+                                        "rationale": "migrated from v1 tasks",
+                                        "trigger": {"kind":"initial"},
+                                        "created_at": task.get("created_at").unwrap_or(&serde_json::json!("")),
+                                    });
+                                    let json = serde_json::to_string_pretty(&plan).unwrap();
+                                    std::fs::write(&plan_path, &json).ok();
+                                }
+                            }
+                        }
+                        migrated_tasks += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Migrate memory → knowledge/learnings
+    let memory_file = flow_dir.join("memory").join("entries.jsonl");
+    if memory_file.exists() {
+        if let Ok(data) = std::fs::read_to_string(&memory_file) {
+            if !dry_run {
+                let learnings_dir = knowledge_dir.join("learnings");
+                std::fs::create_dir_all(&learnings_dir).ok();
+            }
+            for line in data.lines() {
+                if line.trim().is_empty() { continue; }
+                if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                    let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    if content.is_empty() { continue; }
+
+                    if dry_run {
+                        println!("[dry-run] Would migrate memory entry → learning");
+                    } else {
+                        let learning = serde_json::json!({
+                            "id": format!("l-migrated-{migrated_learnings}"),
+                            "goal_id": "migrated",
+                            "kind": "discovery",
+                            "content": content,
+                            "tags": ["migrated"],
+                            "created_at": chrono::Utc::now(),
+                            "verified": false,
+                            "use_count": 0,
+                        });
+                        let learnings_dir = knowledge_dir.join("learnings");
+                        let json = serde_json::to_string_pretty(&learning).unwrap();
+                        std::fs::write(
+                            learnings_dir.join(format!("l-migrated-{migrated_learnings}.json")),
+                            &json,
+                        ).ok();
+                    }
+                    migrated_learnings += 1;
+                }
+            }
+        }
+    }
+
+    // Archive originals
+    if !dry_run && (migrated_goals > 0 || migrated_learnings > 0) {
+        let archive_dir = flow_dir.join(".archive").join("v1");
+        std::fs::create_dir_all(&archive_dir).ok();
+        if epics_dir.exists() {
+            let dest = archive_dir.join("epics");
+            if !dest.exists() {
+                std::fs::rename(&epics_dir, &dest).ok();
+            }
+        }
+    }
+
+    output::json_output(serde_json::json!({
+        "target": target,
+        "dry_run": dry_run,
+        "migrated_goals": migrated_goals,
+        "migrated_tasks": migrated_tasks,
+        "migrated_learnings": migrated_learnings,
+    }));
+}
+
+fn cmd_goal(_json_mode: bool, action: GoalAction) {
+    use flowctl_core::domain::goal::GoalIntent;
+    use flowctl_core::engine::goal_engine::GoalEngine;
+    use flowctl_core::knowledge::Learner;
+
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let flow_root = root.join(".flow");
+    let engine = GoalEngine::new(&flow_root);
+
+    match action {
+        GoalAction::Open { request, intent } => {
+            let gi = match intent.as_str() {
+                "plan" => GoalIntent::Plan,
+                "brainstorm" => GoalIntent::Brainstorm,
+                _ => GoalIntent::Execute,
+            };
+            match engine.open(&request, gi) {
+                Ok(goal) => output::json_output(serde_json::to_value(&goal).unwrap()),
+                Err(e) => output::error_exit(&e),
+            }
+        }
+        GoalAction::Status { goal_id } => {
+            match engine.status(&goal_id) {
+                Ok(goal) => output::json_output(serde_json::to_value(&goal).unwrap()),
+                Err(e) => output::error_exit(&e),
+            }
+        }
+        GoalAction::Close { goal_id } => {
+            let learner = Learner::new(&flow_root);
+            match engine.close(&goal_id) {
+                Ok(goal) => {
+                    let _ = learner.compound(&goal_id);
+                    output::json_output(serde_json::to_value(&goal).unwrap());
+                }
+                Err(e) => output::error_exit(&e),
+            }
+        }
+    }
+}
+
+fn cmd_plan_v3(_json_mode: bool, action: PlanV3Action) {
+    use flowctl_core::engine::planner::Planner;
+    use flowctl_core::engine::scheduler::Scheduler;
+    use flowctl_core::knowledge::Learner;
+
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let flow_root = root.join(".flow");
+
+    match action {
+        PlanV3Action::Build { goal_id } => {
+            let planner = Planner::new(&flow_root);
+            // Return current latest plan or error if none
+            match planner.get_latest(&goal_id) {
+                Ok(plan) => {
+                    let levels = plan.compute_levels();
+                    let mut val = serde_json::to_value(&plan).unwrap();
+                    if let serde_json::Value::Object(ref mut m) = val {
+                        m.insert("levels".into(), serde_json::to_value(&levels).unwrap());
+                    }
+                    output::json_output(val);
+                }
+                Err(e) => output::error_exit(&format!("no plan for {goal_id}: {e}")),
+            }
+        }
+        PlanV3Action::Next { goal_id } => {
+            let scheduler = Scheduler::new(&flow_root);
+            let learner = Learner::new(&flow_root);
+            match scheduler.ready_nodes(&goal_id) {
+                Ok(mut nodes) => {
+                    for node in &mut nodes {
+                        if let Ok(patterns) = learner.inject_for_node(&node.objective, 3) {
+                            node.injected_patterns = patterns.iter().map(|p| format!("{}: {}", p.name, p.approach)).collect();
+                        }
+                    }
+                    output::json_output(serde_json::to_value(&nodes).unwrap());
+                }
+                Err(e) => output::error_exit(&e),
+            }
+        }
+    }
+}
+
+fn cmd_node(_json_mode: bool, action: NodeAction) {
+    use flowctl_core::engine::scheduler::Scheduler;
+    use flowctl_core::engine::escalation::EscalationEngine;
+
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let flow_root = root.join(".flow");
+    let scheduler = Scheduler::new(&flow_root);
+
+    match action {
+        NodeAction::Start { goal_id, node_id } => {
+            match scheduler.start_node(&goal_id, &node_id) {
+                Ok(plan) => {
+                    let node = plan.nodes.iter().find(|n| n.id == node_id);
+                    output::json_output(serde_json::to_value(&node).unwrap());
+                }
+                Err(e) => output::error_exit(&e),
+            }
+        }
+        NodeAction::Finish { goal_id, node_id, summary } => {
+            match scheduler.finish_node(&goal_id, &node_id) {
+                Ok(newly_ready) => {
+                    let val = serde_json::json!({
+                        "node_id": node_id,
+                        "status": "done",
+                        "summary": summary,
+                        "newly_ready": newly_ready.iter().map(|n| &n.id).collect::<Vec<_>>(),
+                    });
+                    output::json_output(val);
+                }
+                Err(e) => output::error_exit(&e),
+            }
+        }
+        NodeAction::Fail { goal_id, node_id, error } => {
+            let _ = scheduler.fail_node(&goal_id, &node_id);
+            let escalation = EscalationEngine::new(&flow_root);
+            match escalation.handle_failure(&goal_id, &node_id, &error) {
+                Ok(action) => output::json_output(serde_json::to_value(&action).unwrap()),
+                Err(e) => output::error_exit(&e),
+            }
+        }
+    }
+}
+
+fn cmd_knowledge(_json_mode: bool, action: KnowledgeAction) {
+    use flowctl_core::knowledge::{Learner, LearningKind};
+
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let flow_root = root.join(".flow");
+    let learner = Learner::new(&flow_root);
+
+    match action {
+        KnowledgeAction::Search { query, limit } => {
+            match learner.search(&query, limit) {
+                Ok(result) => output::json_output(serde_json::to_value(&result).unwrap()),
+                Err(e) => output::error_exit(&e),
+            }
+        }
+        KnowledgeAction::Record { goal_id, content, kind } => {
+            let lk = match kind.as_str() {
+                "failure" => LearningKind::Failure,
+                "discovery" => LearningKind::Discovery,
+                "pitfall" => LearningKind::Pitfall,
+                _ => LearningKind::Success,
+            };
+            match learner.record(&goal_id, None, lk, &content, vec![]) {
+                Ok(learning) => output::json_output(serde_json::to_value(&learning).unwrap()),
+                Err(e) => output::error_exit(&e),
+            }
+        }
+        KnowledgeAction::Compound { goal_id } => {
+            match learner.compound(&goal_id) {
+                Ok(patterns) => output::json_output(serde_json::to_value(&patterns).unwrap()),
+                Err(e) => output::error_exit(&e),
+            }
+        }
+        KnowledgeAction::Refresh => {
+            match learner.refresh_stale() {
+                Ok(count) => output::json_output(serde_json::json!({"decayed_count": count})),
+                Err(e) => output::error_exit(&e),
+            }
+        }
+    }
+}
+
+fn cmd_policy(action: PolicyAction) {
+    use flowctl_core::quality::{PolicyEngine, policy::{PolicyContext, FileLock, PolicyDecision}};
+
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let flow_dir = root.join(".flow");
+    let engine = PolicyEngine::new();
+
+    match action {
+        PolicyAction::CheckHook { tool, file, node } => {
+            let locks = flowctl_core::json_store::locks_read(&flow_dir).unwrap_or_default();
+            let active_locks: Vec<FileLock> = locks.iter().map(|l| FileLock {
+                file_path: l.file_path.clone(),
+                node_id: l.task_id.clone(),
+                mode: l.mode.clone(),
+            }).collect();
+            let ctx = PolicyContext {
+                active_locks,
+                guard_ran: false,
+                current_node: node,
+            };
+            let decision = engine.check_hook(&tool, file.as_deref(), &ctx);
+            match decision {
+                PolicyDecision::Allow => {
+                    output::json_output(serde_json::json!({"decision": "allow"}));
+                }
+                PolicyDecision::Warn(msg) => {
+                    output::json_output(serde_json::json!({"decision": "warn", "message": msg}));
+                }
+                PolicyDecision::Block(msg) => {
+                    output::json_output(serde_json::json!({"decision": "block", "message": msg}));
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+}
+
+fn cmd_session(action: SessionAction) {
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let flow_dir = root.join(".flow");
+
+    match action {
+        SessionAction::Snapshot => {
+            // Save current state snapshot: active goals, locks, active nodes
+            let goal_store = flowctl_core::storage::GoalStore::new(&flow_dir);
+            let goals = goal_store.list().unwrap_or_default();
+            let locks = flowctl_core::json_store::locks_read(&flow_dir).unwrap_or_default();
+
+            // Write to runtime/sessions.json
+            let runtime_dir = flow_dir.join("runtime");
+            std::fs::create_dir_all(&runtime_dir).ok();
+            let snapshot = serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "active_goals": goals,
+                "active_locks": locks.len(),
+            });
+            let json = serde_json::to_string_pretty(&snapshot).unwrap();
+            std::fs::write(runtime_dir.join("sessions.json"), &json).ok();
+
+            output::json_output(serde_json::json!({
+                "status": "snapshot_saved",
+                "goals": goals.len(),
+                "locks": locks.len(),
+            }));
+        }
+        SessionAction::List => {
+            let runtime_dir = flow_dir.join("runtime");
+            let path = runtime_dir.join("sessions.json");
+            if path.exists() {
+                let data = std::fs::read_to_string(&path).unwrap_or_default();
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&data) {
+                    output::json_output(val);
+                } else {
+                    output::json_output(serde_json::json!({"sessions": []}));
+                }
+            } else {
+                output::json_output(serde_json::json!({"sessions": []}));
+            }
+        }
     }
 }
 

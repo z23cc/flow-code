@@ -1,3 +1,6 @@
+//! FROZEN — ADR-011: Bug fixes only. No new features.
+//! Superseded by V3 Goal-driven engine (see docs/v3-final-architecture.md).
+//!
 //! Pipeline phase commands: `flowctl phase next` and `flowctl phase done`.
 //!
 //! These commands manage the epic-level pipeline progression stored in

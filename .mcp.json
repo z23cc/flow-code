@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "forge_extension": {
+      "url": "http://localhost:13819/mcp"
+    },
+    "flowctl": {
+      "command": "bin/flowctl",
+      "args": ["serve"]
+    }
+  }
+}

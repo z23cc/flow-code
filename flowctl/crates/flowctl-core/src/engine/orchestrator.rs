@@ -159,6 +159,26 @@ impl Orchestrator {
         }
 
         let q = question.to_lowercase();
+
+        // File content query: "read file path/to/file.rs" or "show file path/to/file.rs"
+        if q.starts_with("read file ") || q.starts_with("show file ") || q.starts_with("cat ") {
+            let file_path = question.splitn(2, ' ').nth(1)
+                .and_then(|s| s.splitn(2, ' ').nth(1))
+                .unwrap_or("").trim();
+            let full_path = self.root.join(file_path);
+            return match std::fs::read_to_string(&full_path) {
+                Ok(content) => {
+                    let total_lines = content.lines().count();
+                    Ok(serde_json::json!({
+                        "file": file_path,
+                        "total_lines": total_lines,
+                        "content": content,
+                    }))
+                }
+                Err(_) => Err(format!("file '{}' not found", file_path)),
+            };
+        }
+
         if q.contains("pattern") || q.contains("knowledge") || q.contains("learn") {
             let result = self.learner.search(question, 10).map_err(|e| e.to_string())?;
             return Ok(serde_json::to_value(&result).unwrap_or_default());

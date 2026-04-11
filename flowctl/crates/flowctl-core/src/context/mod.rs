@@ -45,15 +45,17 @@ impl ContextAssembler {
     fn gather_files(&self, node: &Node) -> Vec<FileSlice> {
         let mut slices = Vec::new();
 
-        // 1. Owned files: full content
+        // 1. Owned files: structure summary (progressive disclosure)
         for path in &node.owned_files {
             let full_path = self.root.join(path);
             if let Ok(content) = std::fs::read_to_string(&full_path) {
+                let total_lines = content.lines().count();
                 slices.push(FileSlice {
                     path: path.clone(),
-                    content: truncate_content(&content, 200),
-                    reason: "owned file — you will modify this".into(),
+                    content: truncate_content(&content, 50),
+                    reason: "owned file — you will modify this. Use flow_query for full content.".into(),
                     lines: None,
+                    total_lines: Some(total_lines),
                 });
             }
         }
@@ -72,9 +74,10 @@ impl ContextAssembler {
                         if let Ok(content) = std::fs::read_to_string(&full_path) {
                             slices.push(FileSlice {
                                 path: dep_path,
-                                content: truncate_content(&content, 50),
+                                content: truncate_content(&content, 20),
                                 reason: "dependency — context only".into(),
                                 lines: None,
+                                total_lines: Some(content.lines().count()),
                             });
                         }
                     }
@@ -95,9 +98,10 @@ impl ContextAssembler {
                     if let Ok(content) = std::fs::read_to_string(&full_path) {
                         slices.push(FileSlice {
                             path,
-                            content: truncate_content(&content, 30),
+                            content: truncate_content(&content, 20),
                             reason,
                             lines: None,
+                            total_lines: Some(content.lines().count()),
                         });
                     }
                 }

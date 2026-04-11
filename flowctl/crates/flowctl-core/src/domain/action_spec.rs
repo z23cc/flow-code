@@ -44,10 +44,14 @@ pub struct ActionContext {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileSlice {
     pub path: String,
+    /// Summary: first few lines or structure signature. Use flow_query to get full content.
     pub content: String,
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lines: Option<(usize, usize)>,
+    /// Total lines in file — helps LLM judge complexity without reading full content.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_lines: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

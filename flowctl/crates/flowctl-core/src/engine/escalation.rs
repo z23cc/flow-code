@@ -88,6 +88,7 @@ mod tests {
             node_id: node_id.into(),
             seq,
             summary: "failed".into(),
+            status: "failed".into(),
             changed_files: vec![],
             commits: vec![],
             tests: vec![],

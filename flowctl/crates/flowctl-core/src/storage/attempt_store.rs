@@ -91,6 +91,7 @@ mod tests {
             node_id: node_id.into(),
             seq,
             summary: format!("attempt {seq}"),
+            status: "done".into(),
             changed_files: vec![],
             commits: vec![],
             tests: vec![],

@@ -375,7 +375,12 @@ impl Orchestrator {
             acceptance_criteria: vec!["All guard checks pass".into()],
             context,
             guard: GuardSpec { depth: guard_result.depth.clone(), commands: vec![] },
-            progress: Progress::default(),
+            progress: {
+                let plan = self.planner.get_latest(&goal.id).unwrap_or_default();
+                let total = plan.nodes.len();
+                let completed = plan.nodes.iter().filter(|n| n.status == NodeStatus::Done).count();
+                Progress { total_nodes: total, completed, current_node: Some(node_id.to_string()), parallel_ready: vec![] }
+            },
         })
     }
 
@@ -385,7 +390,7 @@ impl Orchestrator {
             .filter_map(|n| {
                 self.attempt_store.list_for_node(&goal.id, &n.id).ok()
                     .and_then(|a| a.last().cloned())
-                    .map(|a| AttemptRef { seq: a.seq, summary: a.summary, status: "done".into() })
+                    .map(|a| AttemptRef { seq: a.seq, summary: a.summary, status: a.status })
             }).collect();
 
         Ok(ActionSpec {
@@ -404,6 +409,8 @@ impl Orchestrator {
         let plan = self.planner.get_latest(&goal.id)?;
         let node = plan.nodes.iter().find(|n| n.id == node_id);
         let context = if let Some(n) = node { self.context.assemble(goal, n) } else { ActionContext::default() };
+        let total = plan.nodes.len();
+        let completed = plan.nodes.iter().filter(|n| n.status == NodeStatus::Done).count();
 
         let (action_type, objective) = match action {
             crate::domain::escalation::EscalationAction::Retry { suggestion, .. } =>
@@ -418,7 +425,8 @@ impl Orchestrator {
             action_id: format!("a:{}:{}-escalation", goal.id, node_id),
             goal_id: goal.id.clone(),
             action_type, objective, acceptance_criteria: vec![], context,
-            guard: GuardSpec::default(), progress: Progress::default(),
+            guard: GuardSpec::default(),
+            progress: Progress { total_nodes: total, completed, current_node: Some(node_id.to_string()), parallel_ready: vec![] },
         })
     }
 
@@ -458,9 +466,15 @@ impl Orchestrator {
 
     fn record_attempt(&self, goal_id: &str, node_id: &str, input: &SubmitInput) -> Result<(), String> {
         let count = self.attempt_store.count_for_node(goal_id, node_id).unwrap_or(0);
+        let status_str = match input.status {
+            SubmitStatus::Done => "done",
+            SubmitStatus::Failed => "failed",
+            SubmitStatus::Partial => "partial",
+        };
         let attempt = Attempt {
             node_id: node_id.to_string(), seq: count + 1,
-            summary: input.summary.clone(), changed_files: input.files_changed.clone(),
+            summary: input.summary.clone(), status: status_str.into(),
+            changed_files: input.files_changed.clone(),
             commits: vec![], tests: vec![], findings: vec![],
             suggested_mutations: vec![], duration_seconds: 0, created_at: chrono::Utc::now(),
         };

@@ -165,6 +165,9 @@ impl GoalEngine {
         }
 
         goal.status = GoalStatus::Done;
+        for criterion in &mut goal.acceptance_criteria {
+            criterion.met = true;
+        }
         goal.updated_at = chrono::Utc::now();
         self.goal_store.update(&goal)?;
         self.event_store.emit(goal_id, GoalEventKind::GoalCompleted, "goal completed")?;
@@ -172,12 +175,12 @@ impl GoalEngine {
     }
 }
 
-/// Simple slugification for goal IDs.
+/// Simple slugification for goal IDs. ASCII-only for cross-platform safety.
 fn slugify(s: &str) -> String {
     let slug: String = s
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
     let parts: Vec<&str> = slug.split('-').filter(|p| !p.is_empty()).collect();
     let truncated: Vec<&str> = parts.into_iter().take(5).collect();

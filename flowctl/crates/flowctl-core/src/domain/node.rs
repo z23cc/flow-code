@@ -87,6 +87,9 @@ pub struct Attempt {
     pub node_id: NodeId,
     pub seq: u32,
     pub summary: String,
+    /// The submit status: "done", "failed", or "partial".
+    #[serde(default = "default_attempt_status")]
+    pub status: String,
     #[serde(default)]
     pub changed_files: Vec<String>,
     #[serde(default)]
@@ -99,6 +102,10 @@ pub struct Attempt {
     pub suggested_mutations: Vec<super::escalation::GraphMutation>,
     pub duration_seconds: u32,
     pub created_at: DateTime<Utc>,
+}
+
+fn default_attempt_status() -> String {
+    "done".into()
 }
 
 /// Test result from a node attempt.

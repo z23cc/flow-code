@@ -549,41 +549,50 @@ impl Orchestrator {
             .collect();
         let keyword_pattern = keywords.join("|");
 
+        // ── Step 0 (ALL types): Always start with code structure ──
+        // This is the foundation — understand the codebase before anything else.
+        let structure_params = if !files.is_empty() {
+            let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).take(5).collect();
+            format!("{{\"paths\":{:?}}}", paths)
+        } else {
+            // Scan the main source directories
+            "{\"paths\":[\"src/\",\"lib/\",\"flowctl/crates/\"]}".into()
+        };
+        steps.push(Self::ws("understand", "mcp__RepoPrompt__get_code_structure",
+            "FIRST: Get function/type signatures — understand the codebase structure before any action",
+            Some(&structure_params)));
+
         match action_type {
             ActionType::Implement => {
-                // ── Understand: discover + structure + deep analysis ──
+                // ── Understand: tree + search + select + deep analysis ──
                 steps.push(Self::ws("understand", "mcp__RepoPrompt__get_file_tree",
-                    "Get project structure overview — understand where to add new code",
+                    "Get project folder structure — know where to add new code",
                     Some("{\"mode\":\"folders\",\"max_depth\":3}")));
 
                 if !keyword_pattern.is_empty() {
                     steps.push(Self::ws("understand", "mcp__RepoPrompt__file_search",
-                        "Find all files related to this task",
+                        "Find all files related to this task by content and path",
                         Some(&format!("{{\"pattern\":\"{keyword_pattern}\"}}"))));
                 }
 
                 if !files.is_empty() {
                     let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).take(5).collect();
-                    steps.push(Self::ws("understand", "mcp__RepoPrompt__get_code_structure",
-                        "Get function/type signatures — understand APIs without reading full files",
-                        Some(&format!("{{\"paths\":{:?}}}", paths))));
-
                     steps.push(Self::ws("understand", "mcp__RepoPrompt__manage_selection",
-                        "Pre-select relevant files as codemap — enriches all subsequent RP calls",
+                        "Pre-select files as codemap — enriches all subsequent RP tool calls",
                         Some(&format!("{{\"op\":\"add\",\"paths\":{:?},\"mode\":\"codemap_only\"}}", paths))));
                 }
 
                 steps.push(Self::ws("understand", "mcp__RepoPrompt__context_builder",
-                    "AI-powered deep context discovery — finds dependencies you might miss",
+                    "AI-powered deep context — discovers dependencies and generates implementation plan",
                     Some(&format!("{{\"instructions\":\"<task>{objective}</task>\",\"response_type\":\"plan\"}}"))));
 
-                // ── Implement: read + edit ──
+                // ── Implement: read precise ranges + edit ──
                 steps.push(Self::ws("implement", "mcp__RepoPrompt__read_file",
-                    "Read specific files/line ranges before editing",
+                    "Read specific line ranges before editing (e.g. start_line=50, limit=30)",
                     None));
 
                 steps.push(Self::ws("implement", "mcp__RepoPrompt__apply_edits",
-                    "Apply code changes — supports multi-edit transactions, auto-repair whitespace",
+                    "Apply changes — multi-edit transactions, auto-repair whitespace, rewrite mode for new files",
                     None));
 
                 // ── Verify: diff + submit ──
@@ -597,50 +606,54 @@ impl Orchestrator {
             }
 
             ActionType::Review => {
-                // ── Understand: git diff + structure ──
+                // ── Understand: diff with artifacts ──
                 steps.push(Self::ws("understand", "mcp__RepoPrompt__git",
-                    "Get the full diff with patch details for review",
+                    "Get full diff with patch details and review artifacts",
                     Some("{\"op\":\"diff\",\"detail\":\"patches\",\"artifacts\":true}")));
 
-                steps.push(Self::ws("understand", "mcp__RepoPrompt__get_code_structure",
-                    "Understand the structure of changed files",
-                    Some("{\"scope\":\"selected\"}")));
+                steps.push(Self::ws("understand", "mcp__RepoPrompt__manage_selection",
+                    "Select changed files for focused context",
+                    Some("{\"op\":\"get\",\"view\":\"files\"}")));
 
                 // ── Analyze: AI-powered review ──
                 steps.push(Self::ws("analyze", "mcp__RepoPrompt__context_builder",
-                    "AI-powered code review — catches issues across files",
+                    "AI-powered code review — catches issues across files, checks correctness",
                     Some(&format!("{{\"instructions\":\"<task>Review: {objective}</task>\",\"response_type\":\"review\"}}"))));
 
-                // ── Verify: submit review result ──
+                // ── Verify ──
                 steps.push(Self::ws("verify", "flow_submit",
-                    "Submit review — 'done' if approved, 'failed' with findings if issues found",
+                    "Submit review — 'done' if approved, 'failed' with error details if issues found",
                     None));
             }
 
             ActionType::Fix => {
-                // ── Understand: find the problem ──
+                // ── Understand: search + analyze root cause ──
                 if !keyword_pattern.is_empty() {
                     steps.push(Self::ws("understand", "mcp__RepoPrompt__file_search",
-                        "Search for error-related code",
+                        "Search for error-related code and test files",
                         Some(&format!("{{\"pattern\":\"{keyword_pattern}\"}}"))));
                 }
 
                 steps.push(Self::ws("understand", "mcp__RepoPrompt__context_builder",
-                    "AI analysis of the failure — understand root cause before fixing",
-                    Some(&format!("{{\"instructions\":\"<task>Debug and fix: {objective}</task>\",\"response_type\":\"question\"}}"))));
+                    "AI root cause analysis — understand why it failed before fixing",
+                    Some(&format!("{{\"instructions\":\"<task>Debug: {objective}</task>\",\"response_type\":\"question\"}}"))));
 
-                // ── Implement: fix ──
+                // ── Implement: read + fix ──
+                steps.push(Self::ws("implement", "mcp__RepoPrompt__read_file",
+                    "Read the broken code precisely before fixing",
+                    None));
+
                 steps.push(Self::ws("implement", "mcp__RepoPrompt__apply_edits",
-                    "Apply the fix with search/replace",
+                    "Apply the fix",
                     None));
 
                 // ── Verify ──
                 steps.push(Self::ws("verify", "mcp__RepoPrompt__git",
-                    "Verify the fix looks correct",
+                    "Verify the fix diff is correct and minimal",
                     Some("{\"op\":\"diff\",\"detail\":\"patches\"}")));
 
                 steps.push(Self::ws("verify", "flow_submit",
-                    "Submit fix — engine re-runs guard to verify",
+                    "Submit fix — engine re-runs quality guard to verify",
                     None));
             }
 
